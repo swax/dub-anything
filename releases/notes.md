@@ -1,3 +1,7 @@
+Add Pause and Resume for queued or running jobs. Running work reaches a completed
+tool step before pausing, preserving saved progress. Paused jobs stay paused
+across restarts. Display concise job errors with expandable diagnostic details.
+
 Move optional worker, director, language-setup, installer, and release tooling
 into scripts/integrations/. Direct dubs continue to use scripts/dub_anything.py.
 Update documentation, tests, installation commands, and release automation for

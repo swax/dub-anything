@@ -197,8 +197,19 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+def pause_checkpoint():
+    """An optional supervisor can request a pause between completed tool steps."""
+    marker = os.environ.get("DUB_PAUSE_FILE")
+    if marker and pathlib.Path(marker).is_file():
+        log("Pause requested; finishing background checks before stopping at this checkpoint")
+        for process, *_ in SECOND_RUN.values():
+            process.wait()
+        raise SystemExit(75)
+
+
 def tool(job, label, cmd, logname):
     """Run one step, its output to the job's log; returns (ok, output)."""
+    pause_checkpoint()
     logs = JOB_DIR / job["slug"] / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -787,6 +798,7 @@ def cmd_run(args):
                 known.add((voice_part(p["name"], v), st.get("script"), st["problem"]))
     seen, new_block = set(), False
     while True:
+        pause_checkpoint()
         second(job, ps)
         busy = blocked = False
         for p in ps:

@@ -170,6 +170,7 @@ class Store:
             "created": time.time(),
             "updated": time.time(),
             "cancel_requested": False,
+            "pause_requested": False,
             "review_before_publish": request.get("review_before_publish", True),
             "auto_text": True,
             "signs": True,
@@ -192,7 +193,12 @@ class Store:
     def recover(self):
         for job in self.all():
             if job["state"] in ACTIVE:
-                self.update(job["id"], state="interrupted", stage="Worker stopped; resume to continue")
+                paused = job.get("pause_requested") and not job["cancel_requested"]
+                self.update(
+                    job["id"],
+                    state="paused" if paused else "interrupted",
+                    stage="Paused; resume to continue" if paused else "Worker stopped; resume to continue",
+                )
 
     def action(self, job_id, action):
         # All state transitions are serialized, including races with the worker.
@@ -204,12 +210,34 @@ class Store:
             job = json.loads(row[0])
             if action in ("resume", "publish"):
                 self.check_admission(db)
-            if action == "cancel" and job["state"] in (*ACTIVE, "queued", "awaiting_review", "publish_queued"):
-                job.update(cancel_requested=True)
+            if (
+                action == "pause"
+                and job["state"] in (*ACTIVE, "queued", "publish_queued")
+                and job["state"] != "publishing"
+            ):
+                job.update(
+                    pause_requested=True,
+                    paused_state=job["state"] if job["state"] in ("queued", "publish_queued") else "queued",
+                )
+                if job["state"] not in ACTIVE:
+                    job.update(state="paused", stage="Paused; resume to continue")
+                else:
+                    job.update(stage="Pausing after the current step; completed work will be kept")
+            elif action == "cancel" and job["state"] in (
+                *ACTIVE,
+                "queued",
+                "paused",
+                "awaiting_review",
+                "publish_queued",
+            ):
+                job.update(cancel_requested=True, pause_requested=False)
                 if job["state"] not in ACTIVE:
                     job.update(state="cancelled", stage="Cancelled; working files kept")
-            elif action == "resume" and job["state"] in ("failed", "interrupted", "cancelled"):
-                job.update(state="queued", stage="Queued to resume", cancel_requested=False, error="")
+            elif action == "resume" and job["state"] in ("failed", "interrupted", "cancelled", "paused"):
+                target = job.get("paused_state", "queued") if job["state"] == "paused" else "queued"
+                job.update(
+                    state=target, stage="Queued to resume", cancel_requested=False, pause_requested=False, error=""
+                )
             elif action == "publish" and job["state"] == "awaiting_review":
                 job.update(state="publish_queued", stage="Queued to publish", cancel_requested=False)
             else:
@@ -223,6 +251,10 @@ class Cancelled(Exception):
     pass
 
 
+class Paused(Exception):
+    pass
+
+
 class Maintenance(Exception):
     pass
 
@@ -233,9 +265,13 @@ class Worker:
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.loop, name="dub-worker", daemon=True)
 
-    def cancelled(self, job):
-        if self.stop.is_set() or self.store.get(job["id"])["cancel_requested"]:
+    def cancelled(self, job, allow_pause=True):
+        control = self.store.get(job["id"])
+        if self.stop.is_set() or control["cancel_requested"]:
             raise Cancelled()
+        if allow_pause and control.get("pause_requested"):
+            raise Paused()
+        return control
 
     def set_stage(self, job, state, stage):
         self.cancelled(job)
@@ -250,6 +286,10 @@ class Worker:
         self.cancelled(job)
         path = self.folder(job) / f"{name}.log"
         env = director.environment()
+        pause_file = self.folder(job) / "pause-requested"
+        if name == "pipeline":
+            pause_file.unlink(missing_ok=True)
+            env["DUB_PAUSE_FILE"] = str(pause_file)
         with path.open("a", encoding="utf-8") as log:
             log.write(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
             log.flush()
@@ -274,7 +314,9 @@ class Worker:
                         process.stdin.close()
                     started = time.monotonic()
                     while process.poll() is None:
-                        self.cancelled(job)
+                        control = self.cancelled(job, allow_pause=False)
+                        if name == "pipeline" and control.get("pause_requested"):
+                            pause_file.touch()
                         if time.monotonic() - started > timeout:
                             raise RuntimeError(f"{name} timed out; see {path}")
                         self.stop.wait(0.5)
@@ -304,6 +346,9 @@ class Worker:
             output = ""
             for line in log:
                 output = (output + line)[-24000:]
+        if code and code != 75:
+            raise RuntimeError(f"{name} exited {code}; see {path}\n{output[-1200:]}")
+        self.cancelled(job)
         if code:
             raise RuntimeError(f"{name} exited {code}; see {path}\n{output[-1200:]}")
         if prompt is not None:
@@ -493,6 +538,8 @@ class Worker:
                     self.set_stage(job, "awaiting_review", "Dub ready: review and publish")
                 else:
                     self.process(job)
+            except Paused:
+                self.store.update(job["id"], state="paused", stage="Paused; completed work kept. Resume to continue")
             except Cancelled:
                 self.store.update(
                     job["id"],
@@ -500,7 +547,9 @@ class Worker:
                     stage="Worker stopped" if self.stop.is_set() else "Cancelled; working files kept",
                 )
             except Exception as exc:
-                self.store.update(job["id"], state="failed", stage="Needs attention", error=str(exc))
+                self.store.update(
+                    job["id"], state="failed", stage="Needs attention", error=str(exc), pause_requested=False
+                )
 
 
 def capabilities():
@@ -586,11 +635,11 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == "GET":
                 return self.reply(200, self.server.store.all())
             return self.reply(201, self.server.store.create(body))
-        match = re.fullmatch(r"/jobs/([a-f0-9]{32})(?:/(cancel|resume|publish|report|log))?", path)
+        match = re.fullmatch(r"/jobs/([a-f0-9]{32})(?:/(cancel|pause|resume|publish|report|log))?", path)
         if match:
             job_id, action = match.groups()
             job = self.server.store.get(job_id)
-            if self.command == "POST" and action in ("cancel", "resume", "publish"):
+            if self.command == "POST" and action in ("cancel", "pause", "resume", "publish"):
                 return self.reply(200, self.server.store.action(job_id, action))
             if self.command == "GET":
                 if action in ("report", "log"):

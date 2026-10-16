@@ -100,6 +100,13 @@
     function setText(node, text) {
       if (node.textContent !== text) node.textContent = text;
     }
+    function errorSummary(error) {
+      var first = (error || '').split(/\r?\n/)[0].trim();
+      var exited = first.match(/^(.+?) exited (-?\d+);/);
+      if (exited) return (exited[1] === 'pipeline' ? 'Dubbing pipeline' : exited[1]) +
+        ' stopped (exit ' + exited[2] + '). Check error details and the job log before resuming.';
+      return first.length > 220 ? first.slice(0, 217) + '…' : first;
+    }
     function loadDetail(jobId, view) {
       if (view.panel.hidden || view.loading) return;
       view.loading = true; view.panel.setAttribute('aria-busy', 'true');
@@ -118,11 +125,17 @@
       card.node.style.cssText = 'padding:1.25em;border:1px solid #8885;border-radius:.6em;' +
         'background:rgba(128,128,128,.1);box-shadow:0 .2em .6em #0002;overflow-wrap:anywhere';
       ['title', 'summary', 'error', 'preview', 'output'].forEach(function (name) {
-        card[name] = document.createElement(name === 'title' ? 'h3' : 'p');
+        card[name] = document.createElement(name === 'title' ? 'h3' : name === 'error' ? 'div' : 'p');
         card.node.appendChild(card[name]);
       });
       card.title.style.marginTop = '0'; card.title.id = 'dub-job-' + job.id + '-title';
       card.node.setAttribute('aria-labelledby', card.title.id);
+      card.error.style.cssText = 'border-left:.25em solid #d99539;padding:.1em 1em;margin:1em 0';
+      card.errorSummary = document.createElement('p'); card.error.appendChild(card.errorSummary);
+      var errorDetails = document.createElement('details'); card.error.appendChild(errorDetails);
+      var errorToggle = document.createElement('summary'); errorToggle.textContent = 'Error details'; errorDetails.appendChild(errorToggle);
+      card.errorDetails = document.createElement('pre'); errorDetails.appendChild(card.errorDetails);
+      card.errorDetails.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:16em;overflow:auto';
       var controls = document.createElement('div'); card.node.appendChild(controls);
       ['report', 'log'].forEach(function (kind) {
         var panel = document.createElement('pre'); panel.id = 'dub-' + job.id + '-' + kind;
@@ -162,21 +175,32 @@
           var card = cards[job.id] || (cards[job.id] = createCard(job));
           setText(card.title, job.title);
           setText(card.summary, job.source_lang + ' → ' + job.target_lang + ' · ' +
-            (job.director === 'claude' ? 'Claude Code' : 'Codex') + ' · ' + job.stage);
-          [['error', job.error], ['preview', job.rendered_path ? 'Preview file: ' + job.rendered_path : ''],
+            (job.director === 'claude' ? 'Claude Code' : 'Codex') + ' · ' +
+            (job.pause_requested && ['staging', 'language_setup', 'preparing', 'directing', 'rendering'].includes(job.state) ?
+              'Pausing after the current step…' : job.stage));
+          card.error.hidden = !job.error; setText(card.errorSummary, errorSummary(job.error));
+          setText(card.errorDetails, job.error || '');
+          [['preview', job.rendered_path ? 'Preview file: ' + job.rendered_path : ''],
             ['output', job.published_path ? 'Published: ' + job.published_path : '']].forEach(function (entry) {
             card[entry[0]].hidden = !entry[1]; setText(card[entry[0]], entry[1] || '');
           });
-          if (card.state !== job.state) {
-            card.actions.replaceChildren(); card.state = job.state;
+          var actionState = job.state + ':' + !!job.pause_requested;
+          if (card.state !== actionState) {
+            card.actions.replaceChildren(); card.state = actionState;
             var actions = job.state === 'awaiting_review' ? ['publish', 'cancel'] :
-              ['failed', 'interrupted', 'cancelled'].includes(job.state) ? ['resume'] : job.state === 'completed' ? [] : ['cancel'];
+              job.state === 'paused' ? ['resume', 'cancel'] :
+              ['failed', 'interrupted', 'cancelled'].includes(job.state) ? ['resume'] : job.state === 'completed' ? [] :
+              job.state === 'publishing' || job.pause_requested ? ['cancel'] : ['pause', 'cancel'];
+            if (job.pause_requested && !['paused', 'completed', 'failed', 'cancelled', 'interrupted'].includes(job.state)) {
+              button(card.actions, 'Pausing…', function () {}).disabled = true;
+            }
             actions.forEach(function (action) {
-              button(card.actions, action.charAt(0).toUpperCase() + action.slice(1), function () {
+              var actionButton = button(card.actions, action.charAt(0).toUpperCase() + action.slice(1), function () {
                 if (action === 'cancel' && !window.confirm('Cancel the dub for “' + job.title + '”?\n\n' +
                     'Processing will stop. Your progress and working files will be kept so you can resume later.')) return;
                 api('Jobs/' + job.id + '/' + action, 'POST', {}).then(refresh).catch(function (e) { status(e.message); });
               });
+              if (action === 'pause') actionButton.title = 'Pause after the current step. Completed work is kept; the current step may restart on resume.';
             });
           }
           if (el('dubJobs').children[index] !== card.node) el('dubJobs').insertBefore(card.node, el('dubJobs').children[index] || null);

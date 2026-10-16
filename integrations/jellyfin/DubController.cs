@@ -56,7 +56,7 @@ public sealed class DubController(ILibraryManager library) : ControllerBase
     [HttpPost("Jobs/{id:guid}/{action}")]
     public Task<IActionResult> Action(Guid id, string action, CancellationToken ct)
     {
-        if (action is not ("cancel" or "resume" or "publish"))
+        if (action is not ("cancel" or "pause" or "resume" or "publish"))
             return Task.FromResult<IActionResult>(NotFound());
         return Forward(HttpMethod.Post, $"jobs/{id:N}/{action}", new { }, ct);
     }

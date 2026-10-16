@@ -69,6 +69,36 @@ class ServiceTests(unittest.TestCase):
         self.store.update(job["id"], state="awaiting_review")
         self.assertEqual(self.store.action(job["id"], "publish")["state"], "publish_queued")
 
+    def test_queued_pause_resume_and_cancel(self):
+        job = self.create()
+        self.assertEqual(self.store.action(job["id"], "pause")["state"], "paused")
+        self.assertIsNone(self.store.claim())
+        with self.assertRaises(ValueError):
+            self.store.action(job["id"], "pause")
+        resumed = self.store.action(job["id"], "resume")
+        self.assertEqual(resumed["state"], "queued")
+        self.assertFalse(resumed["pause_requested"])
+        self.store.action(job["id"], "pause")
+        self.assertEqual(self.store.action(job["id"], "cancel")["state"], "cancelled")
+
+    def test_pending_pause_stays_active_until_checkpoint_and_survives_restart(self):
+        job = self.create()
+        self.store.claim()
+        paused = self.store.action(job["id"], "pause")
+        self.assertEqual(paused["state"], "staging")
+        self.assertTrue(paused["pause_requested"])
+        self.store.recover()
+        self.assertEqual(self.store.get(job["id"])["state"], "paused")
+
+    def test_pause_keeps_publish_queue_intent_but_cannot_interrupt_publication(self):
+        job = self.create()
+        self.store.update(job["id"], state="publish_queued")
+        self.store.action(job["id"], "pause")
+        self.assertEqual(self.store.action(job["id"], "resume")["state"], "publish_queued")
+        self.store.update(job["id"], state="publishing")
+        with self.assertRaises(ValueError):
+            self.store.action(job["id"], "pause")
+
     def test_unknown_languages_are_queued_for_setup_and_text_is_automatic(self):
         job = self.create(source_lang="French", target_lang="German", signs=False, captions=False)
         self.assertEqual(job["source_lang"], "French")
@@ -134,6 +164,69 @@ class ServiceTests(unittest.TestCase):
             timer.join()
         self.assertLess(time.monotonic() - started, 10)
 
+    def test_pause_finishes_current_process_before_stopping(self):
+        job = self.create()
+        self.store.claim()
+        worker = service.Worker(self.store)
+        saved = self.root / "completed-step.txt"
+        timer = threading.Timer(0.2, lambda: self.store.action(job["id"], "pause"))
+        timer.start()
+        try:
+            with self.assertRaises(service.Paused):
+                worker.run(
+                    job,
+                    [
+                        sys.executable,
+                        "-c",
+                        "import pathlib,sys,time; time.sleep(.7); pathlib.Path(sys.argv[1]).write_text('saved')",
+                        str(saved),
+                    ],
+                    "pause-test",
+                )
+        finally:
+            timer.join()
+        self.assertEqual(saved.read_text(), "saved")
+
+    def test_pipeline_pause_reaches_checkpoint_without_becoming_failure(self):
+        job = self.create()
+        self.store.claim()
+        worker = service.Worker(self.store)
+        timer = threading.Timer(0.2, lambda: self.store.action(job["id"], "pause"))
+        timer.start()
+        try:
+            with self.assertRaises(service.Paused):
+                worker.run(
+                    job,
+                    [
+                        sys.executable,
+                        "-c",
+                        "import os,pathlib,time; marker=pathlib.Path(os.environ['DUB_PAUSE_FILE']); deadline=time.time()+5\nwhile not marker.exists() and time.time()<deadline: time.sleep(.05)\nraise SystemExit(75 if marker.exists() else 9)",
+                    ],
+                    "pipeline",
+                )
+        finally:
+            timer.join()
+
+    def test_worker_records_pause_and_does_not_claim_it_again(self):
+        job = self.create()
+        worker = service.Worker(self.store)
+
+        def pause(current):
+            self.store.action(current["id"], "pause")
+            worker.cancelled(current)
+
+        with patch.object(worker, "process", side_effect=pause):
+            worker.thread.start()
+            try:
+                deadline = time.monotonic() + 5
+                while self.store.get(job["id"])["state"] != "paused" and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertEqual(self.store.get(job["id"])["state"], "paused")
+                self.assertIsNone(self.store.claim())
+            finally:
+                worker.stop.set()
+                worker.thread.join(timeout=5)
+
     def test_capabilities_do_not_expose_service_token(self):
         result = service.capabilities()
         self.assertEqual({d["id"] for d in result["directors"]}, {"codex", "claude"})
@@ -163,6 +256,8 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 401)
             job = request("/jobs", self.request)
             self.assertEqual(request("/jobs")[0]["id"], job["id"])
+            self.assertEqual(request(f"/jobs/{job['id']}/pause", {})["state"], "paused")
+            self.assertEqual(request(f"/jobs/{job['id']}/resume", {})["state"], "queued")
             self.assertEqual(request(f"/jobs/{job['id']}/cancel", {})["state"], "cancelled")
             with self.assertRaises(urllib.error.HTTPError) as error:
                 request("/jobs", [])

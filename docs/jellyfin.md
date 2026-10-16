@@ -174,10 +174,17 @@ Release bundles include two small compatibility launchers at the old worker and
 updater paths so already-installed updaters can upgrade and roll back safely.
 
 - **Cancel** stops the active process tree and keeps working files.
+- **Pause** stops at the next completed tool step. A running director session and
+  background checks finish first, so pausing can take time. The card says
+  "Pausing" until the worker has stopped. Queued jobs pause immediately.
+- **Resume** also restarts paused jobs from saved progress. An interrupted step
+  may repeat. Paused jobs stay paused across restarts and allow idle updates.
 - **Resume** queues a failed, interrupted, or cancelled job from its saved work.
 - A worker restart marks in-progress jobs interrupted; they need an explicit resume.
 - CLI login expiry, usage limits, denied tool permissions, render failures, or
   unresolved timing are reported as failures with logs rather than silently approved.
+- Errors show a short summary on the job card; expand **Error details** for the
+  original diagnostic. **Refresh log** below an open log fetches its latest text.
 - The worker uses Jellyfin's bundled ffmpeg/ffprobe when system PATH lacks them.
 - The local worker's log is `work/service/service.log`; per-job CLI and pipeline
   logs are under `work/service/jobs/<id>/`. The normal pipeline report is under

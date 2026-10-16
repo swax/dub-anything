@@ -8,10 +8,32 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import dub_anything as runner
+
+
+class PauseCheckpointTests(unittest.TestCase):
+    def test_pause_waits_for_background_checks_and_skips_the_next_tool(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = pathlib.Path(tmp) / "pause"
+            marker.touch()
+            background = Mock()
+            with (
+                patch.dict(runner.os.environ, {"DUB_PAUSE_FILE": str(marker)}),
+                patch.object(runner, "SECOND_RUN", {"sample": (background, [])}),
+                patch.object(runner.subprocess, "run") as launch,
+            ):
+                with self.assertRaises(SystemExit) as stopped:
+                    runner.tool({"slug": "sample"}, "next step", [], "next")
+                self.assertEqual(stopped.exception.code, 75)
+                background.wait.assert_called_once()
+                launch.assert_not_called()
+
+    def test_direct_dubs_have_no_pause_marker(self):
+        with patch.dict(runner.os.environ, {"DUB_PAUSE_FILE": ""}):
+            runner.pause_checkpoint()
 
 
 class WatchBlockTests(unittest.TestCase):
