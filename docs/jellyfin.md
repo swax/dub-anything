@@ -17,14 +17,14 @@ From the repo root:
 
 ```powershell
 # Build and stage the DLL and private configuration under ignored work/service/.
-powershell -NoProfile -File scripts/setup-jellyfin.ps1
+powershell -NoProfile -File scripts/integrations/setup-jellyfin.ps1
 
 # Install the staged plugin/configuration and start the background worker.
-powershell -NoProfile -File scripts/setup-jellyfin.ps1 -Install -StartWorker
+powershell -NoProfile -File scripts/integrations/setup-jellyfin.ps1 -Install -StartWorker
 
 # Enable the matched plugin/worker updater and start it now.
 # Existing jobs keep running; installation waits until the queue is idle.
-powershell -NoProfile -File scripts/setup-jellyfin.ps1 -EnableAutoUpdates
+powershell -NoProfile -File scripts/integrations/setup-jellyfin.ps1 -EnableAutoUpdates
 ```
 
 The installer accepts `-JellyfinInstallDir`, `-JellyfinDataDir`, and `-Python`
@@ -155,9 +155,9 @@ it. New pairs take extra time and GPU work on their first run.
 
 ```powershell
 $py = 'C:\git\VoiceStudio\.venv\Scripts\python.exe'
-& $py scripts/dub_service.py serve    # foreground, useful for development
-& $py scripts/dub_service.py status   # installed directors, language pairs, ffmpeg
-& $py scripts/dub_service.py stop     # stop gracefully; keep unfinished work
+& $py scripts/integrations service serve    # foreground, useful for development
+& $py scripts/integrations service status   # installed directors, language pairs, ffmpeg
+& $py scripts/integrations service stop     # stop gracefully; keep unfinished work
 ```
 
 Use `setup-jellyfin.ps1 -StartWorker` to start it detached again. With automatic
@@ -165,6 +165,13 @@ updates enabled, the logon task starts the worker when its queue is idle. An
 unfinished active job recorded after a crash needs a manual worker restart and
 explicit resume. One worker owns the persistent SQLite queue, and it runs
 one library job at a time. The pipeline's GPU lock still coordinates other tools.
+
+Python integration modules and the setup script live in `scripts/integrations/`.
+Run them through `python scripts/integrations service ...`, `updates ...`, or
+`build-release ...`; see [the integration guide](../scripts/integrations/README.md).
+Direct dubbing continues to use `scripts/dub_anything.py` without those services.
+Release bundles include two small compatibility launchers at the old worker and
+updater paths so already-installed updaters can upgrade and roll back safely.
 
 - **Cancel** stops the active process tree and keeps working files.
 - **Resume** queues a failed, interrupted, or cancelled job from its saved work.

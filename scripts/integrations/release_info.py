@@ -3,7 +3,7 @@
 import pathlib
 import xml.etree.ElementTree as ET
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 REPOSITORY = "swax/dub-anything"
 FEED = f"https://raw.githubusercontent.com/{REPOSITORY}/main/releases/updates.json"
 CATALOG = f"https://raw.githubusercontent.com/{REPOSITORY}/main/releases/manifest.json"

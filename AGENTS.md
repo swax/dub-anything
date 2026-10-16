@@ -26,7 +26,7 @@ start a second pipeline for the same video. Jellyfin setup and maintenance are
 documented separately in [docs/jellyfin.md](docs/jellyfin.md).
 
 [scripts/README.md](scripts/README.md) distinguishes directing tools from the
-integration's internal worker and release modules. Keep normal dubbing changes
+optional worker and release modules under `scripts/integrations/`. Keep normal dubbing changes
 separate from integration maintenance.
 
 ## Your role

@@ -1,6 +1,6 @@
 """Local authenticated job service for media-server adapters.
 
-Run with VoiceStudio's Python: scripts/dub_service.py serve
+Run with VoiceStudio's Python: scripts/integrations service serve
 Settings and the persistent queue live in ignored work/service/.
 """
 
@@ -25,11 +25,9 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 import backend
-import director
-import language_setup
-import release_info
+from integrations import director, language_setup, release_info
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 DATA = ROOT / "work" / "service"
 ACTIVE = ("staging", "language_setup", "preparing", "directing", "rendering", "publishing")
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".m4v", ".mov", ".avi", ".webm", ".ts", ".m2ts"}

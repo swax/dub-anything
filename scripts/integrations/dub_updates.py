@@ -22,9 +22,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-import release_info
-from build_release import RUNTIME_DIRS, RUNTIME_FILES, digest, write_json
-from dub_service import ACTIVE, Store, service_lock
+from integrations import release_info
+from integrations.build_release import RUNTIME_DIRS, RUNTIME_FILES, digest, write_json
+from integrations.dub_service import ACTIVE, Store, service_lock
 
 RUNNABLE = (*ACTIVE, "queued", "publish_queued")
 MAX_PACKAGE = 64 * 1024 * 1024
@@ -185,6 +185,15 @@ def ps_quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def component_command(runtime, component):
+    """Prefer the integration package; accept older releases during rollback."""
+    package = pathlib.Path(runtime) / "scripts/integrations"
+    if (package / "__main__.py").is_file():
+        return [str(package), component]
+    module = {"service": "dub_service", "updates": "dub_updates"}[component]
+    return [str(pathlib.Path(runtime) / "scripts" / f"{module}.py")]
+
+
 def powershell(code):
     encoded = base64.b64encode(("$ErrorActionPreference = 'Stop'\n" + code).encode("utf-16-le")).decode()
     result = subprocess.run(
@@ -250,11 +259,12 @@ class Windows:
         if self.healthy():
             raise RuntimeError("A worker is already listening; refusing a second worker")
         launcher = self.data / "start-managed-worker.ps1"
+        entry = " ".join(ps_quote(part) for part in component_command(runtime, "service"))
         launcher.write_text(
             "$ErrorActionPreference = 'Stop'\n"
             f"$env:VOICESTUDIO_DIR = {ps_quote(self.config['voicestudio'])}\n"
             f"Set-Location -LiteralPath {ps_quote(runtime)}\n"
-            f"& {ps_quote(self.config['python'])} -u scripts/dub_service.py serve *>> {ps_quote(self.data / 'service.log')}\n",
+            f"& {ps_quote(self.config['python'])} -u {entry} serve *>> {ps_quote(self.data / 'service.log')}\n",
             encoding="utf-8",
         )
         command = subprocess.list2cmdline(
@@ -586,10 +596,12 @@ def main():
             while True:
                 config = json.loads(args.install.read_text(encoding="utf-8-sig"))
                 runtime = pathlib.Path(config["active_runtime"])
-                if not (runtime / "scripts/dub_updates.py").is_file():
+                command = component_command(runtime, "updates")
+                if not pathlib.Path(command[0]).exists():
                     runtime = pathlib.Path(config["source_root"])
+                    command = component_command(runtime, "updates")
                 subprocess.run(
-                    [config["python"], str(runtime / "scripts/dub_updates.py"), "once", "--install", str(args.install)],
+                    [config["python"], *command, "once", "--install", str(args.install)],
                     check=False,
                 )
                 time.sleep(60)

@@ -9,12 +9,13 @@ with VoiceStudio's Python. Jellyfin is optional.
 | Create, run, inspect, and finish a direct dub | `scripts/dub_anything.py` |
 | Start or inspect the voice backend | `scripts/backend.py` |
 | Direct a part: casting, evidence, timing, and QA | Tools named in `docs/directing.md`, including `voices.py`, `frames.py`, `asr_words.py`, `edges.py`, `tails.py`, `fit.py`, and `lineqa.py` |
-| Install and manage the Jellyfin integration | [docs/jellyfin.md](../docs/jellyfin.md) and `integrations/jellyfin/` |
+| Install and manage the Jellyfin integration | [scripts/integrations/](integrations/README.md) and [docs/jellyfin.md](../docs/jellyfin.md) |
 
 ## Integration internals
 
 These modules support the optional Jellyfin integration. A direct dubbing
-request does not need them started or configured.
+request does not need them started or configured. They live together under
+`scripts/integrations/`; Jellyfin's C# plugin lives under `integrations/jellyfin/`.
 
 | Module | Purpose |
 |---|---|
@@ -23,6 +24,7 @@ request does not need them started or configured.
 | `language_setup.py` | Test missing language support for a queued job in a scratch workspace |
 | `dub_updates.py` | Coordinate idle plugin and worker updates |
 | `build_release.py`, `release_info.py` | Package releases and identify matching versions |
+| `setup-jellyfin.ps1` | Build, install, and configure the Windows integration |
 
 Both entry points use the same dubbing engine. Shared helpers such as `core.py`,
 `gpulock.py`, `whisper_safe.py`, and `languages/` support that engine; they are

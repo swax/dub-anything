@@ -12,8 +12,8 @@ import urllib.request
 from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
-import director
-import dub_service as service
+from integrations import director
+from integrations import dub_service as service
 
 
 class ServiceTests(unittest.TestCase):

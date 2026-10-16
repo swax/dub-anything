@@ -8,7 +8,7 @@ import subprocess
 import zipfile
 from datetime import datetime, timezone
 
-import release_info
+from integrations import release_info
 
 ROOT = release_info.ROOT
 RUNTIME_DIRS = {"scripts", "docs", "tests", "eval", "patches"}
@@ -46,6 +46,19 @@ def runtime_files(root=ROOT):
         yield name, source
 
 
+def compatibility_launchers():
+    """Old installed updaters still launch these two paths. Ship shims only in
+    release bundles, keeping integration entry points out of scripts/ itself."""
+    for module in ("dub_service", "dub_updates"):
+        text = (
+            '"""Compatibility entry point for an older installed updater."""\n'
+            "import runpy\n\n"
+            'if __name__ == "__main__":\n'
+            f'    runpy.run_module("integrations.{module}", run_name="__main__")\n'
+        )
+        yield f"scripts/{module}.py", text.encode("utf-8")
+
+
 def build(output, notes, root=ROOT):
     identity = release_info.metadata(root)
     version = identity["version"]
@@ -79,6 +92,9 @@ def build(output, notes, root=ROOT):
         for name, path in runtime_files(root):
             hashes[name] = digest(path)
             archive.write(path, "runtime/" + name)
+        for name, data in compatibility_launchers():
+            hashes[name] = hashlib.sha256(data).hexdigest()
+            archive.writestr("runtime/" + name, data)
         archive.write(dll, "plugin/" + dll.name)
         archive.writestr("plugin/meta.json", json.dumps(plugin_meta))
         archive.writestr("release.json", json.dumps({**identity, "files": hashes}))

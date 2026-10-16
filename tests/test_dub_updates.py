@@ -12,10 +12,10 @@ import zipfile
 from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
-import dub_service as service
-import dub_updates as updates
-import release_info
-from build_release import runtime_files, write_json
+from integrations import dub_service as service
+from integrations import dub_updates as updates
+from integrations import release_info
+from integrations.build_release import runtime_files, write_json
 
 
 def entry(version="0.2.0.0"):

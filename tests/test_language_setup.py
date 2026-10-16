@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
-import language_setup as setup
+from integrations import language_setup as setup
 
 
 class LanguageSetupTests(unittest.TestCase):

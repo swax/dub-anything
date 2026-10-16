@@ -40,7 +40,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(python -c "import sys; sys.path.insert(0, 'scripts'); import release_info; print(release_info.metadata()['version'])")
+          version=$(python -c "import sys; sys.path.insert(0, 'scripts'); from integrations import release_info; print(release_info.metadata()['version'])")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           draft=$(gh release view "jellyfin-v$version" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)
           if [ "$draft" = false ]; then
@@ -50,7 +50,7 @@ jobs:
           fi
       - name: Package matched plugin and worker
         if: steps.release.outputs.publish == 'true'
-        run: python scripts/build_release.py
+        run: python scripts/integrations build-release
       - name: Publish binaries and feeds
         if: steps.release.outputs.publish == 'true'
         env:

@@ -13,7 +13,7 @@ param(
     [switch]$EnableAutoUpdates
 )
 $ErrorActionPreference = 'Stop'
-$taskRoot = Split-Path -Parent $PSScriptRoot
+$taskRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if (-not $Python) { $Python = Join-Path (Split-Path -Parent $taskRoot) 'VoiceStudio\.venv\Scripts\python.exe' }
 if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) { throw "VoiceStudio Python not found: $Python" }
 if (-not (Test-Path -LiteralPath (Join-Path $JellyfinInstallDir 'MediaBrowser.Controller.dll'))) {
@@ -24,7 +24,7 @@ $taskProject = Join-Path $taskRoot 'integrations\jellyfin\Jellyfin.Plugin.DubAny
 if ($LASTEXITCODE) { throw 'Plugin build failed' }
 Push-Location -LiteralPath $taskRoot
 try {
-    & $Python scripts/dub_service.py init
+    & $Python scripts/integrations service init
     if ($LASTEXITCODE) { throw 'Worker settings initialization failed' }
 } finally { Pop-Location }
 $taskServiceDir = Join-Path $taskRoot 'work\service'
@@ -112,8 +112,13 @@ if ($EnableAutoUpdates) {
     $taskUpdateText = @"
 `$taskConfig = Get-Content -LiteralPath '$($taskInstallFile.Replace("'", "''"))' -Raw | ConvertFrom-Json
 `$taskRuntime = `$taskConfig.active_runtime
-if (-not (Test-Path -LiteralPath (Join-Path `$taskRuntime 'scripts\dub_updates.py'))) { `$taskRuntime = `$taskConfig.source_root }
-& `$taskConfig.python -u (Join-Path `$taskRuntime 'scripts\dub_updates.py') watch --install '$($taskInstallFile.Replace("'", "''"))' *>> '$((Join-Path $taskServiceDir 'updates.log').Replace("'", "''"))'
+if (-not (Test-Path -LiteralPath (Join-Path `$taskRuntime 'scripts\integrations\__main__.py')) -and
+    -not (Test-Path -LiteralPath (Join-Path `$taskRuntime 'scripts\dub_updates.py'))) { `$taskRuntime = `$taskConfig.source_root }
+if (Test-Path -LiteralPath (Join-Path `$taskRuntime 'scripts\integrations\__main__.py')) {
+    & `$taskConfig.python -u (Join-Path `$taskRuntime 'scripts\integrations') updates watch --install '$($taskInstallFile.Replace("'", "''"))' *>> '$((Join-Path $taskServiceDir 'updates.log').Replace("'", "''"))'
+} else {
+    & `$taskConfig.python -u (Join-Path `$taskRuntime 'scripts\dub_updates.py') watch --install '$($taskInstallFile.Replace("'", "''"))' *>> '$((Join-Path $taskServiceDir 'updates.log').Replace("'", "''"))'
+}
 "@
     Set-Content -LiteralPath $taskUpdateLauncher -Value $taskUpdateText -Encoding utf8
     $taskUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -149,7 +154,11 @@ if ($StartWorker) {
         $taskLauncherText = @"
 Set-Location -LiteralPath '$taskEscapedRoot'
 `$env:VOICESTUDIO_DIR = '$($taskWorkerVoiceStudio.Replace("'", "''"))'
-& '$taskEscapedPython' -u scripts/dub_service.py serve *> '$taskEscapedLog'
+if (Test-Path -LiteralPath 'scripts/integrations/__main__.py') {
+    & '$taskEscapedPython' -u scripts/integrations service serve *> '$taskEscapedLog'
+} else {
+    & '$taskEscapedPython' -u scripts/dub_service.py serve *> '$taskEscapedLog'
+}
 "@
         Set-Content -LiteralPath $taskLauncher -Value $taskLauncherText -Encoding utf8
         $taskStartup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ShowWindow=[uint16]0}

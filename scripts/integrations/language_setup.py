@@ -9,9 +9,9 @@ import re
 import shutil
 
 import backend
-import director
+from integrations import director
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def catalog():
@@ -66,7 +66,7 @@ def workspace(folder, root=ROOT):
         shutil.copytree(
             root / name, target / name, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
         )
-    for name in ("AGENTS.md", "CLAUDE.md", "ruff.toml"):
+    for name in ("AGENTS.md", "CLAUDE.md", "ruff.toml", "Directory.Build.props"):
         shutil.copy2(root / name, target / name)
     hashes = {
         path.relative_to(root).as_posix(): digest(path)
