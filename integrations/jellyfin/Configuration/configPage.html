@@ -76,9 +76,10 @@
       return ApiClient.ajax({type: method || 'GET', url: ApiClient.getUrl('DubAnything/' + path),
         dataType: 'json', contentType: 'application/json', data: body ? JSON.stringify(body) : undefined
       }).catch(function (error) {
-        var detail = error.responseJSON && error.responseJSON.error;
-        if (!detail && error.responseText) { try { detail = JSON.parse(error.responseText).error; } catch (_) {} }
-        throw new Error(detail || 'Request failed. Check the worker address, token, and service log.');
+        var detail = error && error.responseJSON && error.responseJSON.error;
+        if (!detail && error && error.responseText) { try { detail = JSON.parse(error.responseText).error; } catch (_) {} }
+        var code = error && error.status ? ' (HTTP ' + error.status + ')' : '';
+        throw new Error(detail || 'Request failed' + code + '. Check the worker address, token, and service log.');
       });
     }
     function option(select, value, label, disabled) {

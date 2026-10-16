@@ -53,12 +53,12 @@ public sealed class DubController(ILibraryManager library) : ControllerBase
         return Forward(HttpMethod.Post, "jobs", payload, ct);
     }
 
-    [HttpPost("Jobs/{id:guid}/{action}")]
-    public Task<IActionResult> Action(Guid id, string action, CancellationToken ct)
+    [HttpPost("Jobs/{id:guid}/{operation}")]
+    public Task<IActionResult> JobAction(Guid id, string operation, CancellationToken ct)
     {
-        if (action is not ("cancel" or "pause" or "resume" or "publish"))
+        if (operation is not ("cancel" or "pause" or "resume" or "publish"))
             return Task.FromResult<IActionResult>(NotFound());
-        return Forward(HttpMethod.Post, $"jobs/{id:N}/{action}", new { }, ct);
+        return Forward(HttpMethod.Post, $"jobs/{id:N}/{operation}", new { }, ct);
     }
 
     [HttpGet("Jobs/{id:guid}/{kind}")]

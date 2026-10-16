@@ -1,3 +1,6 @@
+Fix Jellyfin job-action routing so Resume, Pause, Cancel, and Publish reach the
+worker. The route now avoids ASP.NET Core's reserved action parameter name.
+
 Add Pause and Resume for queued or running jobs. Running work reaches a completed
 tool step before pausing, preserving saved progress. Paused jobs stay paused
 across restarts. Display concise job errors with expandable diagnostic details.
