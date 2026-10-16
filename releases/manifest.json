@@ -8,6 +8,14 @@
     "overview": "Directed dubbing with cloned voices",
     "versions": [
       {
+        "version": "0.2.3.0",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.3.0/dub-anything-jellyfin-0.2.3.0.zip",
+        "checksum": "230cfd4078c128e7ea1b21bf0bf5535d",
+        "timestamp": "2026-10-16T04:44:47.964556+00:00",
+        "changelog": "Show the current tool, part number and batch on Jellyfin job cards. Add a\npart-based progress bar, completed and remaining counts, and an expandable\nbreakdown for audio preparation, separation, captions, drafting, on-screen text,\ndirecting, and rendering/QA. Counts come from saved work and survive pause/resume.\nFinished parts require current, approved scripts and every requested voice to\npass rendering and QA. Part counts remain unknown until splitting is complete.\n"
+      },
+      {
         "version": "0.2.2.1",
         "targetAbi": "12.2.0.0",
         "sourceUrl": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.2.1/dub-anything-jellyfin-0.2.2.1.zip",

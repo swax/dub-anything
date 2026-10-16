@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.2.3.0",
+      "jellyfin_min": "12.2.0.0",
+      "jellyfin_max": "13.0.0.0",
+      "worker_protocol": 2,
+      "updater_protocol": 1,
+      "url": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.3.0/dub-anything-0.2.3.0.zip",
+      "sha256": "855fd8f253a384b1ac0801937a9990ddb0aed0ee984b27617499fe444dc02524",
+      "notes": "Show the current tool, part number and batch on Jellyfin job cards. Add a\npart-based progress bar, completed and remaining counts, and an expandable\nbreakdown for audio preparation, separation, captions, drafting, on-screen text,\ndirecting, and rendering/QA. Counts come from saved work and survive pause/resume.\nFinished parts require current, approved scripts and every requested voice to\npass rendering and QA. Part counts remain unknown until splitting is complete.\n",
+      "timestamp": "2026-10-16T04:44:47.964556+00:00"
+    },
+    {
       "version": "0.2.2.1",
       "jellyfin_min": "12.2.0.0",
       "jellyfin_max": "13.0.0.0",
