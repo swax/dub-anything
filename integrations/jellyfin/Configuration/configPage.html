@@ -4,6 +4,9 @@
 <body>
 <div id="DubAnythingPage" data-role="page" class="page type-interior pluginConfigurationPage"
      data-require="emby-input,emby-button,emby-select,emby-checkbox">
+  <style>
+    #DubAnythingPage #dubSubmit:disabled { opacity:.45; filter:grayscale(1); cursor:not-allowed; }
+  </style>
   <div data-role="content"><div class="content-primary" style="max-width:68em;margin:auto">
     <h1>Dub Anything</h1>
     <p style="margin-top:-.5em;opacity:.8"><span id="dubVersion">Loading plugin version…</span> ·
@@ -99,12 +102,14 @@
     function loadDetail(jobId, view) {
       if (view.panel.hidden || view.loading) return;
       view.loading = true; view.panel.setAttribute('aria-busy', 'true');
+      if (view.refresh) view.refresh.disabled = true;
       api('Jobs/' + jobId + '/' + view.kind).then(function (result) {
         var scrollTop = view.panel.scrollTop;
         setText(view.panel, result.text);
         view.panel.scrollTop = scrollTop;
       }).catch(function (e) { setText(view.panel, e.message); }).finally(function () {
         view.loading = false; view.panel.removeAttribute('aria-busy');
+        if (view.refresh) view.refresh.disabled = false;
       });
     }
     function createCard(job) {
@@ -126,12 +131,17 @@
         var view = {panel: panel, kind: kind, loading: false};
         var toggle = button(controls, 'Show ' + kind, function () {
           panel.hidden = !panel.hidden;
+          if (view.refresh) view.refresh.hidden = panel.hidden;
           toggle.textContent = (panel.hidden ? 'Show ' : 'Hide ') + kind;
           toggle.setAttribute('aria-expanded', String(!panel.hidden));
           if (!panel.hidden) loadDetail(job.id, view);
         });
         toggle.setAttribute('aria-controls', panel.id); toggle.setAttribute('aria-expanded', 'false');
         card.views.push(view); card.node.appendChild(panel);
+        if (kind === 'log') {
+          view.refresh = button(card.node, 'Refresh log', function () { loadDetail(job.id, view); });
+          view.refresh.hidden = true; view.refresh.setAttribute('aria-controls', panel.id);
+        }
       });
       card.actions = document.createElement('span'); controls.appendChild(card.actions);
       return card;
