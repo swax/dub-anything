@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.2.1.0",
+      "jellyfin_min": "12.2.0.0",
+      "jellyfin_max": "13.0.0.0",
+      "worker_protocol": 2,
+      "updater_protocol": 1,
+      "url": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.1.0/dub-anything-0.2.1.0.zip",
+      "sha256": "112a54eddfd0427130ad55f03087164778286120ec5cc289abc17a23e1ee3a21",
+      "notes": "Fix a CTranslate2 native crash while generating Whisper word timings for a\nwindow with fewer than two usable mel frames. The guard preserves normal word\ntimings and the existing CUDA/cuDNN dependencies.\n\nThe Jellyfin dashboard now has a Refresh log button below each expanded job log.\nQueue dub appears disabled until a library video and an available director are\nselected. Plugin and worker updates continue to install together only when idle.\n",
+      "timestamp": "2026-10-16T04:07:49.292244+00:00"
+    },
+    {
       "version": "0.2.0.0",
       "jellyfin_min": "12.2.0.0",
       "jellyfin_max": "13.0.0.0",
