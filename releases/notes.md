@@ -1,15 +1,6 @@
-Fix Jellyfin job-action routing so Resume, Pause, Cancel, and Publish reach the
-worker. The route now avoids ASP.NET Core's reserved action parameter name.
-
-Add Pause and Resume for queued or running jobs. Running work reaches a completed
-tool step before pausing, preserving saved progress. Paused jobs stay paused
-across restarts. Display concise job errors with expandable diagnostic details.
-
-Move optional worker, director, language-setup, installer, and release tooling
-into scripts/integrations/. Direct dubs continue to use scripts/dub_anything.py.
-Update documentation, tests, installation commands, and release automation for
-the layout. Bundled compatibility launchers let older installed updaters upgrade
-and roll back safely; settings, queue, and working files keep their paths.
-
-Includes the CTranslate2 short-window crash guard, Refresh log control, and
-disabled Queue dub styling introduced in the preceding patch releases.
+Show the current tool, part number and batch on Jellyfin job cards. Add a
+part-based progress bar, completed and remaining counts, and an expandable
+breakdown for audio preparation, separation, captions, drafting, on-screen text,
+directing, and rendering/QA. Counts come from saved work and survive pause/resume.
+Finished parts require current, approved scripts and every requested voice to
+pass rendering and QA. Part counts remain unknown until splitting is complete.

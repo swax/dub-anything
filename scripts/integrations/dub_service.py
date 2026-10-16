@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 import backend
-from integrations import director, language_setup, release_info
+from integrations import director, language_setup, progress, release_info
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DATA = ROOT / "work" / "service"
@@ -275,7 +275,7 @@ class Worker:
 
     def set_stage(self, job, state, stage):
         self.cancelled(job)
-        self.store.update(job["id"], state=state, stage=stage)
+        self.store.update(job["id"], state=state, stage=stage, work_stage=state, work_description=stage)
 
     def folder(self, job):
         path = self.store.data / "jobs" / job["id"]
@@ -633,7 +633,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/jobs":
             if self.command == "GET":
-                return self.reply(200, self.server.store.all())
+                return self.reply(200, [self.describe(job) for job in self.server.store.all()])
             return self.reply(201, self.server.store.create(body))
         match = re.fullmatch(r"/jobs/([a-f0-9]{32})(?:/(cancel|pause|resume|publish|report|log))?", path)
         if match:
@@ -655,8 +655,11 @@ class Handler(BaseHTTPRequestHandler):
                             text = handle.read().decode("utf-8", errors="replace")
                     return self.reply(200, {"text": text})
                 if action is None:
-                    return self.reply(200, job)
+                    return self.reply(200, self.describe(job))
         return self.reply(404, {"error": "endpoint not found"})
+
+    def describe(self, job):
+        return {**job, "progress": progress.snapshot(job, self.server.store.data, ROOT)}
 
     def handle_request(self):
         try:

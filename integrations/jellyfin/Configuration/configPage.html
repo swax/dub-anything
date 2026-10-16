@@ -108,6 +108,45 @@
         ' stopped (exit ' + exited[2] + '). Check error details and the job log before resuming.';
       return first.length > 220 ? first.slice(0, 217) + '…' : first;
     }
+    function partRange(parts) {
+      if (parts.length > 1 && parts.every(function (part, i) { return part === parts[0] + i; }))
+        return parts[0] + '–' + parts[parts.length - 1];
+      return parts.join(', ');
+    }
+    function updateProgress(card, job) {
+      var progress = job.progress; card.progress.hidden = !progress;
+      if (!progress) return;
+      var current = progress.current, activity = current ? current.label : '';
+      if (current && current.parts.length && progress.total) {
+        activity += ' · ' + (current.parts.length === 1 ? 'Part ' : 'Parts ') + partRange(current.parts) + ' of ' + progress.total;
+        if (current.batch) activity += ' · batch ' + partRange(current.batch);
+      }
+      if (current && !current.active && ['paused', 'failed', 'cancelled', 'interrupted', 'queued'].includes(job.state)) activity = 'Last step: ' + activity;
+      setText(card.progressActivity, activity); card.progressActivity.hidden = !activity;
+      card.progressMeter.hidden = !progress.total; card.progressBreakdown.hidden = !progress.total;
+      card.progressOverall.hidden = !progress.total;
+      if (!progress.total) {
+        setText(card.progressCaption, 'Part count will appear after the video is split.'); return;
+      }
+      var phase = progress.phase;
+      card.progressMeter.max = progress.total; card.progressMeter.value = phase.done;
+      card.progressMeter.setAttribute('aria-label', phase.label + ': ' + phase.done + ' of ' + progress.total + ' parts complete');
+      setText(card.progressCaption, phase.label + ': ' + phase.done + ' of ' + progress.total + ' complete · ' + phase.left + ' left');
+      setText(card.progressOverall, 'Finished parts: ' + progress.finished + ' of ' + progress.total + ' · ' + progress.left + ' left overall');
+      progress.stages.forEach(function (stage) {
+        var row = card.progressRows[stage.key];
+        if (!row) {
+          row = document.createElement('div'); row.style.cssText = 'display:flex;justify-content:space-between;gap:1em;margin:.4em 0';
+          row.label = document.createElement('span'); row.count = document.createElement('span');
+          row.appendChild(row.label); row.appendChild(row.count); card.progressStages.appendChild(row);
+          card.progressRows[stage.key] = row;
+        }
+        setText(row.label, stage.label); setText(row.count, stage.done + '/' + progress.total + ' · ' + stage.left + ' left');
+      });
+      Object.keys(card.progressRows).forEach(function (key) {
+        card.progressRows[key].hidden = !progress.stages.some(function (stage) { return stage.key === key; });
+      });
+    }
     function loadDetail(jobId, view) {
       if (view.panel.hidden || view.loading) return;
       view.loading = true; view.panel.setAttribute('aria-busy', 'true');
@@ -125,12 +164,23 @@
       var card = {node: document.createElement('section'), views: []};
       card.node.style.cssText = 'padding:1.25em;border:1px solid #8885;border-radius:.6em;' +
         'background:rgba(128,128,128,.1);box-shadow:0 .2em .6em #0002;overflow-wrap:anywhere';
-      ['title', 'summary', 'error', 'preview', 'output'].forEach(function (name) {
-        card[name] = document.createElement(name === 'title' ? 'h3' : name === 'error' ? 'div' : 'p');
+      ['title', 'summary', 'progress', 'error', 'preview', 'output'].forEach(function (name) {
+        card[name] = document.createElement(name === 'title' ? 'h3' : ['progress', 'error'].includes(name) ? 'div' : 'p');
         card.node.appendChild(card[name]);
       });
       card.title.style.marginTop = '0'; card.title.id = 'dub-job-' + job.id + '-title';
       card.node.setAttribute('aria-labelledby', card.title.id);
+      card.progress.style.cssText = 'margin:1em 0;padding:.2em 0'; card.progressRows = Object.create(null);
+      card.progressActivity = document.createElement('p'); card.progress.appendChild(card.progressActivity);
+      card.progressActivity.style.fontWeight = '600';
+      card.progressMeter = document.createElement('progress'); card.progress.appendChild(card.progressMeter);
+      card.progressMeter.style.cssText = 'width:100%;height:.7em;accent-color:#00a4dc';
+      card.progressCaption = document.createElement('p'); card.progress.appendChild(card.progressCaption);
+      card.progressOverall = document.createElement('p'); card.progress.appendChild(card.progressOverall);
+      card.progressOverall.style.opacity = '.8';
+      card.progressBreakdown = document.createElement('details'); card.progress.appendChild(card.progressBreakdown);
+      var progressToggle = document.createElement('summary'); progressToggle.textContent = 'Progress by stage'; card.progressBreakdown.appendChild(progressToggle);
+      card.progressStages = document.createElement('div'); card.progressBreakdown.appendChild(card.progressStages);
       card.error.style.cssText = 'border-left:.25em solid #d99539;padding:.1em 1em;margin:1em 0';
       card.errorSummary = document.createElement('p'); card.error.appendChild(card.errorSummary);
       var errorDetails = document.createElement('details'); card.error.appendChild(errorDetails);
@@ -179,6 +229,7 @@
             (job.director === 'claude' ? 'Claude Code' : 'Codex') + ' · ' +
             (job.pause_requested && ['staging', 'language_setup', 'preparing', 'directing', 'rendering'].includes(job.state) ?
               'Pausing after the current step…' : job.stage));
+          updateProgress(card, job);
           card.error.hidden = !job.error; setText(card.errorSummary, errorSummary(job.error));
           setText(card.errorDetails, job.error || '');
           [['preview', job.rendered_path ? 'Preview file: ' + job.rendered_path : ''],

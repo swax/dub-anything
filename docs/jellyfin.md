@@ -174,6 +174,12 @@ Release bundles include two small compatibility launchers at the old worker and
 updater paths so already-installed updaters can upgrade and roll back safely.
 
 - **Cancel** stops the active process tree and keeps working files.
+- Each card shows the current tool and part number (including batches), the
+  current stage's completed/remaining counts, and parts still unfinished overall.
+  Expand **Progress by stage** for the preparation, direction, and rendering
+  breakdown. These are part counts, not time estimates; a part finishes only
+  when every requested voice has current render/QA results. Parts kept entirely
+  original count as finished. Counts come from saved files and survive resume.
 - **Pause** stops at the next completed tool step. A running director session and
   background checks finish first, so pausing can take time. The card says
   "Pausing" until the worker has stopped. Queued jobs pause immediately.
