@@ -80,6 +80,11 @@ a listener notices:
 The agent can't hear, so you're the ears: you judge the acting, the voices and
 the mix, and you decide what may be cloned or shared.
 
+The steps above are the normal direct workflow. Jellyfin is an optional way to
+queue library videos with a headless director; its separate setup is in
+[docs/jellyfin.md](docs/jellyfin.md). Direct dubs do not need the plugin, worker,
+or updater. The [script guide](scripts/README.md) identifies each entry point.
+
 ## Choosing a voice
 
 | | **Actor's voice** (default) | **American** |

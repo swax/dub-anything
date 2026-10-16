@@ -14,6 +14,21 @@ workflow and the gotchas that cost the most time to find. Read the notes on the
 job's two languages in [docs/languages/](docs/languages/README.md) too (`ja.md`,
 `en.md`, `es.md`, `ko.md`, `zh.md`): what differs with each as the source and as the target.
 
+## Choose the workflow
+
+For a user asking to dub a video file, follow the direct workflow below using
+`scripts/dub_anything.py`. Jellyfin is optional; no service, plugin, release
+packaging, or updater setup is needed for a direct dub.
+
+For a job already queued in Jellyfin, its worker owns the pipeline and invokes
+the director with that job's part and notes. Follow that assignment; do not
+start a second pipeline for the same video. Jellyfin setup and maintenance are
+documented separately in [docs/jellyfin.md](docs/jellyfin.md).
+
+[scripts/README.md](scripts/README.md) distinguishes directing tools from the
+integration's internal worker and release modules. Keep normal dubbing changes
+separate from integration maintenance.
+
 ## Your role
 
 The scripts are instruments. They produce evidence and do the heavy lifting, but
