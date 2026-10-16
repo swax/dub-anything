@@ -1,0 +1,81 @@
+name: Publish Jellyfin and worker release
+on:
+  push:
+    branches: [main]
+    paths:
+      - Directory.Build.props
+      - .github/workflows/jellyfin-release.yml
+      - scripts/**
+      - integrations/jellyfin/**
+      - tests/**
+      - releases/notes.md
+      - docs/jellyfin.md
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: jellyfin-release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check Python and run tests
+        run: |
+          pip install ruff numpy soundfile scipy sherpa-onnx huggingface_hub faster-whisper
+          ruff format --check
+          ruff check
+          python -m unittest discover -s tests -v
+      - name: Build against the published Jellyfin API
+        run: dotnet build integrations/jellyfin/Jellyfin.Plugin.DubAnything.csproj -c Release -p:UseInstalledJellyfin=false
+      - name: Inspect release state
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python -c "import sys; sys.path.insert(0, 'scripts'); import release_info; print(release_info.metadata()['version'])")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          draft=$(gh release view "jellyfin-v$version" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)
+          if [ "$draft" = false ]; then
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Package matched plugin and worker
+        if: steps.release.outputs.publish == 'true'
+        run: python scripts/build_release.py
+      - name: Publish binaries and feeds
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if ! gh release view "jellyfin-v$VERSION" >/dev/null 2>&1; then
+            gh release create "jellyfin-v$VERSION" --draft --target "$GITHUB_SHA" --title "Dub Anything $VERSION" --notes-file releases/notes.md
+          fi
+          gh release upload "jellyfin-v$VERSION" work/release/*.zip work/release/updates.json work/release/manifest.json --clobber
+          gh release edit "jellyfin-v$VERSION" --draft=false
+      - name: Synchronize published feeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          mkdir -p work/published
+          gh release download "jellyfin-v$VERSION" -p updates.json -p manifest.json -D work/published
+          cp work/published/updates.json releases/updates.json
+          cp work/published/manifest.json releases/manifest.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add releases/updates.json releases/manifest.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish release feed for $VERSION"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi

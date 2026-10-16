@@ -148,6 +148,8 @@ Jumpgate's `packages/jumpgate`.
 
 ## Documentation
 
+- [docs/jellyfin.md](docs/jellyfin.md): Jellyfin dashboard plugin, local queue,
+  and headless Codex or Claude Code directors
 - [docs/setup.md](docs/setup.md): installing everything, step by step
 - [AGENTS.md](AGENTS.md): the agent's instructions, and a dub from start to
   finish

@@ -293,7 +293,8 @@ def in_song(subs, p):
 
 def caption(e):
     who = ("≪" if e["off"] else "") + (f"({e['name']})" if e["name"] else "")
-    return f"{who}{e['text']} [{e['color']}]"
+    kind = f" [{e['kind']} appearance]" if e.get("kind") else ""
+    return f"{who}{e['text']} [{e['color']}]" + kind
 
 
 def main():

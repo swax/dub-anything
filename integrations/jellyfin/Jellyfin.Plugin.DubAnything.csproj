@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageProjectUrl>$(RepositoryUrl)</PackageProjectUrl>
+    <RootNamespace>Jellyfin.Plugin.DubAnything</RootNamespace>
+    <JellyfinInstallDir Condition="'$(JellyfinInstallDir)' == ''">C:\Program Files\Jellyfin\Server</JellyfinInstallDir>
+    <UseInstalledJellyfin Condition="'$(UseInstalledJellyfin)' == '' and Exists('$(JellyfinInstallDir)/MediaBrowser.Controller.dll')">true</UseInstalledJellyfin>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseInstalledJellyfin)' == 'true'">
+    <Reference Include="MediaBrowser.Common"><HintPath>$(JellyfinInstallDir)/MediaBrowser.Common.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MediaBrowser.Controller"><HintPath>$(JellyfinInstallDir)/MediaBrowser.Controller.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MediaBrowser.Model"><HintPath>$(JellyfinInstallDir)/MediaBrowser.Model.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Jellyfin.Data"><HintPath>$(JellyfinInstallDir)/Jellyfin.Data.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseInstalledJellyfin)' != 'true'">
+    <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion)" ExcludeAssets="runtime" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Configuration/configPage.html" />
+  </ItemGroup>
+</Project>

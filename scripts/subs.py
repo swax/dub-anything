@@ -2,6 +2,10 @@
 
 Usage: scripts/subs.py <clip> [--open] [--fps 4] [--from T0] [--to T1]   (after `dub.py prep`; own environment, see AGENTS.md)
 
+--auto checks closed-caption and outlined-bottom-subtitle appearances together,
+with one OCR inference per changed frame. Events keep their appearance kind so
+the director can distinguish evidence from an assumed spoken transcript.
+
 Some recordings carry the broadcaster's closed captions burned into the picture:
 the exact dialogue, often the speaker's name in brackets, "≪" for a voice off
 screen, and a colour of its own for each main character. This reads them with
@@ -42,6 +46,7 @@ import pathlib
 import re
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -259,6 +264,45 @@ def read_frame(ocr, img, top=0, test=caption_box):
     return [tuple(r) for r in rows]
 
 
+def read_auto_frame(ocr, img):
+    """One OCR inference, two appearance filters. The director judges their meaning."""
+    result = ocr(np.ascontiguousarray(img[:, :, ::-1]))
+    closed = read_frame(lambda _: result, img, test=caption_box)
+    if result.boxes is None:
+        return closed, []
+    candidates = [
+        (box, text, score)
+        for box, text, score in zip(result.boxes, result.txts, result.scores)
+        if min(point[1] for point in box) >= img.shape[0] * 0.68 and not caption_box(img, box)[0]
+    ]
+    filtered = SimpleNamespace(
+        boxes=[row[0] for row in candidates],
+        txts=[row[1] for row in candidates],
+        scores=[row[2] for row in candidates],
+    )
+    return closed, read_frame(lambda _: filtered, img, test=subtitle_text)
+
+
+def automatic_events(closed, subtitles, step):
+    events = [{**event, "kind": "closed_caption"} for event in track(closed, step)]
+    for event in track(subtitles, step, anywhere=True):
+        duplicate = next(
+            (
+                old
+                for old in events
+                if similar(old["text"], event["text"])
+                and min(old["end"], event["end"]) > max(old["start"], event["start"])
+            ),
+            None,
+        )
+        if duplicate:
+            duplicate["start"] = min(duplicate["start"], event["start"])
+            duplicate["end"] = max(duplicate["end"], event["end"])
+        else:
+            events.append({**event, "kind": "subtitle"})
+    return sorted(events, key=lambda event: (event["start"], event["y"]))
+
+
 def normalize(text):
     text = re.sub(r"\s+", " ", text.replace("~", "～").replace("(", "（").replace(")", "）")).strip()
     return "♪" if NOTE.match(text) or "♪" in text else text
@@ -371,6 +415,7 @@ def main():
     ap.add_argument("--fps", type=float, help="frames read a second (default 4, or 2 with --open)")
     ap.add_argument("--from", dest="t0", type=float)
     ap.add_argument("--to", dest="t1", type=float)
+    ap.add_argument("--auto", action="store_true", help="detect both closed captions and outlined bottom subtitles")
     ap.add_argument(
         "--open",
         action="store_true",
@@ -378,6 +423,8 @@ def main():
         "bottom) instead of closed captions on a dark box",
     )
     args = ap.parse_args()
+    if args.auto and args.open:
+        ap.error("choose --auto or --open")
     args.fps = args.fps or (2 if args.open else 4)
     sys.stdout.reconfigure(encoding="utf-8")
     work = ROOT / "work" / args.clip
@@ -396,14 +443,34 @@ def main():
         file=sys.stderr,
     )
     readings, last, rows, n = [], None, [], 0
+    subtitle_readings, subtitle_rows = [], []
     for t, img in frames(video, args.fps, args.t0, args.t1, w, h, top):
         if changed(img, last):
-            rows, last, n = read_frame(ocr, img, top, test), img, n + 1
+            if args.auto:
+                rows, subtitle_rows = read_auto_frame(ocr, img)
+            else:
+                rows = read_frame(ocr, img, top, test)
+            last, n = img, n + 1
         readings.append((t, rows))
-    events = track(readings, 1 / args.fps, anywhere=args.open)
+        if args.auto:
+            subtitle_readings.append((t, subtitle_rows))
+    events = (
+        automatic_events(readings, subtitle_readings, 1 / args.fps)
+        if args.auto
+        else track(readings, 1 / args.fps, anywhere=args.open)
+    )
     print(f"{len(readings)} frames, {n} read, {len(events)} captions", file=sys.stderr)
     (work / "subs.json").write_text(
-        json.dumps({"video": str(video), "fps": args.fps, "events": events}, ensure_ascii=False, indent=1),
+        json.dumps(
+            {
+                "video": str(video),
+                "fps": args.fps,
+                "mode": "auto" if args.auto else "open" if args.open else "closed",
+                "events": events,
+            },
+            ensure_ascii=False,
+            indent=1,
+        ),
         encoding="utf-8",
     )
     for e in events:

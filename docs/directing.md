@@ -135,6 +135,15 @@ render nothing and don't make a part render again; they change the delivery
 
 ## Workflow
 
+The [Jellyfin integration](jellyfin.md) runs this workflow with a headless
+director. Its `--auto-text` jobs read both caption appearances and outlined
+bottom subtitles, with one OCR inference per changed frame, and look for signs.
+The appearance labels are not proof that text matches the spoken language:
+compare the words with audio and frames before using them to correct a transcript.
+Foreign-language dialogue translated in the picture may need to stay original
+with translated captions. Auto detection provides evidence; the director still
+decides which text the viewer needs.
+
 For a new show, settle one thing with the user before the first part: the
 voice, or both (see "Voice" under Render). Everything else has a default. The
 language pair is Japanese → English unless the job says otherwise (`--source

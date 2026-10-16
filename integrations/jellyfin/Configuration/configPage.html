@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Dub Anything</title></head>
+<body>
+<div id="DubAnythingPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-require="emby-input,emby-button,emby-select,emby-checkbox">
+  <div data-role="content"><div class="content-primary" style="max-width:68em;margin:auto">
+    <h1>Dub Anything</h1>
+    <p style="margin-top:-.5em;opacity:.8"><span id="dubVersion">Loading plugin version…</span> ·
+      <a href="https://github.com/swax/dub-anything" target="_blank" rel="noopener noreferrer" style="color:inherit">Repository</a></p>
+    <p>Dub a movie or episode in the actors’ voices. Codex or Claude Code directs the dialogue while your GPU renders it.</p>
+    <div id="dubStatus" role="status" aria-live="polite">Connecting to the dubbing worker…</div>
+    <h2>New dub</h2>
+    <form id="dubSearchForm" style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.4em 1em;margin:1.5em 0">
+      <label class="inputLabel" for="dubSearch" style="grid-column:1/-1">Find a movie or episode</label>
+      <input class="emby-input" id="dubSearch" type="search" placeholder="Search your library" style="min-width:0;margin:0" required>
+      <button is="emby-button" type="submit" class="raised" style="margin:0;align-self:stretch">Search</button>
+    </form>
+    <form id="dubCreateForm">
+      <div class="selectContainer"><label class="selectLabel" id="dubItemLabel" for="dubItem">Found library videos (0)</label>
+        <select is="emby-select" id="dubItem" required><option value="">Search for a video above</option></select></div>
+      <div style="display:flex;gap:1.5em;flex-wrap:wrap">
+        <div class="inputContainer" style="flex:1"><label class="inputLabel" for="dubSource">From</label>
+          <input is="emby-input" id="dubSource" list="dubLanguages" value="Japanese" placeholder="Any language" maxlength="80" required></div>
+        <div class="inputContainer" style="flex:1"><label class="inputLabel" for="dubTarget">To</label>
+          <input is="emby-input" id="dubTarget" list="dubLanguages" value="English" placeholder="Any language" maxlength="80" required></div>
+        <datalist id="dubLanguages"></datalist>
+        <div class="selectContainer" style="flex:1"><label class="selectLabel" for="dubDirector">Director</label>
+          <select is="emby-select" id="dubDirector"><option value="codex">Codex</option><option value="claude">Claude Code</option></select></div>
+        <div class="selectContainer" style="flex:1"><label class="selectLabel" for="dubVoice">Voice</label>
+          <select is="emby-select" id="dubVoice"><option value="actor">Actor’s voice</option><option value="american">American English</option><option value="both">Both</option></select></div>
+      </div>
+      <p>Enter a language name or code. If support is missing, your director adds and tests it first.</p>
+      <p>Captions, subtitles, signs, and title cards are detected automatically.</p>
+      <p>A separate dubbed version keeps the original audio and adds translated subtitles. The source file stays intact.</p>
+      <button is="emby-button" id="dubSubmit" type="submit" class="raised button-submit" disabled>Queue dub</button>
+    </form>
+    <div id="dubJobsHeader" style="display:flex;align-items:center;gap:1em;flex-wrap:wrap;margin:1.5em 0 1em">
+      <h2 id="dubJobsLabel" style="margin:0">Jobs (0)</h2>
+      <button is="emby-button" type="button" id="dubRefresh" class="raised" style="margin:0">Refresh jobs</button>
+    </div>
+    <div id="dubJobs" aria-live="polite" style="display:grid;gap:1em"></div>
+    <details style="margin-top:2em"><summary>About and updates</summary>
+      <p id="dubUpdates" role="status">Checking automatic updates…</p>
+      <p>Plugin and worker updates install together after all running and queued jobs finish.
+        New jobs pause briefly while Jellyfin and the worker restart. Your settings and working files are kept.</p>
+      <p>The updater checks for compatible releases every six hours. Local worker code or language changes defer updates for review.</p>
+      <p><a href="https://raw.githubusercontent.com/swax/dub-anything/main/releases/manifest.json" target="_blank" rel="noopener noreferrer" style="color:inherit">Jellyfin repository feed</a> ·
+        <a href="https://github.com/swax/dub-anything/releases" target="_blank" rel="noopener noreferrer" style="color:inherit">Release notes</a></p>
+    </details>
+    <details style="margin-top:2em"><summary>Worker settings</summary>
+      <form id="dubSettingsForm">
+        <div class="inputContainer"><label class="inputLabel" for="dubUrl">Local worker address</label><input is="emby-input" id="dubUrl" type="url" required></div>
+        <div class="inputContainer"><label class="inputLabel" for="dubToken">Worker token</label><input is="emby-input" id="dubToken" type="password" autocomplete="off" required></div>
+        <div class="selectContainer"><label class="selectLabel" for="dubDefault">Default director</label><select is="emby-select" id="dubDefault"><option value="codex">Codex</option><option value="claude">Claude Code</option></select></div>
+        <div class="inputContainer"><label class="inputLabel" for="dubCodexModel">Codex model (optional)</label><input is="emby-input" id="dubCodexModel" placeholder="Use the CLI’s configured model"></div>
+        <div class="inputContainer"><label class="inputLabel" for="dubClaudeModel">Claude Code model (optional)</label><input is="emby-input" id="dubClaudeModel" placeholder="Use the CLI’s configured model"></div>
+        <div class="checkboxContainer"><label><input type="checkbox" id="dubReview"> Review the report and preview before publishing</label></div>
+        <button is="emby-button" type="submit" class="raised">Save settings</button>
+      </form>
+    </details>
+  </div></div>
+  <script>
+  (function () {
+    'use strict';
+    var page = document.querySelector('#DubAnythingPage');
+    var pluginId = '6d52a0cd-425d-4802-ad0c-368a83da8e45';
+    var timer, config, busy = false, available = {}, cards = Object.create(null);
+    function el(id) { return page.querySelector('#' + id); }
+    function status(text) { el('dubStatus').textContent = text; }
+    function api(path, method, body) {
+      return ApiClient.ajax({type: method || 'GET', url: ApiClient.getUrl('DubAnything/' + path),
+        dataType: 'json', contentType: 'application/json', data: body ? JSON.stringify(body) : undefined
+      }).catch(function (error) {
+        var detail = error.responseJSON && error.responseJSON.error;
+        if (!detail && error.responseText) { try { detail = JSON.parse(error.responseText).error; } catch (_) {} }
+        throw new Error(detail || 'Request failed. Check the worker address, token, and service log.');
+      });
+    }
+    function option(select, value, label, disabled) {
+      var node = document.createElement('option'); node.value = value; node.textContent = label;
+      node.disabled = !!disabled; select.appendChild(node);
+    }
+    function updateVoice() {
+      var english = /^(en|eng|english)$/i.test(el('dubTarget').value.trim());
+      el('dubVoice').querySelectorAll('option').forEach(function (node) { node.disabled = !english && node.value !== 'actor'; });
+      if (!english) el('dubVoice').value = 'actor';
+      el('dubSubmit').disabled = !el('dubItem').value || !available[el('dubDirector').value];
+    }
+    function button(parent, text, onClick) {
+      var node = document.createElement('button'); node.type = 'button'; node.textContent = text;
+      node.className = 'raised emby-button'; node.style.marginRight = '.7em';
+      node.onclick = onClick; parent.appendChild(node);
+      return node;
+    }
+    function setText(node, text) {
+      if (node.textContent !== text) node.textContent = text;
+    }
+    function loadDetail(jobId, view) {
+      if (view.panel.hidden || view.loading) return;
+      view.loading = true; view.panel.setAttribute('aria-busy', 'true');
+      api('Jobs/' + jobId + '/' + view.kind).then(function (result) {
+        var scrollTop = view.panel.scrollTop;
+        setText(view.panel, result.text);
+        view.panel.scrollTop = scrollTop;
+      }).catch(function (e) { setText(view.panel, e.message); }).finally(function () {
+        view.loading = false; view.panel.removeAttribute('aria-busy');
+      });
+    }
+    function createCard(job) {
+      var card = {node: document.createElement('section'), views: []};
+      card.node.style.cssText = 'padding:1.25em;border:1px solid #8885;border-radius:.6em;' +
+        'background:rgba(128,128,128,.1);box-shadow:0 .2em .6em #0002;overflow-wrap:anywhere';
+      ['title', 'summary', 'error', 'preview', 'output'].forEach(function (name) {
+        card[name] = document.createElement(name === 'title' ? 'h3' : 'p');
+        card.node.appendChild(card[name]);
+      });
+      card.title.style.marginTop = '0'; card.title.id = 'dub-job-' + job.id + '-title';
+      card.node.setAttribute('aria-labelledby', card.title.id);
+      var controls = document.createElement('div'); card.node.appendChild(controls);
+      ['report', 'log'].forEach(function (kind) {
+        var panel = document.createElement('pre'); panel.id = 'dub-' + job.id + '-' + kind;
+        panel.hidden = true; panel.tabIndex = 0; panel.setAttribute('aria-label', kind === 'report' ? 'Job report' : 'Job log');
+        panel.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:32em;overflow:auto';
+        panel.textContent = 'Loading…';
+        var view = {panel: panel, kind: kind, loading: false};
+        var toggle = button(controls, 'Show ' + kind, function () {
+          panel.hidden = !panel.hidden;
+          toggle.textContent = (panel.hidden ? 'Show ' : 'Hide ') + kind;
+          toggle.setAttribute('aria-expanded', String(!panel.hidden));
+          if (!panel.hidden) loadDetail(job.id, view);
+        });
+        toggle.setAttribute('aria-controls', panel.id); toggle.setAttribute('aria-expanded', 'false');
+        card.views.push(view); card.node.appendChild(panel);
+      });
+      card.actions = document.createElement('span'); controls.appendChild(card.actions);
+      return card;
+    }
+    function refresh() {
+      if (busy) return Promise.resolve(); busy = true;
+      api('Updates').then(function (update) {
+        setText(el('dubUpdates'), update.message + (update.available_version ? ' Available: v' + update.available_version + '.' : ''));
+      }).catch(function () { setText(el('dubUpdates'), 'Update status unavailable while the worker is restarting.'); });
+      return api('Jobs').then(function (jobs) {
+        setText(el('dubJobsLabel'), 'Jobs (' + jobs.length + ')');
+        var present = Object.create(null);
+        if (!jobs.length) el('dubJobs').textContent = 'No dubs queued yet.';
+        else if (!el('dubJobs').firstElementChild) el('dubJobs').textContent = '';
+        jobs.forEach(function (job, index) {
+          present[job.id] = true;
+          var card = cards[job.id] || (cards[job.id] = createCard(job));
+          setText(card.title, job.title);
+          setText(card.summary, job.source_lang + ' → ' + job.target_lang + ' · ' +
+            (job.director === 'claude' ? 'Claude Code' : 'Codex') + ' · ' + job.stage);
+          [['error', job.error], ['preview', job.rendered_path ? 'Preview file: ' + job.rendered_path : ''],
+            ['output', job.published_path ? 'Published: ' + job.published_path : '']].forEach(function (entry) {
+            card[entry[0]].hidden = !entry[1]; setText(card[entry[0]], entry[1] || '');
+          });
+          if (card.state !== job.state) {
+            card.actions.replaceChildren(); card.state = job.state;
+            var actions = job.state === 'awaiting_review' ? ['publish', 'cancel'] :
+              ['failed', 'interrupted', 'cancelled'].includes(job.state) ? ['resume'] : job.state === 'completed' ? [] : ['cancel'];
+            actions.forEach(function (action) {
+              button(card.actions, action.charAt(0).toUpperCase() + action.slice(1), function () {
+                if (action === 'cancel' && !window.confirm('Cancel the dub for “' + job.title + '”?\n\n' +
+                    'Processing will stop. Your progress and working files will be kept so you can resume later.')) return;
+                api('Jobs/' + job.id + '/' + action, 'POST', {}).then(refresh).catch(function (e) { status(e.message); });
+              });
+            });
+          }
+          if (el('dubJobs').children[index] !== card.node) el('dubJobs').insertBefore(card.node, el('dubJobs').children[index] || null);
+          card.views.forEach(function (view) { loadDetail(job.id, view); });
+        });
+        Object.keys(cards).forEach(function (id) {
+          if (!present[id]) {
+            cards[id].node.remove(); delete cards[id];
+          }
+        });
+      }).catch(function (e) { status(e.message); }).finally(function () { busy = false; });
+    }
+    function connect() {
+      return api('Capabilities').then(function (caps) {
+        available = {}; caps.directors.forEach(function (d) { available[d.id] = d.available; });
+        el('dubLanguages').replaceChildren();
+        caps.languages.forEach(function (language) { option(el('dubLanguages'), language.name, language.code); });
+        updateVoice();
+        status('Worker connected. ' + caps.directors.map(function (d) { return (d.id === 'claude' ? 'Claude Code' : 'Codex') +
+          (d.available ? ' is installed' : ' is unavailable'); }).join('; ') + (caps.ffmpeg ? '.' : '. ffmpeg is missing from the worker’s PATH.'));
+        return refresh();
+      }).catch(function (e) { status(e.message); });
+    }
+    page.addEventListener('pageshow', function () {
+      api('Info').then(function (info) { setText(el('dubVersion'), 'v' + info.version); })
+        .catch(function () { setText(el('dubVersion'), 'Version unavailable'); });
+      ApiClient.getPluginConfiguration(pluginId).then(function (value) {
+        config = value; el('dubUrl').value = config.ServiceUrl; el('dubToken').value = config.ServiceToken;
+        el('dubDefault').value = config.DefaultDirector; el('dubDirector').value = config.DefaultDirector;
+        el('dubCodexModel').value = config.CodexModel || ''; el('dubClaudeModel').value = config.ClaudeModel || '';
+        el('dubReview').checked = config.ReviewBeforePublish; return connect();
+      }).catch(function () { status('Sign in as a Jellyfin administrator to manage dubbing.'); });
+      clearInterval(timer); timer = setInterval(refresh, 10000);
+    });
+    page.addEventListener('pagehide', function () { clearInterval(timer); });
+    el('dubTarget').oninput = updateVoice; el('dubVoice').onchange = updateVoice;
+    el('dubDirector').onchange = updateVoice; el('dubItem').onchange = updateVoice;
+    el('dubRefresh').onclick = connect;
+    el('dubSearchForm').onsubmit = function (event) {
+      event.preventDefault();
+      ApiClient.getItems(ApiClient.getCurrentUserId(), {SearchTerm: el('dubSearch').value, Recursive: true,
+        IncludeItemTypes: 'Movie,Episode,Video', Limit: 50, Fields: 'Path', EnableTotalRecordCount: true
+      }).then(function (result) {
+        var count = typeof result.TotalRecordCount === 'number' ? result.TotalRecordCount : result.Items.length;
+        setText(el('dubItemLabel'), 'Found library videos (' + count + ')');
+        el('dubItem').replaceChildren(); option(el('dubItem'), '', result.Items.length ?
+          (count > result.Items.length ? 'Choose a video (showing first ' + result.Items.length + ')' : 'Choose a video') : 'No videos found');
+        result.Items.forEach(function (item) { option(el('dubItem'), item.Id,
+          (item.SeriesName ? item.SeriesName + ' — ' : '') + item.Name + (item.ProductionYear ? ' (' + item.ProductionYear + ')' : '')); });
+        updateVoice();
+      }).catch(function () { status('Library search failed. Sign in as an administrator.'); });
+    };
+    el('dubCreateForm').onsubmit = function (event) {
+      event.preventDefault(); el('dubSubmit').disabled = true;
+      api('Jobs', 'POST', {ItemId: el('dubItem').value, Director: el('dubDirector').value,
+        SourceLanguage: el('dubSource').value.trim(), TargetLanguage: el('dubTarget').value.trim(),
+        Voices: el('dubVoice').value
+      }).then(function () { status('Dub queued. You can close this page while it runs.'); return refresh(); })
+        .catch(function (e) { status(e.message); }).finally(updateVoice);
+    };
+    el('dubSettingsForm').onsubmit = function (event) {
+      event.preventDefault(); if (!config) return;
+      config.ServiceUrl = el('dubUrl').value; config.ServiceToken = el('dubToken').value;
+      config.DefaultDirector = el('dubDefault').value; config.CodexModel = el('dubCodexModel').value.trim();
+      config.ClaudeModel = el('dubClaudeModel').value.trim(); config.ReviewBeforePublish = el('dubReview').checked;
+      ApiClient.updatePluginConfiguration(pluginId, config).then(function () {
+        el('dubDirector').value = config.DefaultDirector; return connect();
+      }).catch(function () { status('Could not save settings. Administrator access is required.'); });
+    };
+  })();
+  </script>
+</div>
+</body>
+</html>

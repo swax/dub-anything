@@ -1,7 +1,7 @@
 """Run a dub from source video to the delivered file: the machine work, around the director's.
 
 Usage:
-  scripts/dub_anything.py new <video> [--source ja --target en] [--voices actor|american|both] [--slug NAME] [--minutes 3] [--whole A-B ...] [--captions|--subtitles] [--signs]
+  scripts/dub_anything.py new <video> [--source ja --target en] [--voices actor|american|both] [--slug NAME] [--minutes 3] [--whole A-B ...] [--captions|--subtitles|--auto-text] [--signs]
   scripts/dub_anything.py run <slug> [--watch]       do every step that can run now (see below)
   scripts/dub_anything.py status <slug>              where each part stands, and what blocks it
   scripts/dub_anything.py ready <slug> <NN> [...]    mark parts' scripts as directed (same as "ready": true)
@@ -294,7 +294,7 @@ def prepare_step(job, ps):
         return "busy"
     for n in names:
         if job.get("captions") and not (WORK / n / "subs.json").exists():
-            extra = ["--open"] if job["captions"] == "open" else []
+            extra = {"open": ["--open"], "auto": ["--auto"]}.get(job["captions"], [])
             if not tool(job, f"subs {n}", SUBS + [n] + extra, f"subs-{n}")[0]:
                 problem(job, f"subs.py failed on {n}")
                 return "failed"
@@ -698,8 +698,8 @@ def cmd_new(args):
         "voices": voices,
         "default": voices[0],
         "split": {"minutes": args.minutes, "whole": args.whole},
-        "captions": "open" if args.subtitles else args.captions,
-        "signs": args.signs,
+        "captions": "auto" if args.auto_text else "open" if args.subtitles else args.captions,
+        "signs": args.auto_text or args.signs,
         "quicktime_audio": args.quicktime_audio,
         "created": time.strftime("%Y-%m-%d %H:%M"),
     }
@@ -891,6 +891,7 @@ def main():
     a.add_argument("--minutes", type=float, default=3)
     a.add_argument("--whole", action="append", default=[], metavar="A-B")
     a.add_argument("--captions", action="store_true", help="the picture carries captions: run subs.py")
+    a.add_argument("--auto-text", action="store_true", help="detect caption/subtitle styles and signs automatically")
     a.add_argument(
         "--subtitles",
         action="store_true",

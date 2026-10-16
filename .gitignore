@@ -23,5 +23,9 @@ __pycache__/
 *.pyc
 .venv/
 
+# Local .NET build products for media-server plugins.
+integrations/**/bin/
+integrations/**/obj/
+
 # Third-party code fetched at setup (vc.py: Chatterbox).
 vendor/
