@@ -1,0 +1,20 @@
+[
+  {
+    "guid": "6d52a0cd-425d-4802-ad0c-368a83da8e45",
+    "name": "Dub Anything",
+    "owner": "swax",
+    "category": "General",
+    "description": "Dub library videos with a Codex or Claude Code director.",
+    "overview": "Directed dubbing with cloned voices",
+    "versions": [
+      {
+        "version": "0.2.0.0",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.0.0/dub-anything-jellyfin-0.2.0.0.zip",
+        "checksum": "b7d17b7a1929b7c7f3f529e7a6eb71e4",
+        "timestamp": "2026-10-16T03:53:42.245640+00:00",
+        "changelog": "Coordinated automatic updates for the Jellyfin plugin and local worker.\nUpdates wait for the dub queue to become idle, retain the previous installation,\nand restore it if startup verification fails. Includes the initial Jellyfin\ndashboard, Codex/Claude Code directing, and language setup workflow.\n"
+      }
+    ]
+  }
+]
