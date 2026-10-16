@@ -174,7 +174,7 @@ class BackendPlatformTests(FixedHomeTests):
 
 class DubAnythingDependencyTests(unittest.TestCase):
     def commands(self, platform):
-        with patch("sys.platform", platform):
+        with patch("sys.platform", platform), patch.object(backend, "full_env", return_value={}):
             return runpy.run_path(str(pathlib.Path(dub_anything.__file__)))
 
     def test_darwin_separate_dependencies_do_not_contain_cu128(self):
