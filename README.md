@@ -1,5 +1,13 @@
 # Dub Anything
 
+> **Jellyfin experiment — deferred (2026-10-15).** This branch preserves the
+> Jellyfin plugin, worker, updater, and their commit history. Dubbing takes hours
+> and still needs active supervision for errors, exceptions, and directing
+> decisions. An AI harness is the better place to manage that work for now, so
+> `main` returns to direct, agent-led dubbing with the useful core fixes retained.
+> This branch is a reference for possible future work, not the recommended setup.
+> Its release feeds and automatic updates are no longer maintained.
+
 Dub films and shows into another language **in each actor's own voice**, with
 the original music and sound effects intact. It runs on your own PC, and an AI
 coding agent directs the dub line by line, the way a dubbing director would.

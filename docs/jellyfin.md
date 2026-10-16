@@ -1,5 +1,22 @@
 # Jellyfin integration
 
+## Why this work is on a branch
+
+As of 2026-10-15, this integration is deferred on `codex/jellyfin`. A dub can
+take hours and still needs an agent to investigate errors, handle exceptions,
+and make directing decisions throughout the run. Moving the job into Jellyfin
+added service, queue, plugin, and updater maintenance before the dubbing workflow
+was ready to run unattended. An AI harness is the better home for supervising
+the work for now.
+
+The branch preserves every commit from the initial Jellyfin addition onward.
+`main` resumes from the preceding pull-request merge, with the independent core
+dubbing improvements extracted into a separate commit. Revisit the integration
+when the pipeline can reliably handle unattended jobs and their recovery.
+
+The setup and release information below records the experiment. Release feeds
+and automatic updates are no longer maintained; use `main` for direct dubbing.
+
 The local Jellyfin plugin queues a dub and shows its progress. A separate Python
 worker runs the existing pipeline and launches either Codex or Claude Code to
 direct each part. The worker and Jellyfin currently run on the same computer.
