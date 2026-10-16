@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.2.2.1",
+      "jellyfin_min": "12.2.0.0",
+      "jellyfin_max": "13.0.0.0",
+      "worker_protocol": 2,
+      "updater_protocol": 1,
+      "url": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.2.1/dub-anything-0.2.2.1.zip",
+      "sha256": "c182a50e82921e251849d5ed4aba540ca859a095087740df4ea49ba4e89f7a18",
+      "notes": "Fix Jellyfin job-action routing so Resume, Pause, Cancel, and Publish reach the\nworker. The route now avoids ASP.NET Core's reserved action parameter name.\n\nAdd Pause and Resume for queued or running jobs. Running work reaches a completed\ntool step before pausing, preserving saved progress. Paused jobs stay paused\nacross restarts. Display concise job errors with expandable diagnostic details.\n\nMove optional worker, director, language-setup, installer, and release tooling\ninto scripts/integrations/. Direct dubs continue to use scripts/dub_anything.py.\nUpdate documentation, tests, installation commands, and release automation for\nthe layout. Bundled compatibility launchers let older installed updaters upgrade\nand roll back safely; settings, queue, and working files keep their paths.\n\nIncludes the CTranslate2 short-window crash guard, Refresh log control, and\ndisabled Queue dub styling introduced in the preceding patch releases.\n",
+      "timestamp": "2026-10-16T04:27:26.096907+00:00"
+    },
+    {
       "version": "0.2.2.0",
       "jellyfin_min": "12.2.0.0",
       "jellyfin_max": "13.0.0.0",
