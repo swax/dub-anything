@@ -2,6 +2,17 @@
   "schema": 1,
   "releases": [
     {
+      "version": "0.2.4.0",
+      "jellyfin_min": "12.2.0.0",
+      "jellyfin_max": "13.0.0.0",
+      "worker_protocol": 2,
+      "updater_protocol": 1,
+      "url": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.4.0/dub-anything-0.2.4.0.zip",
+      "sha256": "c20916943657726c2249b2abcca4885f3f32799717a102000d24086f00d9152c",
+      "notes": "Show active runtime and estimated time remaining on Jellyfin job cards. Runtime\nexcludes queue waits, pauses, review, and worker downtime. Earlier jobs recover\nan approximate runtime from logs. Estimates learn each stage and requested voice\nseparately, including QA rounds, and show a stage estimate while later stages\nare still learning. Final assembly is identified separately. Saved clocks and\ncompleted work survive pause/resume and idle updates.\n",
+      "timestamp": "2026-10-16T04:59:13.822890+00:00"
+    },
+    {
       "version": "0.2.3.0",
       "jellyfin_min": "12.2.0.0",
       "jellyfin_max": "13.0.0.0",

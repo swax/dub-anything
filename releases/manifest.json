@@ -8,6 +8,14 @@
     "overview": "Directed dubbing with cloned voices",
     "versions": [
       {
+        "version": "0.2.4.0",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.4.0/dub-anything-jellyfin-0.2.4.0.zip",
+        "checksum": "61a588e544dd6f8367574e524e8f7c82",
+        "timestamp": "2026-10-16T04:59:13.822890+00:00",
+        "changelog": "Show active runtime and estimated time remaining on Jellyfin job cards. Runtime\nexcludes queue waits, pauses, review, and worker downtime. Earlier jobs recover\nan approximate runtime from logs. Estimates learn each stage and requested voice\nseparately, including QA rounds, and show a stage estimate while later stages\nare still learning. Final assembly is identified separately. Saved clocks and\ncompleted work survive pause/resume and idle updates.\n"
+      },
+      {
         "version": "0.2.3.0",
         "targetAbi": "12.2.0.0",
         "sourceUrl": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.3.0/dub-anything-jellyfin-0.2.3.0.zip",
