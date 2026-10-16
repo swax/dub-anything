@@ -8,6 +8,14 @@
     "overview": "Directed dubbing with cloned voices",
     "versions": [
       {
+        "version": "0.2.1.1",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.1.1/dub-anything-jellyfin-0.2.1.1.zip",
+        "checksum": "a90fd2b9361dc916113ebf4d1b10b70a",
+        "timestamp": "2026-10-16T04:12:56.635430+00:00",
+        "changelog": "Fix a CTranslate2 native crash while generating Whisper word timings for a\nwindow with fewer than two usable mel frames. The guard preserves normal word\ntimings and the existing CUDA/cuDNN dependencies.\n\nThe Jellyfin dashboard now has a Refresh log button below each expanded job log.\nQueue dub appears disabled until a library video and an available director are\nselected. Plugin and worker updates continue to install together only when idle.\n\nRespect hidden controls even when Jellyfin's button styles set an explicit\ndisplay mode. Clarify direct dubbing versus optional Jellyfin entry points in\nthe agent instructions and script guide; established script paths stay intact.\n"
+      },
+      {
         "version": "0.2.1.0",
         "targetAbi": "12.2.0.0",
         "sourceUrl": "https://github.com/swax/dub-anything/releases/download/jellyfin-v0.2.1.0/dub-anything-jellyfin-0.2.1.0.zip",
