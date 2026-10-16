@@ -69,7 +69,7 @@
     'use strict';
     var page = document.querySelector('#DubAnythingPage');
     var pluginId = '6d52a0cd-425d-4802-ad0c-368a83da8e45';
-    var timer, config, busy = false, available = {}, cards = Object.create(null);
+    var timer, timingTimer, config, busy = false, available = {}, cards = Object.create(null);
     function el(id) { return page.querySelector('#' + id); }
     function status(text) { el('dubStatus').textContent = text; }
     function api(path, method, body) {
@@ -112,6 +112,37 @@
       if (parts.length > 1 && parts.every(function (part, i) { return part === parts[0] + i; }))
         return parts[0] + '–' + parts[parts.length - 1];
       return parts.join(', ');
+    }
+    function duration(seconds, precise) {
+      var value = Math.max(0, Math[precise ? 'floor' : 'ceil'](seconds / (precise ? 1 : 60)));
+      if (!precise) value = Math.max(1, value) * 60;
+      var hours = Math.floor(value / 3600), minutes = Math.floor(value % 3600 / 60);
+      return (hours ? hours + 'h ' : '') + (minutes || hours || !precise ? minutes + 'm' : '') +
+        (precise ? (minutes || hours ? ' ' : '') + value % 60 + 's' : '');
+    }
+    function tickTiming(card) {
+      if (!card.timingSample) return;
+      var sample = card.timingSample, timing = sample.value;
+      var seconds = timing.elapsed_seconds + (timing.running ? Math.min(30, (performance.now() - sample.received) / 1000) : 0);
+      setText(card.runtime, 'Active runtime: ' + (timing.approximate ? '~' : '') + duration(seconds, true));
+    }
+    function updateTiming(card, job) {
+      var timing = job.timing; card.timing.hidden = !timing;
+      if (!timing) { card.timingSample = null; return; }
+      card.timingSample = {value: timing, received: performance.now()}; tickTiming(card);
+      card.runtime.title = timing.approximate ? 'Earlier runtime reconstructed from logs; new active time is tracked directly. Pauses and review are excluded.' :
+        'Time spent processing this job. Queue waits, pauses, and review are excluded.';
+      var stopped = ['paused', 'failed', 'interrupted', 'cancelled', 'queued'].includes(job.state);
+      var remaining = timing.status === 'complete' ? 'Complete' : timing.status === 'review' ? 'Ready for review' :
+        timing.status === 'finishing' ? 'Finishing assembly / publishing' : timing.remaining_seconds !== null ?
+          '~' + duration(timing.remaining_seconds, false) + ' + final assembly' : 'Learning timings…';
+      if (stopped && !['complete', 'review'].includes(timing.status)) remaining += ' · when resumed';
+      setText(card.eta, 'Estimated remaining: ' + remaining);
+      var detail = timing.stage_seconds !== null ? timing.stage_label + ': ~' + duration(timing.stage_seconds, false) +
+        ' remaining in this stage' + (stopped ? ' when resumed.' : '.') : '';
+      if (timing.missing_stages.length) detail += (detail ? ' ' : '') + 'Full estimate needs timings for: ' + timing.missing_stages.join(', ') + '.';
+      else if (timing.status === 'estimated') detail += (detail ? ' ' : '') + 'Rough estimate from completed work; retries and content complexity can change it.';
+      setText(card.timingDetail, detail); card.timingDetail.hidden = !detail;
     }
     function updateProgress(card, job) {
       var progress = job.progress; card.progress.hidden = !progress;
@@ -164,12 +195,19 @@
       var card = {node: document.createElement('section'), views: []};
       card.node.style.cssText = 'padding:1.25em;border:1px solid #8885;border-radius:.6em;' +
         'background:rgba(128,128,128,.1);box-shadow:0 .2em .6em #0002;overflow-wrap:anywhere';
-      ['title', 'summary', 'progress', 'error', 'preview', 'output'].forEach(function (name) {
-        card[name] = document.createElement(name === 'title' ? 'h3' : ['progress', 'error'].includes(name) ? 'div' : 'p');
+      ['title', 'summary', 'timing', 'progress', 'error', 'preview', 'output'].forEach(function (name) {
+        card[name] = document.createElement(name === 'title' ? 'h3' : ['timing', 'progress', 'error'].includes(name) ? 'div' : 'p');
         card.node.appendChild(card[name]);
       });
       card.title.style.marginTop = '0'; card.title.id = 'dub-job-' + job.id + '-title';
       card.node.setAttribute('aria-labelledby', card.title.id);
+      card.timing.setAttribute('aria-live', 'off');
+      var timingRow = document.createElement('div'); timingRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:.5em 2em';
+      card.timing.appendChild(timingRow);
+      card.runtime = document.createElement('strong'); timingRow.appendChild(card.runtime);
+      card.eta = document.createElement('strong'); timingRow.appendChild(card.eta);
+      card.timingDetail = document.createElement('p'); card.timing.appendChild(card.timingDetail);
+      card.timingDetail.style.cssText = 'font-size:.9em;opacity:.8;line-height:1.5';
       card.progress.style.cssText = 'margin:1em 0;padding:.2em 0'; card.progressRows = Object.create(null);
       card.progressActivity = document.createElement('p'); card.progress.appendChild(card.progressActivity);
       card.progressActivity.style.fontWeight = '600';
@@ -230,6 +268,7 @@
             (job.pause_requested && ['staging', 'language_setup', 'preparing', 'directing', 'rendering'].includes(job.state) ?
               'Pausing after the current step…' : job.stage));
           updateProgress(card, job);
+          updateTiming(card, job);
           card.error.hidden = !job.error; setText(card.errorSummary, errorSummary(job.error));
           setText(card.errorDetails, job.error || '');
           [['preview', job.rendered_path ? 'Preview file: ' + job.rendered_path : ''],
@@ -286,8 +325,9 @@
         el('dubReview').checked = config.ReviewBeforePublish; return connect();
       }).catch(function () { status('Sign in as a Jellyfin administrator to manage dubbing.'); });
       clearInterval(timer); timer = setInterval(refresh, 10000);
+      clearInterval(timingTimer); timingTimer = setInterval(function () { Object.keys(cards).forEach(function (id) { tickTiming(cards[id]); }); }, 1000);
     });
-    page.addEventListener('pagehide', function () { clearInterval(timer); });
+    page.addEventListener('pagehide', function () { clearInterval(timer); clearInterval(timingTimer); });
     el('dubTarget').oninput = updateVoice; el('dubVoice').onchange = updateVoice;
     el('dubDirector').onchange = updateVoice; el('dubItem').onchange = updateVoice;
     el('dubRefresh').onclick = connect;

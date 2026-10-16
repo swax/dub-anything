@@ -25,11 +25,11 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 import backend
-from integrations import director, language_setup, progress, release_info
+from integrations import director, job_timing, language_setup, progress, release_info
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DATA = ROOT / "work" / "service"
-ACTIVE = ("staging", "language_setup", "preparing", "directing", "rendering", "publishing")
+ACTIVE = job_timing.ACTIVE
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".m4v", ".mov", ".avi", ".webm", ".ts", ".m2ts"}
 
 
@@ -93,6 +93,7 @@ class Store:
                 if job["state"] in ("queued", "publish_queued"):
                     job["claimed_state"] = job["state"]
                     job["state"] = "publishing" if job["state"] == "publish_queued" else "staging"
+                    job_timing.transition(job, job["claimed_state"], job["state"], time.time())
                     db.execute("UPDATE jobs SET document = ? WHERE id = ?", (json.dumps(job), identity))
                     return job
         return None
@@ -117,13 +118,14 @@ class Store:
             raise KeyError("job not found")
         return json.loads(row[0])
 
-    def update(self, job_id, **changes):
+    def update(self, job_id, _recovery=False, **changes):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT document FROM jobs WHERE id = ?", (job_id,)).fetchone()
             if row is None:
                 raise KeyError("job not found")
             job = json.loads(row[0])
+            job_timing.transition(job, job["state"], changes.get("state", job["state"]), time.time(), _recovery)
             job.update(changes, updated=time.time())
             db.execute("UPDATE jobs SET document = ? WHERE id = ?", (json.dumps(job), job_id))
         return job
@@ -169,6 +171,8 @@ class Store:
             "stage": "Queued",
             "created": time.time(),
             "updated": time.time(),
+            "active_seconds": 0,
+            "active_since": None,
             "cancel_requested": False,
             "pause_requested": False,
             "review_before_publish": request.get("review_before_publish", True),
@@ -190,12 +194,25 @@ class Store:
             db.execute("INSERT INTO jobs VALUES (?, ?)", (identity, json.dumps(job)))
         return job
 
+    def initialize_timing(self):
+        # Only the worker holding the service lease migrates legacy records.
+        # The updater also opens Store, so construction must remain read-only here.
+        for job in self.all():
+            if "active_seconds" not in job:
+                self.update(
+                    job["id"],
+                    active_seconds=job_timing.legacy_elapsed(self.data / "jobs" / job["id"], time.time()),
+                    active_since=None,
+                    timing_approximate=True,
+                )
+
     def recover(self):
         for job in self.all():
             if job["state"] in ACTIVE:
                 paused = job.get("pause_requested") and not job["cancel_requested"]
                 self.update(
                     job["id"],
+                    _recovery=True,
                     state="paused" if paused else "interrupted",
                     stage="Paused; resume to continue" if paused else "Worker stopped; resume to continue",
                 )
@@ -208,6 +225,7 @@ class Store:
             if row is None:
                 raise KeyError("job not found")
             job = json.loads(row[0])
+            old_state = job["state"]
             if action in ("resume", "publish"):
                 self.check_admission(db)
             if (
@@ -243,6 +261,7 @@ class Store:
             else:
                 raise ValueError(f"cannot {action} a job in state {job['state']}")
             job["updated"] = time.time()
+            job_timing.transition(job, old_state, job["state"], job["updated"])
             db.execute("UPDATE jobs SET document = ? WHERE id = ?", (json.dumps(job), job_id))
         return job
 
@@ -263,10 +282,14 @@ class Worker:
     def __init__(self, store):
         self.store = store
         self.stop = threading.Event()
+        self.last_heartbeat = 0
         self.thread = threading.Thread(target=self.loop, name="dub-worker", daemon=True)
 
     def cancelled(self, job, allow_pause=True):
         control = self.store.get(job["id"])
+        if control["state"] in ACTIVE and time.monotonic() - self.last_heartbeat >= 10:
+            self.store.update(job["id"])
+            self.last_heartbeat = time.monotonic()
         if self.stop.is_set() or control["cancel_requested"]:
             raise Cancelled()
         if allow_pause and control.get("pause_requested"):
@@ -418,6 +441,7 @@ class Worker:
             ):
                 continue
             self.set_stage(job, "directing", f"{job['director']}: directing part {index} of {len(ps)}")
+            direction_started = time.monotonic()
             feedback = ""
             for attempt in range(3):
                 self.run(
@@ -464,6 +488,13 @@ class Worker:
                     runner.write_json(script_path, script)
                     approved[part["name"]] = director.script_signature(script)
                     self.store.update(job["id"], approved_parts=approved)
+                    with (folder / "timings.jsonl").open("a", encoding="utf-8") as timings:
+                        timings.write(
+                            json.dumps(
+                                {"kind": "direction", "part": index, "seconds": time.monotonic() - direction_started}
+                            )
+                            + "\n"
+                        )
                     break
                 except ValueError as exc:
                     feedback = str(exc)
@@ -659,7 +690,8 @@ class Handler(BaseHTTPRequestHandler):
         return self.reply(404, {"error": "endpoint not found"})
 
     def describe(self, job):
-        return {**job, "progress": progress.snapshot(job, self.server.store.data, ROOT)}
+        view = progress.snapshot(job, self.server.store.data, ROOT)
+        return {**job, "progress": view, "timing": job_timing.snapshot(job, self.server.store.data, view)}
 
     def handle_request(self):
         try:
@@ -714,6 +746,7 @@ def serve(data=DATA):
     config = settings(data)
     with service_lock(data):
         store = Store(data)
+        store.initialize_timing()
         store.set_state("plugin", None)
         server = Server(config, store)
         store.recover()

@@ -177,9 +177,18 @@ updater paths so already-installed updaters can upgrade and roll back safely.
 - Each card shows the current tool and part number (including batches), the
   current stage's completed/remaining counts, and parts still unfinished overall.
   Expand **Progress by stage** for the preparation, direction, and rendering
-  breakdown. These are part counts, not time estimates; a part finishes only
+  breakdown. A part finishes only
   when every requested voice has current render/QA results. Parts kept entirely
   original count as finished. Counts come from saved files and survive resume.
+- **Active runtime** counts processing time across resumes, excluding queue waits,
+  pauses, review, and worker downtime. Older jobs show `~` because their earlier
+  runtime is reconstructed from logs. New active intervals are tracked directly.
+- **Estimated remaining** learns separate per-part timings for each stage and
+  voice, including render/QA rounds. A stage estimate appears first; the full
+  estimate waits for samples from all remaining stages. It is approximate and
+  excludes final assembly and publishing, which are shown separately. Paused
+  estimates describe the work left once resumed. Retries and content complexity
+  can change estimates; the display does not promise a completion deadline.
 - **Pause** stops at the next completed tool step. A running director session and
   background checks finish first, so pausing can take time. The card says
   "Pausing" until the worker has stopped. Queued jobs pause immediately.

@@ -42,30 +42,36 @@ def tail(path):
         return ""
 
 
+def describe_tool(label, names):
+    first = label.split()[0] if label.split() else ""
+    step = {"round": "render", "re-mix": "render"}.get(first, first)
+    if step not in STEPS:
+        return None
+    indices = [
+        index
+        for index, name in enumerate(names, 1)
+        if re.search(r"(?<![\w-])" + re.escape(name) + r"(?:\.us)?(?![\w-])", label)
+    ]
+    batch = re.search(r"\.\.(\d+)(?:\s|$)", label)
+    if indices and batch:
+        end_name = names[indices[0] - 1].rsplit("-", 1)[0] + "-" + batch[1]
+        if end_name in names and names.index(end_name) + 1 >= indices[0]:
+            indices = list(range(indices[0], names.index(end_name) + 2))
+    result = {"step": step, "label": STEPS[step], "parts": indices}
+    if step in ("render", "qa"):
+        result["label"] += " · " + ("American English" if ".us" in label else "Actor’s voice")
+    return result
+
+
 def current_tool(log, names):
     current = None
     # Ignore earlier runs when a resumed worker has just started a new command.
     for line in log.rsplit("\n--- ", 1)[-1].splitlines():
         match = re.match(r"^\[\d{2}:\d{2}:\d{2}\] (.+?) \.\.\.$", line)
         if match:
-            label = match[1]
-            first = label.split()[0]
-            step = {"round": "render", "re-mix": "render"}.get(first, first)
-            if step not in STEPS:
-                continue
-            indices = [
-                index
-                for index, name in enumerate(names, 1)
-                if re.search(r"(?<![\w-])" + re.escape(name) + r"(?:\.us)?(?![\w-])", label)
-            ]
-            batch = re.search(r"\.\.(\d+)(?:\s|$)", label)
-            if indices and batch:
-                end_name = names[indices[0] - 1].rsplit("-", 1)[0] + "-" + batch[1]
-                if end_name in names and names.index(end_name) + 1 >= indices[0]:
-                    indices = list(range(indices[0], names.index(end_name) + 2))
-            current = {"step": step, "label": STEPS[step], "parts": indices, "status": "running", "raw": label}
-            if step in ("render", "qa"):
-                current["label"] += " · " + ("American English" if ".us" in label else "Actor’s voice")
+            tool = describe_tool(match[1], names)
+            if tool:
+                current = {**tool, "status": "running", "raw": match[1]}
         elif current:
             result = re.match(r"^\[\d{2}:\d{2}:\d{2}\] " + re.escape(current["raw"]) + r" (ok|FAILED) \(", line)
             if result:
@@ -93,6 +99,8 @@ def snapshot(job, data, root, jobs=JOBS):
     current = current_tool(tail(data / "jobs" / job["id"] / "pipeline.log"), names)
     counts = dict.fromkeys(("prep", "separate", "subs", "draft", "signs", "direction", "render"), 0)
     pending = {key: [] for key in counts}
+    voices = ["actor", "american"] if job.get("voices") == "both" else [job.get("voices", "actor")]
+    voice_done = {voice: [] for voice in voices}
     # Import pure timing-state helpers only; no transcription model is loaded.
     from dub_anything import derived_script, script_sha
 
@@ -105,14 +113,17 @@ def snapshot(job, data, root, jobs=JOBS):
         job_id = segments.get("job_id", "")
         valid_job = isinstance(job_id, str) and bool(re.fullmatch(r"[\w-]+", job_id))
         separated = valid_job and bool(read(jobs / job_id / "separator.json"))
-        voices = ["actor", "american"] if job.get("voices") == "both" else [job.get("voices", "actor")]
-        final = original
-        if not original and isinstance(script.get("lines"), list) and ready:
-            final = all(
-                (state := read(root / "work" / voice_part(name, voice) / "state.json")).get("stage") == "final"
-                and state.get("script") == script_sha(derived_script(script, voice))
-                for voice in voices
-            )
+        for voice in voices:
+            if original or (
+                isinstance(script.get("lines"), list)
+                and ready
+                and (
+                    (state := read(root / "work" / voice_part(name, voice) / "state.json")).get("stage") == "final"
+                    and state.get("script") == script_sha(derived_script(script, voice))
+                )
+            ):
+                voice_done[voice].append(index)
+        final = all(index in voice_done[voice] for voice in voices)
         flags = {
             "prep": original or valid_job,
             "separate": original or separated,
@@ -170,4 +181,6 @@ def snapshot(job, data, root, jobs=JOBS):
         "current": current,
         "phase": next(row for row in stages if row["key"] == phase),
         "stages": stages,
+        "names": names,
+        "voices": {voice: {"finished": done, "left": len(names) - len(done)} for voice, done in voice_done.items()},
     }

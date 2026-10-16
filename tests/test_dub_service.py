@@ -81,6 +81,37 @@ class ServiceTests(unittest.TestCase):
         self.store.action(job["id"], "pause")
         self.assertEqual(self.store.action(job["id"], "cancel")["state"], "cancelled")
 
+    def test_clock_follows_claim_pause_resume_review_and_publish(self):
+        job = self.create()
+        with patch.object(service.time, "time", return_value=100):
+            self.assertEqual(self.store.claim()["active_since"], 100)
+        with patch.object(service.time, "time", return_value=120):
+            self.store.action(job["id"], "pause")
+        with patch.object(service.time, "time", return_value=130):
+            self.assertEqual(self.store.update(job["id"], state="paused")["active_seconds"], 30)
+        with patch.object(service.time, "time", return_value=1000):
+            self.store.action(job["id"], "resume")
+            self.store.claim()
+        with patch.object(service.time, "time", return_value=1040):
+            self.assertEqual(self.store.update(job["id"], state="awaiting_review")["active_seconds"], 70)
+        with patch.object(service.time, "time", return_value=2000):
+            self.store.action(job["id"], "publish")
+            self.store.claim()
+        with patch.object(service.time, "time", return_value=2010):
+            result = self.store.update(job["id"], state="completed")
+        self.assertEqual(result["active_seconds"], 80)
+        self.assertIsNone(result["active_since"])
+
+    def test_clock_recovery_excludes_worker_downtime(self):
+        job = self.create()
+        with patch.object(service.time, "time", return_value=100):
+            self.store.claim()
+        with patch.object(service.time, "time", return_value=120):
+            service.Worker(self.store).cancelled(job)
+        with patch.object(service.time, "time", return_value=2000):
+            self.store.recover()
+        self.assertEqual(self.store.get(job["id"])["active_seconds"], 20)
+
     def test_pending_pause_stays_active_until_checkpoint_and_survives_restart(self):
         job = self.create()
         self.store.claim()
@@ -258,6 +289,8 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(request("/jobs")[0]["id"], job["id"])
             self.assertIn("progress", request("/jobs")[0])
             self.assertIn("progress", request(f"/jobs/{job['id']}"))
+            self.assertEqual(request(f"/jobs/{job['id']}")["timing"]["elapsed_seconds"], 0)
+            self.assertNotIn("timing", self.store.get(job["id"]))
             self.assertNotIn("progress", self.store.get(job["id"]))
             self.assertEqual(request(f"/jobs/{job['id']}/pause", {})["state"], "paused")
             self.assertEqual(request(f"/jobs/{job['id']}/resume", {})["state"], "queued")

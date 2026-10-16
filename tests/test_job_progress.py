@@ -79,6 +79,8 @@ class JobProgressTests(unittest.TestCase):
         script = self.script(1)
         self.write("work/sample-01/state.json", {"stage": "final", "script": script_sha(script)})
         self.assertEqual(self.snapshot()["finished"], 0)
+        self.assertEqual(self.snapshot()["voices"]["actor"]["finished"], [1])
+        self.assertEqual(self.snapshot()["voices"]["american"]["left"], 4)
         self.write(
             "work/sample-01.us/state.json", {"stage": "final", "script": script_sha(derived_script(script, "american"))}
         )

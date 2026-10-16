@@ -1,6 +1,6 @@
-Show the current tool, part number and batch on Jellyfin job cards. Add a
-part-based progress bar, completed and remaining counts, and an expandable
-breakdown for audio preparation, separation, captions, drafting, on-screen text,
-directing, and rendering/QA. Counts come from saved work and survive pause/resume.
-Finished parts require current, approved scripts and every requested voice to
-pass rendering and QA. Part counts remain unknown until splitting is complete.
+Show active runtime and estimated time remaining on Jellyfin job cards. Runtime
+excludes queue waits, pauses, review, and worker downtime. Earlier jobs recover
+an approximate runtime from logs. Estimates learn each stage and requested voice
+separately, including QA rounds, and show a stage estimate while later stages
+are still learning. Final assembly is identified separately. Saved clocks and
+completed work survive pause/resume and idle updates.
