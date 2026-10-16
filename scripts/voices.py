@@ -85,8 +85,8 @@ def check(keys):
     wavs = {k: voice_wav(k) for k in keys}
     hold_gpu()
     whisper_setup()
-    from faster_whisper import WhisperModel
     from faster_whisper.audio import decode_audio
+    from whisper_safe import WhisperModel
 
     model = WhisperModel("Systran/faster-whisper-large-v3", device="auto", compute_type="default")
     for k in keys:

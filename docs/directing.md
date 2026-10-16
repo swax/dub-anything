@@ -10,6 +10,12 @@ Run everything from the repo folder with VoiceStudio's Python
 `~/Library/Application Support/VoiceStudio/runtime/project/.venv/bin/python` on macOS),
 with the backend up (see [setup.md](setup.md)).
 
+Whisper tools import `WhisperModel` from `scripts/whisper_safe.py`. Keep that
+wrapper when adding a transcription tool: a trailing window with fewer than two
+mel frames can crash older CTranslate2 builds during word alignment. The wrapper
+omits timings for that unusable window and leaves ordinary word timings alone,
+without changing the machine's CUDA/cuDNN dependencies.
+
 ## Files
 
 | Path | What |

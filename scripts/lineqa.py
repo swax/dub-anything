@@ -43,7 +43,7 @@ from gpulock import hold_gpu
 from languages import LANGUAGES
 
 whisper_setup()
-from faster_whisper import WhisperModel  # noqa: E402
+from whisper_safe import WhisperModel  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 

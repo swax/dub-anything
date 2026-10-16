@@ -13,7 +13,7 @@ from core import WORK, langs, out_dir, whisper_setup
 from gpulock import hold_gpu
 
 whisper_setup()  # VoiceStudio's downloaded Whisper + cuDNN 8
-from faster_whisper import WhisperModel  # noqa: E402
+from whisper_safe import WhisperModel  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8")
 name = sys.argv[1]

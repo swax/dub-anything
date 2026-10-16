@@ -17,9 +17,9 @@ from core import JOBS, WORK, langs, load_json, whisper_setup
 from gpulock import hold_gpu
 
 whisper_setup()  # VoiceStudio's downloaded Whisper + cuDNN 8
-from faster_whisper import WhisperModel  # noqa: E402
 from faster_whisper.audio import decode_audio  # noqa: E402
 from faster_whisper.vad import VadOptions, get_speech_timestamps  # noqa: E402
+from whisper_safe import WhisperModel  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8")
 ap = argparse.ArgumentParser()

@@ -63,9 +63,9 @@ from languages import LANGUAGES, NAMES
 
 whisper_setup()
 import torch  # noqa: E402
-from faster_whisper import WhisperModel  # noqa: E402
 from faster_whisper.audio import decode_audio  # noqa: E402
 from faster_whisper.vad import VadOptions, get_speech_timestamps  # noqa: E402
+from whisper_safe import WhisperModel  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 SR = 16000
