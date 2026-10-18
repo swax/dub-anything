@@ -23,6 +23,9 @@ but a word a voice can't say needs rewording. A fresh take can also come out
 worse, so each take a re-roll replaces is kept (work/<name>/takes/), and the
 next check puts the best one back if the new take transcribes worse; the next
 `generate` then re-mixes it without synthesizing anything.
+What Whisper heard in each take is kept by the take's hash (work/<name>/heard.json),
+so a check after a round of fresh takes only listens to the takes that changed;
+with none changed, Whisper isn't even loaded.
 In the "american" voice most flags come from the conversion, not from IndexTTS:
 when IndexTTS's own take of a flagged line says it right, the line is queued to
 be converted again (conversion is random too), keeping the take; after
@@ -35,6 +38,7 @@ import json
 import pathlib
 import shutil
 import sys
+import time
 
 import soundfile as sf
 
@@ -57,10 +61,45 @@ def better(a, b):
     return (not a["notes"], a["ratio"]) > (not b["notes"], b["ratio"])
 
 
-def check(name, model, show_all, reroll):
+class Ear:
+    """Whisper, loaded (and the GPU waited for) only when a take hasn't been heard before."""
+
+    MODEL = "Systran/faster-whisper-large-v3"
+
+    def __init__(self):
+        self.model = None
+        self.load_s = self.hear_s = 0.0  # waiting for the GPU and loading; listening
+
+    def __call__(self, wav, lang):
+        if self.model is None:
+            t = time.time()
+            hold_gpu()
+            self.model = WhisperModel(self.MODEL, device="auto", compute_type="default")
+            self.load_s += time.time() - t
+        t = time.time()
+        got = hear(self.model, wav, lang)
+        self.hear_s += time.time() - t
+        return got
+
+
+def check(name, ear, show_all, reroll):
     work = WORK / name
     job = json.loads((work / "segments.json").read_text(encoding="utf-8"))["job_id"]
     tgt = langs(name)[1]
+    # What Whisper heard in each take, by the take's hash: the same audio is heard the
+    # same way, so only new takes need listening to (a round re-rolls a few lines).
+    heard_path = work / "heard.json"
+    heard = load_json(heard_path, {})
+    model_tag = Ear.MODEL.rsplit("-", 1)[-1]
+    new = []
+
+    def listen(wav):
+        key = f"{model_tag}:{tgt}:{file_sha(wav)}"
+        if key not in heard:
+            heard[key] = ear(wav, tgt)
+            new.append(key)
+        return heard[key]
+
     lines = json.loads((work / "script.json").read_text(encoding="utf-8"))["lines"]
     # Takes re-rolled before, so a worse roll never replaces a better one: before a
     # flagged line is re-rolled its take is kept in takes/, with the settings it was
@@ -69,6 +108,9 @@ def check(name, model, show_all, reroll):
     converted = load_json(work / "converted.json", {})  # "american": the take is a converted copy
     kept_path = work / "takes" / "kept.json"
     kept = load_json(kept_path, {})
+    # Fresh takes each flagged line has had, per way of making it (rolls_key).
+    rolls_path = work / "takes" / "rolls.json"
+    rolls = load_json(rolls_path, {})
     flagged, restored = [], []
     for i, line in enumerate(lines):
         lid = line_id(line)
@@ -76,7 +118,7 @@ def check(name, model, show_all, reroll):
         if not wav.exists():
             print(f"L{i:02d} {line['start']:7.2f}  (not rendered)  {line['text']}")
             continue
-        got = hear(model, wav, tgt)
+        got = listen(wav)
         notes, ratio = LANGUAGES[tgt].compare(line["text"], got)
         take = {
             "notes": notes,
@@ -115,7 +157,7 @@ def check(name, model, show_all, reroll):
             seed = take["settings"].get("seed")
             tries = sum(k.get("reconverted", 0) for k in kept.get(lid, []) if k["settings"].get("seed") == seed)
             if reroll and lid in converted and src.exists() and tries < RECONVERTS:
-                engine_got = hear(model, src, tgt)
+                engine_got = listen(src)
                 if not LANGUAGES[tgt].compare(line["text"], engine_got)[0]:
                     flagged[-1]["reconvert"] = True
                     notes = notes + [f"IndexTTS's take is fine ({engine_got!r}): converting it again"]
@@ -131,35 +173,71 @@ def check(name, model, show_all, reroll):
             if flagged[-1].get("reconvert"):
                 entry = next(k for k in kept[lid] if k["sha"] == take["sha"])
                 entry["reconverted"] = entry.get("reconverted", 0) + 1
+            # Failed on SETTLE_TAKES takes: a word the voice can't say or a name Whisper
+            # doesn't know, which further rolls rarely change. It stays flagged for the
+            # report and the director, but gets no more fresh takes.
+            rkey = rolls_key(lid, take["settings"])
+            failed = 1 + rolls.get(rkey, 0)
+            if reroll and not flagged[-1].get("reconvert"):
+                if SETTLE_TAKES and failed >= SETTLE_TAKES:
+                    flagged[-1]["settled"] = True
+                    notes = notes + [f"failed on {failed} takes: not re-rolled (reword it, or leave it to the ear)"]
+                else:
+                    rolls[rkey] = rolls.get(rkey, 0) + 1
         if notes or show_all:
             dur = sf.info(wav).duration
             print(
                 f"L{i:02d} {line['start']:7.2f} {line['voice']:10s} {dur:4.2f}s  {'; '.join(notes) or 'ok'}\n"
                 f"      want: {line['text']}\n      got:  {got}"
             )
-    print(f"{len(flagged)} of {len(lines)} lines flagged")
+    timing = (
+        f" in {ear.hear_s:.0f} s, after {ear.load_s:.0f} s waiting for the GPU and loading"
+        if new and hasattr(ear, "hear_s")
+        else ""
+    )
+    print(
+        f"{len(flagged)} of {len(lines)} lines flagged ({len(new)} takes heard{timing}, the rest as in earlier checks)"
+    )
+    heard_path.write_text(json.dumps(heard, ensure_ascii=False, indent=1), encoding="utf-8")
     if kept:
         kept_path.write_text(json.dumps(kept, ensure_ascii=False, indent=1), encoding="utf-8")
+    if rolls:
+        rolls_path.write_text(json.dumps(rolls, indent=1), encoding="utf-8")
     if restored:
         (work / "rendered.json").write_text(json.dumps(rendered, indent=1), encoding="utf-8")
         if converted:
             (work / "converted.json").write_text(json.dumps(converted, indent=1), encoding="utf-8")
         print(f"put back {len(restored)} earlier takes: the next `scripts/dub.py generate {name}` re-mixes them")
     if reroll and flagged:
+        # Settled lines are listed too (for the report) but get no fresh take.
         (work / "reroll.json").write_text(json.dumps(flagged, ensure_ascii=False, indent=1), encoding="utf-8")
         again = sum(1 for f in flagged if f.get("reconvert"))
+        settled = sum(1 for f in flagged if f.get("settled"))
         what = [
             f"{n} {kind}"
-            for n, kind in ((len(flagged) - again, "for fresh takes"), (again, "to be converted again"))
+            for n, kind in ((len(flagged) - again - settled, "for fresh takes"), (again, "to be converted again"))
             if n
         ]
-        print(
-            f"queued {' and '.join(what)} on the next `scripts/dub.py generate {name}` "
-            f"(their current takes are kept, and put back if the new ones are worse)"
-        )
+        if what:
+            print(
+                f"queued {' and '.join(what)} on the next `scripts/dub.py generate {name}` "
+                f"(their current takes are kept, and put back if the new ones are worse)"
+            )
+        if settled:
+            print(f"{settled} settled (failed on {SETTLE_TAKES} takes): not re-rolled")
 
 
 RECONVERTS = 2  # conversions of one IndexTTS take tried again before it gets a fresh take
+# Takes of a flagged line that fail QA before it stops being re-rolled (0: re-roll
+# every round). On two films the first fresh take cleared most real glitches and
+# later rounds almost none (docs/research.md, "Settling QA flags").
+SETTLE_TAKES = 2
+
+
+def rolls_key(lid, settings):
+    """A line and the way its takes are made (a seed or speed only tells two rolls apart)."""
+    sig = json.dumps({**settings, "speed": None, "seed": None}, sort_keys=True)
+    return f"{lid}:{hashlib.sha1(sig.encode()).hexdigest()[:8]}"
 
 
 def hear(model, wav, lang="en"):
@@ -173,12 +251,11 @@ def main():
     ap.add_argument("--all", action="store_true", help="print every line, not just flagged ones")
     ap.add_argument("--reroll", action="store_true", help="queue flagged lines for fresh takes")
     args = ap.parse_args()
-    hold_gpu()
-    model = WhisperModel("Systran/faster-whisper-large-v3", device="auto", compute_type="default")
+    ear = Ear()
     for name in args.names:
         if len(args.names) > 1:
             print(f"=== {name}")
-        check(name, model, args.all, args.reroll)
+        check(name, ear, args.all, args.reroll)
 
 
 if __name__ == "__main__":

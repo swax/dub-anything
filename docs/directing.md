@@ -672,7 +672,15 @@ How these were chosen, and what else was tried, is in
   dice, so re-check after each render. A fresh take can also come out worse
   than the one it replaced: `--reroll` keeps each replaced take
   (`work/<clip>/takes/`), and the next check puts the best one back when the
-  new take transcribes worse. The next `generate` then only re-mixes. In the
+  new take transcribes worse. The next `generate` then only re-mixes. What
+  Whisper heard in each take is kept by the take's hash
+  (`work/<clip>/heard.json`), so the check after a round listens only to the
+  re-rolled takes, and one after a re-mix loads no model at all: on a film's
+  first parts a 34-line check after a round heard one take, and one after a
+  re-mix took 5 s instead of about 50-200 s per check before. A line that
+  fails on its fresh take too is *settled*: it gets no more rolls (later
+  rounds almost never fixed one, [research.md](research.md), finding 22) and
+  goes to the report for rewording or the listener. In the
   `"american"` voice most flags come from the conversion rather than from
   IndexTTS, so when IndexTTS's own take of a flagged line says it right,
   `--reroll` queues that take to be converted again instead (conversion is

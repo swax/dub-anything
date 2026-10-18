@@ -340,6 +340,38 @@ originals per part.
     a shorter reply and a wider closing pause. Source-specific measurements
     and listening notes stay in ignored `work/` files. It awaits a listener.
 
+22. **QA rounds cost more than they fix: hear each take once, and stop after
+    one fresh take.** On a 90-minute film (28 parts, one voice) the three QA
+    rounds after each part's render took 139 checks averaging 52 s (about two
+    hours) and 92 rounds of fresh takes; most parts used all three rounds, and
+    the lines still flagged at the end were names and near-misses. Two changes,
+    tried on the next film of the same length:
+    - `lineqa.py` keeps what Whisper heard in each take, keyed by the take's
+      hash, and loads Whisper only when a take is new. A check after a round
+      heard 1-5 takes instead of the part's 11-34, and one after a re-mix
+      loaded nothing (5 s). The film's 56 checks took 32 s each on average (30
+      minutes in all, against two hours); hearing itself was 136 s for 311
+      takes, and the rest was waiting for the GPU behind directors' tools and
+      loading the model, so what remains to win is in the queue, not in
+      Whisper.
+    - A flagged line gets one fresh take; if that fails too, it is *settled*:
+      listed for the report and the director, with no further rolls
+      (`SETTLE_TAKES` in `lineqa.py`). On the first parts rendered with three
+      rounds, the first fresh take fixed 5 of the 7 lines it re-rolled, and
+      rounds 2-3 fixed none of the other 2: one, a common noun, came out garbled
+      differently on every take, a word the voice can't say, which a stricter
+      "heard the same way twice" rule would have kept re-rolling. Rewording such
+      a line fixes it; another roll doesn't. With the rule on, the film took 22
+      rounds (18 first rounds; the 4 later ones before or at the switch)
+      against the earlier film's 92, and 13 lines settled; the director
+      reworded the garbled ones after delivery (each re-render about 20 s, QA
+      about 10 s, once the GPU was free) and left names and fillers ("Aw"
+      heard as "Oh") to the listener.
+    Two kinds of flag were the check's own: Whisper writes a letter grade
+    "B-minus" as "B-" and "eighth" as "8th" (both now normalised,
+    [languages/en.md](languages/en.md)). A filler "nah" heard as "now", on the
+    other hand, is a real flip worth rewording.
+
 ## What the pipeline does now
 
 `dub.py generate` renders new parts with per-line references, fill and `dips` by
@@ -361,7 +393,8 @@ their reading in kana. One dubbed from Spanish into English keeps them
 whose takes `lineqa.py` compares word by word without accents, and one dubbed
 from Korean into English (finding 19) and Chinese into English (finding 20).
 English into Cantonese keeps them too (finding 21), with pronunciation review
-still needed in either mode.
+still needed in either mode. `lineqa.py` hears each take once and gives a
+flagged line one fresh take before settling it for the director (finding 22).
 
 ## Open questions
 

@@ -449,7 +449,7 @@ def cmd_generate(args):
     # Takes lineqa.py --reroll flagged: synthesized again (on the first pass) for a fresh roll,
     # or, when only the voice conversion garbled them, converted again.
     queued = load_json(work / "reroll.json", []) if script else []
-    reroll = {r["id"] for r in queued if not r.get("reconvert")}
+    reroll = {r["id"] for r in queued if not r.get("reconvert") and not r.get("settled")}
     reconvert = {r["id"] for r in queued if r.get("reconvert")}
     spans = actor_spans(job_id, script["lines"]) if mode["fill"] else None
     ends = [span and span[1] for span in spans] if spans else None
@@ -689,6 +689,7 @@ def cmd_generate(args):
                         rendered[i] = s
                 if settings:
                     rendered_path.write_text(json.dumps(rendered, indent=1), encoding="utf-8")
+            print(f"    ({time.time() - t0:.0f} s)")
             synthesized |= regen is None or bool(regen)
             if done is None:
                 if not mode["fill"] or n == FILL_PASSES:
@@ -720,10 +721,12 @@ def cmd_generate(args):
                     + ["levels for newly synthesized lines"] * bool(args.match_level and synthesized)
                 )
             )
+            t0 = time.time()
             segments, ids, _, _ = plan(first=False)
             if args.match_level:
                 level(segments, ids)
             done = run(request(segments, ids, []))
+            print(f"    ({time.time() - t0:.0f} s)")
     finally:
         if prev_engine and prev_engine != args.engine:
             use_tts_engine(prev_engine)
@@ -735,6 +738,7 @@ def cmd_generate(args):
     out.mkdir(parents=True, exist_ok=True)
     suffix = f".{args.tag}" if args.tag else ""
     print("export mp4")
+    t0 = time.time()
     r = requests.get(
         f"{API}/dub/download/{job_id}",
         params={"include_tracks": tgt, "default_track": tgt, "preserve_bg": "true"},
@@ -747,7 +751,7 @@ def cmd_generate(args):
     r = requests.get(f"{API}/dub/srt/{job_id}", params={"lang": tgt}, timeout=120)
     r.raise_for_status()
     (out / f"{args.name}.{tgt}{suffix}.srt").write_text(r.text, encoding="utf-8")
-    print(f"  wrote {mp4}")
+    print(f"  wrote {mp4} ({time.time() - t0:.0f} s)")
 
 
 def main():

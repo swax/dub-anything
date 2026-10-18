@@ -29,7 +29,10 @@ language's notes ([ja.md](ja.md), [es.md](es.md), [yue.md](yue.md)). The code is
 Japanese: the actor's voice and the American one, per-line references,
 `"text_us"` for a line the American voice needs worded differently. QA
 compares takes word by word: numbers spelled out in any reading ("1979" as
-"nineteen seventy nine"), contractions expanded, "Dr." as "doctor", a take
+"nineteen seventy nine"), contractions expanded, "Dr." as "doctor", letter
+grades and ordinals as said (Whisper writes "a B-minus" as "a B-", which once
+flagged a quarter of a scene's lines, all of them right, and "eighth" as
+"8th"), a take
 passing at 85% of words, and "negation differs" and "number differs" catching
 a flipped meaning in a close match. Numbers can stay in digits: VoiceStudio
 spells them out, and `dub.py` drops a thousands comma ("150,000"), which would

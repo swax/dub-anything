@@ -136,7 +136,7 @@ work; you direct.
    (`scripts/backend.py restart` for "out of memory" or "Generation failed").
    Tell the user at once about anything you can't fix.
 5. **Triage.** The report (`work/jobs/<slug>/report.md`) lists what QA still
-   flags after three rounds. Reword what a voice can't say (that part renders
+   flags after a fresh take (or three rounds). Reword what a voice can't say (that part renders
    and delivers again by itself). Leave names and near-misses for the user's
    ears.
 6. **Hand over.** The source file is now `<name> (dubbed)`: the dub tracks

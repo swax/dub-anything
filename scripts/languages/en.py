@@ -81,6 +81,17 @@ def spell(n):
             return f"{spell(q)} {name}" + ("" if r == 0 else f" {spell(r)}")
 
 
+ORDINALS = {"one": "first", "two": "second", "three": "third", "five": "fifth", "eight": "eighth", "nine": "ninth"}
+ORDINALS["twelve"] = "twelfth"
+
+
+def ordinal(n):
+    """An ordinal in words, as Whisper's "8th" or "21st" is said: "eighth", "twenty first"."""
+    *head, last = spell(n).split()
+    last = ORDINALS.get(last) or (last[:-1] + "ieth" if last.endswith("y") else last + "th")
+    return " ".join(head + [last])
+
+
 def spell_pairs(n):
     """A four-digit number read in pairs, as years and model numbers are:
     1979 "nineteen seventy nine", 5410 "fifty four ten", 3400 "thirty four hundred"."""
@@ -117,7 +128,10 @@ def words(text, reading="plain"):
         lambda m: (spell(int(m.group(1))) + " " if m.group(1) else "") + spell(int(m.group(2)))[:-1] + "ies",
         t,
     )
+    t = re.sub(r"\b(\d{1,4})(?:st|nd|rd|th)\b", lambda m: ordinal(int(m.group(1))), t)  # "8th" is "eighth"
     t = re.sub(r"(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])", " ", t)  # "a2.5cm" -> "a 2.5 cm"
+    # Letter grades: Whisper writes "a B-minus" as "a B-" (and "A-plus" as "A+").
+    t = re.sub(r"\b([a-f])([-+])(?![a-z0-9])", lambda m: m.group(1) + (" minus" if m.group(2) == "-" else " plus"), t)
     t = re.sub(r"\bnevermind\b", "never mind", t)  # one word or two, same meaning
     t = re.sub(r"\b(" + "|".join(COLLOQUIAL) + r")\b", lambda m: COLLOQUIAL[m.group(1)], t)
     for a, b in (

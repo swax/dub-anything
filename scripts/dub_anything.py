@@ -21,7 +21,8 @@ order, so drafts keep coming; second.py over them in the background (CPU); with
 --signs, signs.py over each part once every part is drafted. For
 each part whose script the director has marked ready (or left with "lines": []),
 in each voice: render, lineqa, and up to QA_ROUNDS rounds of fresh takes or
-conversions for the flagged lines; what is still flagged after that goes to the
+conversions for the flagged lines (a line that fails on a fresh take too is
+settled and gets no more: lineqa.SETTLE_TAKES); what is still flagged goes to the
 report (reroll-left.json). A ready part goes first: preparation only runs, one
 step at a time (a part's prep, a chunk's separation or draft), while no ready
 part needs rendering, so the first parts render while the rest still prepares. The American
@@ -526,12 +527,15 @@ def advance(job, name):
             st["problem"] = f"lineqa failed: {last_error(out)}"
             save()
             return "blocked"
-        queued = (work / "reroll.json").exists()
+        # Lines lineqa settled (heard the same wrong way on several takes) are listed
+        # but get no fresh take: they don't call for another round.
+        flagged = load_json(work / "reroll.json", [])
+        queued = any(not r.get("settled") for r in flagged)
         if queued and st["round"] < QA_ROUNDS:
             st["round"] += 1
             st["stage"] = "render"
         else:
-            if queued:
+            if flagged:
                 (work / "reroll.json").replace(work / "reroll-left.json")
             else:
                 (work / "reroll-left.json").unlink(missing_ok=True)
@@ -641,7 +645,7 @@ def report(job, ps, quiet=False):
     for voice in job["voices"]:
         if flags[voice]:
             md += [
-                f"Still flagged by QA after {QA_ROUNDS} rounds ({VOICE_LABEL[voice]}): names Whisper doesn't know "
+                f"Still flagged by QA after a fresh take ({VOICE_LABEL[voice]}): names Whisper doesn't know "
                 "and near-misses, or garbles:",
                 "",
             ]
