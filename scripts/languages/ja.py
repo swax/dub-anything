@@ -83,11 +83,13 @@ TITLES = {
     "dub": {"actor": "日本語吹替（俳優の声）"},
     "subs": {"actor": "日本語（俳優の声の吹替）"},
     "signs": "日本語（画面の文字のみ）",
+    "subtitles": "日本語（字幕）",
     "transcript": "日本語 (transcript)",
     "original": "日本語 (original)",
 }
 # Arial has no Japanese; Yu Gothic ships with Windows (other systems fall back to a font that has it).
 FONT = "Yu Gothic"
+READING_CPS = 7  # characters a second a subtitle can be read at in comfort
 
 
 def subtitle(text):

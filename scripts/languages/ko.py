@@ -6,7 +6,7 @@ import difflib
 import re
 import unicodedata
 
-from .latin import as_written as subtitle  # noqa: F401  players wrap Korean at its spaces
+from .latin import two_lines as subtitle  # noqa: F401  Korean breaks at its spaces
 
 NAME, ISO3, NATIVE = "Korean", "kor", "한국어"
 
@@ -96,8 +96,10 @@ TITLES = {
     "dub": {"actor": "한국어 더빙 (배우 목소리)"},
     "subs": {"actor": "한국어 (배우 목소리 더빙)"},
     "signs": "한국어 (화면 글자만)",
+    "subtitles": "한국어 (자막)",
     "transcript": "한국어 (transcript)",
     "original": "한국어 (original)",
 }
 # Arial has no Hangul; Malgun Gothic ships with Windows (other systems fall back to a font that has it).
 FONT = "Malgun Gothic"
+READING_CPS = 12  # characters a second a subtitle can be read at in comfort (spaces count)

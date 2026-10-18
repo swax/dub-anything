@@ -86,10 +86,12 @@ TITLES = {
     "dub": {"actor": "中文配音（演员原声）"},
     "subs": {"actor": "中文（演员原声配音）"},
     "signs": "中文（画面文字）",
+    "subtitles": "中文（字幕）",
     "transcript": "中文 (transcript)",
     "original": "中文 (original)",
 }
 FONT = "Microsoft YaHei"
+READING_CPS = 9  # characters a second a subtitle can be read at in comfort
 
 
 def subtitle(text):

@@ -8,6 +8,11 @@ You give it a video file and target language. You get the same file back as
 `my-show (dubbed).mkv`: the dub plays by default, the original audio is one
 track away, and subtitles in both languages are included.
 
+Or ask for subtitles alone: the same agent-directed transcript and translation,
+timed for reading, with text on screen translated where it appears, as
+`my-show (subtitled).mkv` plus an `.srt` beside it. Subtitles need no voice
+engine running.
+
 ## Demos
 
 | A Japanese anime, dubbed into English | A Japanese film, dubbed into English |

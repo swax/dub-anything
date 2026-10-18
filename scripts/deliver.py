@@ -25,12 +25,21 @@ Nothing is re-encoded; the new subtitles are written in the container's format.
 Every copied stream is checked against its input (MD5) before the new file
 replaces the source; the source's name gets " (dubbed)" (once). Delivering
 again to a "(dubbed)" file replaces the dub tracks it already has.
+
+deliver_subtitles() does the same for a job that subtitles the video instead
+(dub_anything.py's --voices none): the source's own streams, then the
+translation (the styled .en.ass with the signs placed when there are signs,
+else the .en.srt; on by default) and the transcript, in Matroska,
+"<name> (subtitled).mkv", with the translation's .srt beside it
+("<name> (subtitled).en.srt", signs at the top) for players that read
+subtitles from a file.
 """
 
 import argparse
 import json
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -39,6 +48,7 @@ from languages import ISO3, LANGUAGES, PAIR, PAIRS
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 SUFFIX = " (dubbed)"
+SUBTITLED = " (subtitled)"
 LEGACY = re.compile(r"^(English dub \(.*\)|English \(.* dub\)|English \(signs only\)|日本語 \(transcript\))$")
 
 
@@ -85,10 +95,10 @@ def md5(path, index):
     ).stdout.strip()
 
 
-def delivered_name(source, mkv=False):
-    stem = source.stem[: -len(SUFFIX)] if source.stem.endswith(SUFFIX) else source.stem
+def delivered_name(source, mkv=False, suffix=SUFFIX):
+    stem = source.stem[: -len(suffix)] if source.stem.endswith(suffix) else source.stem
     ext = source.suffix.lower() if source.suffix.lower() in (".mp4", ".m4v", ".mov", ".mkv") and not mkv else ".mkv"
-    return source.with_name(f"{stem}{SUFFIX}{ext}")
+    return source.with_name(f"{stem}{suffix}{ext}")
 
 
 def deliver(source, dubs, default, pair=PAIR, quicktime_audio=False):
@@ -210,10 +220,91 @@ def deliver(source, dubs, default, pair=PAIR, quicktime_audio=False):
     return out
 
 
+def deliver_subtitles(source, base, pair=PAIR):
+    """A subtitle job's delivery: base is assemble.py --subtitles' <stem>.subtitled.mkv,
+    whose subtitle files lie beside it. Returns the delivered file's path."""
+    src, tgt = pair
+    source = pathlib.Path(source)
+    styled, srt, transcript = (base.with_suffix(f".{x}") for x in (f"{tgt}.ass", f"{tgt}.srt", f"{src}.srt"))
+    if not srt.exists():
+        raise SystemExit(f"no subtitles at {srt}")
+    tracks = [(styled if styled.exists() else srt, ISO3[tgt], LANGUAGES[tgt].TITLES["subtitles"])]
+    if transcript.exists():
+        tracks.append((transcript, ISO3[src], LANGUAGES[src].TITLES["transcript"]))
+    # Tracks an earlier delivery of subtitles added; a dub's tracks are another delivery's.
+    mine = {m.TITLES[k] for m in LANGUAGES.values() for k in ("subtitles", "signs", "transcript") if k in m.TITLES}
+    info = probe(source)
+    keep = [s for s in info["streams"] if not (s["codec_type"] == "subtitle" and name_of(s) in mine)]
+    vids = [s for s in keep if s["codec_type"] == "video"]
+    auds = [s for s in keep if s["codec_type"] == "audio"]
+    subs = [s for s in keep if s["codec_type"] == "subtitle"]
+    out = delivered_name(source, mkv=True, suffix=SUBTITLED)
+    tmp = out.with_name(out.stem + ".delivering" + out.suffix)
+
+    cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(source)]
+    for path, _, _ in tracks:
+        cmd += ["-i", str(path)]
+    for s in vids + auds:
+        cmd += ["-map", f"0:{s['index']}"]
+    for k in range(len(tracks)):
+        cmd += ["-map", f"{1 + k}:0"]
+    for s in subs:
+        cmd += ["-map", f"0:{s['index']}"]
+    cmd += ["-c", "copy"]
+    for k, (path, _, _) in enumerate(tracks):
+        cmd += [f"-c:s:{k}", "ass" if path.suffix == ".ass" else "srt"]
+    for k, s in enumerate(subs, len(tracks)):
+        if s["codec_name"] == "mov_text":  # Matroska can't hold MP4's own
+            cmd += [f"-c:s:{k}", "srt"]
+
+    def label(spec, lang, title):
+        return [f"-metadata:s:{spec}", f"language={lang}", f"-metadata:s:{spec}", f"title={title}"]
+
+    for k, s in enumerate(auds):
+        tags = s.get("tags") or {}
+        lang = tags.get("language") if tags.get("language") not in (None, "und") else ISO3[src]
+        if k == 0 and lang != ISO3[src]:
+            print(f"  the audio was tagged {lang!r}: tagging it {ISO3[src]!r}")
+            lang = ISO3[src]
+        cmd += label(f"a:{k}", lang, name_of(s) or LANGUAGES[src].NATIVE)
+    for k, (_, lang, title) in enumerate(tracks):
+        cmd += label(f"s:{k}", lang, title) + [f"-disposition:s:{k}", "default" if k == 0 else "0"]
+    for k, s in enumerate(subs, len(tracks)):
+        cmd += [f"-disposition:s:{k}", "0"]
+    cmd.append(str(tmp))
+    dropped = len(info["streams"]) - len(keep)
+    print(f"deliver subtitles into {source.name}" + (f" (replacing {dropped} earlier tracks)" if dropped else ""))
+    subprocess.run(cmd, check=True)
+
+    got = probe(tmp)["streams"]
+    by_type = {t: [s for s in got if s["codec_type"] == t] for t in ("video", "audio", "subtitle")}
+    checks = [(s, by_type["video"][k]) for k, s in enumerate(vids)]
+    checks += [(s, by_type["audio"][k]) for k, s in enumerate(auds)]
+    for s, o in checks:
+        if md5(source, s["index"]) != md5(tmp, o["index"]):
+            tmp.unlink(missing_ok=True)
+            raise SystemExit(f"stream {s['index']} of {source.name} changed in the copy; the source is untouched")
+    if len(by_type["subtitle"]) != len(tracks) + len(subs):
+        tmp.unlink(missing_ok=True)
+        raise SystemExit("subtitle tracks went missing; the source is untouched")
+    tmp.replace(out)
+    if out != source:
+        source.unlink()
+    beside = out.with_suffix(f".{tgt}.srt")
+    shutil.copyfile(srt, beside)
+    for s in got:
+        print(
+            f"  #{s['index']} {s['codec_type']:8s} {s['codec_name']:10s} {(s.get('tags') or {}).get('language', ''):4s}"
+            f" {name_of(s)}"
+        )
+    print(f"  wrote {out} (every copied stream verified) and {beside.name}")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("source_video")
-    ap.add_argument("dubs", nargs="+", metavar="voice=assembled.mp4")
+    ap.add_argument("dubs", nargs="*", metavar="voice=assembled.mp4")
     ap.add_argument("--default", help="the voice that plays first (default: actor if given, else the first)")
     ap.add_argument("--source", default="ja", help="language the source speaks (default ja)")
     ap.add_argument("--target", default="en", help="language of the dubs (default en)")
@@ -222,7 +313,18 @@ def main():
         action="store_true",
         help="tag English original audio as und to prefer the dub in QuickTime",
     )
+    ap.add_argument(
+        "--subtitles",
+        metavar="STEM.subtitled.mkv",
+        help="deliver a subtitle job instead: assemble.py --subtitles' output, its files beside it",
+    )
     args = ap.parse_args()
+    if args.subtitles:
+        if args.dubs:
+            raise SystemExit("--subtitles delivers subtitles alone: leave out the dubs")
+        return deliver_subtitles(args.source_video, pathlib.Path(args.subtitles), (args.source, args.target))
+    if not args.dubs:
+        raise SystemExit("give the dubs: actor=FILE and/or american=FILE (or --subtitles)")
     if (args.source, args.target) not in PAIRS:
         raise SystemExit(f"{args.source} -> {args.target}: the scripts know {sorted(PAIRS)}")
     dubs = {}

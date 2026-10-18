@@ -1,7 +1,7 @@
 """Run a dub from source video to the delivered file: the machine work, around the director's.
 
 Usage:
-  scripts/dub_anything.py new <video> [--source ja --target en] [--voices actor|american|both] [--slug NAME] [--minutes 3] [--whole A-B ...] [--captions|--subtitles|--auto-text] [--signs]
+  scripts/dub_anything.py new <video> [--source ja --target en] [--voices actor|american|both|none] [--slug NAME] [--minutes 3] [--whole A-B ...] [--captions|--subtitles|--auto-text] [--signs]
   scripts/dub_anything.py run <slug> [--watch]       do every step that can run now (see below)
   scripts/dub_anything.py status <slug>              where each part stands, and what blocks it
   scripts/dub_anything.py ready <slug> <NN> [...]    mark parts' scripts as directed (same as "ready": true)
@@ -12,7 +12,12 @@ A job (work/jobs/<slug>/job.json) is one source video, the language pair (Japane
 -> English unless --source/--target say otherwise; the American voice is English
 only) and the voices to dub it in ("both" plays the actor's voice by default). The
 source is hard-linked into videos/<slug>.<ext> so the split keeps working after
-delivery renames it.
+delivery renames it. With --voices none the job subtitles the video instead of
+dubbing it: any two languages with a module (languages/), no VoiceStudio
+backend, nothing to render. Its parts are prepped from their audio alone
+(dub.py prep --subtitles-only), separated and drafted the same way; a part is
+done when its script is ready, and delivery puts the subtitles into the source,
+renamed "<name> (subtitled).mkv", with an .srt beside it (deliver.py).
 
 run does, in order and only what isn't done yet: split; dub.py prep, then
 separate.py, subs.py (with --captions, --subtitles or --auto-text) and draft.py, first over the first part to
@@ -52,6 +57,7 @@ import sys
 import time
 
 import backend
+import subtitles
 from core import (
     JOBS,
     ROOT,
@@ -174,6 +180,11 @@ def job_langs(job):
     return tuple(job.get("langs", PAIR))
 
 
+def subtitles_only(job):
+    """A job with no voices subtitles its video: nothing is cloned or rendered."""
+    return not job["voices"]
+
+
 def parts(job):
     pj = load_json(VIDEOS / f"{job['slug']}-parts" / "parts.json")
     return pj["parts"] if pj else []
@@ -282,7 +293,8 @@ def prepare_step(job, ps):
             ok, out = tool(
                 job,
                 f"prep {p['name']}",
-                [PY, "scripts/dub.py", "prep", p["file"], "--source", src, "--target", tgt],
+                [PY, "scripts/dub.py", "prep", p["file"], "--source", src, "--target", tgt]
+                + (["--subtitles-only"] if subtitles_only(job) else []),
                 f"prep-{p['name']}",
             )
             if not ok and "produced no segments" in out:
@@ -296,7 +308,7 @@ def prepare_step(job, ps):
                 return "failed"
             # Prep loads transcription, diarisation and separation into the backend, and its
             # cache keeps that memory: renders beside it run out of GPU memory.
-            BACKEND["dirty"] = True
+            BACKEND["dirty"] = not subtitles_only(job)
             return "busy"
     todo = [n for n in names if not (job_dir_of(n) / "separator.json").exists()]
     if todo:
@@ -554,6 +566,8 @@ def delivery_sha(job, ps):
     if job.get("quicktime_audio"):
         h.update(b"quicktime-audio")
     for p in ps:
+        if subtitles_only(job):
+            h.update(json.dumps(load_json(WORK / p["name"] / "script.json"), sort_keys=True).encode())
         for voice in job["voices"]:
             name = voice_part(p["name"], voice)
             h.update(
@@ -572,6 +586,18 @@ def deliver_job(job, ps):
     sha = delivery_sha(job, ps)
     done = job.get("delivered") or {}
     if done.get("state") == sha and pathlib.Path(done.get("path", "")).exists():
+        return True
+    if subtitles_only(job):
+        ok, out = tool(job, "assemble subtitles", [PY, "scripts/assemble.py", job["slug"], "--subtitles"], "assemble")
+        m = re.search(r"-> (.+)$", out, re.M)
+        if not ok or not m:
+            return problem(job, f"assemble.py failed for the subtitles: {last_error(out)}")
+        log(f"deliver into {pathlib.Path(job['source']).name}")
+        out = deliver.deliver_subtitles(job["source"], pathlib.Path(m.group(1).strip()), job_langs(job))
+        job["source"] = str(out)
+        job["delivered"] = {"path": str(out), "at": time.strftime("%Y-%m-%d %H:%M"), "state": sha}
+        job.pop("problems", None)
+        save_job(job)
         return True
     dubs = {}
     for voice in job["voices"]:
@@ -601,12 +627,16 @@ def report(job, ps, quiet=False):
         md += [f"Delivered: `{job['delivered']['path']}` ({job['delivered']['at']})", ""]
     src, tgt = job_langs(job)
     md += [
-        f"{NAMES[src]} -> {NAMES[tgt]}; voices: {', '.join(VOICE_LABEL[v] for v in job['voices'])} "
-        f"(default: {VOICE_LABEL[job['default']]})",
+        f"{NAMES[src]} -> {NAMES[tgt]}; "
+        + (
+            "subtitles only"
+            if subtitles_only(job)
+            else f"voices: {', '.join(VOICE_LABEL[v] for v in job['voices'])} (default: {VOICE_LABEL[job['default']]})"
+        ),
         "",
     ]
     problems = list(job.get("problems", []))
-    listen, original, flags = [], [], {v: [] for v in job["voices"]}
+    listen, original, flags, cues = [], [], {v: [] for v in job["voices"]}, []
     timing = {v: [] for v in job["voices"]}
     for p in ps:
         script = load_json(WORK / p["name"] / "script.json")
@@ -616,9 +646,16 @@ def report(job, ps, quiet=False):
         if not script["lines"]:
             original.append(f"{film_time(p['start'])}-{film_time(p['end'])}")
             continue
-        for line in script["lines"]:
+        for line in script["lines"] + script.get("captions", []):
             if line.get("listen"):
                 listen.append((p["start"] + line["start"], line["text"], line["listen"]))
+        if subtitles_only(job):
+            if not script.get("ready"):
+                problems.append(f"{p['name']}: not marked ready")
+            cues += [
+                (p["start"] + line["start"], p["start"] + line["end"], line["text"])
+                for line in script["lines"] + script.get("captions", [])
+            ]
         for voice in job["voices"]:
             name = voice_part(p["name"], voice)
             st = load_json(WORK / name / "state.json", {})
@@ -637,7 +674,7 @@ def report(job, ps, quiet=False):
                         timing[voice].append(end - speech_length(wav))
     if problems:
         md += ["## Needs attention", ""] + [f"- {t}" for t in problems] + [""]
-    md += ["## Listen for", ""]
+    md += ["## Check against the original" if subtitles_only(job) else "## Listen for", ""]
     if listen:
         md += (
             ["Director's notes:", ""] + [f'- {film_time(t)} "{text}": {why}' for t, text, why in sorted(listen)] + [""]
@@ -653,6 +690,8 @@ def report(job, ps, quiet=False):
     if not listen and not any(flags.values()):
         md += ["Nothing flagged.", ""]
     md += ["## Numbers", ""]
+    if cues:
+        md.append("- " + subtitles.summary(cues, tgt))
     for voice in job["voices"]:
         d = timing[voice]
         if d:
@@ -663,7 +702,8 @@ def report(job, ps, quiet=False):
                 f"(median {med:.2f} s); {len(flags[voice])} still flagged"
             )
     if original:
-        md += ["", f"Left in the original (not dubbed): {', '.join(original)}"]
+        what = "Not subtitled" if subtitles_only(job) else "Left in the original (not dubbed)"
+        md += ["", f"{what}: {', '.join(original)}"]
     path = JOB_DIR / job["slug"] / "report.md"
     path.write_text("\n".join(md) + "\n", encoding="utf-8")
     if not quiet:
@@ -688,8 +728,13 @@ def cmd_new(args):
         raise SystemExit("give the job a --slug of lowercase letters, digits and _ (no hyphens)")
     if job_file(slug).exists():
         raise SystemExit(f"job {slug!r} exists: scripts/dub_anything.py status {slug}")
-    voices = {"both": ["actor", "american"], "actor": ["actor"], "american": ["american"]}[args.voices]
-    if (args.source, args.target) not in PAIRS:
+    voices = {"both": ["actor", "american"], "actor": ["actor"], "american": ["american"], "none": []}[args.voices]
+    if not voices:
+        # Subtitles need the source heard and the target written, not a pair dubbed end to end.
+        missing = [code for code in (args.source, args.target) if code not in LANGUAGES]
+        if missing or args.source == args.target:
+            raise SystemExit(f"subtitles from {args.source} into {args.target}: the scripts know {sorted(LANGUAGES)}")
+    elif (args.source, args.target) not in PAIRS:
         raise SystemExit(f"{args.source} -> {args.target}: the scripts know {sorted(PAIRS)}")
     unknown = [VOICE_LABEL[v] for v in voices if v not in LANGUAGES[args.target].VOICES]
     if unknown:
@@ -711,7 +756,7 @@ def cmd_new(args):
         "video": str(link),
         "langs": [args.source, args.target],
         "voices": voices,
-        "default": voices[0],
+        "default": voices[0] if voices else None,
         "split": {"minutes": args.minutes, "whole": args.whole},
         "captions": "auto" if args.auto_text else "open" if args.subtitles else args.captions,
         "signs": args.auto_text or args.signs,
@@ -722,9 +767,16 @@ def cmd_new(args):
     save_job(job)
     print(
         f"job {slug}: {src.name}, {NAMES[args.source]} -> {NAMES[args.target]}, "
-        f"{' + '.join(VOICE_LABEL[v] for v in voices)} (default {VOICE_LABEL[voices[0]]})"
+        + (
+            f"{' + '.join(VOICE_LABEL[v] for v in voices)} (default {VOICE_LABEL[voices[0]]})"
+            if voices
+            else "subtitles only"
+        )
     )
-    print(f"next: scripts/dub_anything.py run {slug} --watch   (in the background), then direct the parts")
+    print(
+        f"next: scripts/dub_anything.py run {slug} --watch   (in the background), then "
+        + ("translate the parts" if not voices else "direct the parts")
+    )
 
 
 def cmd_ready(args):
@@ -745,7 +797,8 @@ def cmd_status(args):
     ps = parts(job)
     print(
         f"{job['slug']}: {pathlib.Path(job['source']).name}; {' -> '.join(job_langs(job))}; "
-        f"voices {', '.join(job['voices'])}" + (f"; delivered {job['delivered']['at']}" if job.get("delivered") else "")
+        + ("subtitles only" if subtitles_only(job) else f"voices {', '.join(job['voices'])}")
+        + (f"; delivered {job['delivered']['at']}" if job.get("delivered") else "")
     )
     if not ps:
         print("  not split yet")
@@ -780,7 +833,7 @@ def cmd_status(args):
 
 def cmd_run(args):
     job = load_job(args.slug)
-    if not backend.ensure():
+    if not subtitles_only(job) and not backend.ensure():
         raise SystemExit("the VoiceStudio backend won't start (scripts/backend.py status)")
     if not split(job):
         return problem(job, "split.py failed") or 2
@@ -830,7 +883,11 @@ def cmd_run(args):
             if step == "failed":
                 return 2
             busy = step == "busy"
-        final = all(ready(p) and all(finished(p, v) for v in job["voices"]) for p in ps)
+        # With --signs, signs.py reads every part before delivery, however early the parts were ready.
+        signs_read = not job.get("signs") or all(
+            original_only(p) or (WORK / p["name"] / "signs.json").exists() for p in ps
+        )
+        final = signs_read and all(ready(p) and all(finished(p, v) for v in job["voices"]) for p in ps)
         if final:
             if SECOND_RUN.get(job["slug"]):
                 SECOND_RUN[job["slug"]][0].wait()
@@ -897,7 +954,12 @@ def main():
     a.add_argument("video")
     a.add_argument("--source", default="ja", help="language the video speaks (default ja)")
     a.add_argument("--target", default="en", help="language to dub it into (default en)")
-    a.add_argument("--voices", choices=["actor", "american", "both"], default="actor")
+    a.add_argument(
+        "--voices",
+        choices=["actor", "american", "both", "none"],
+        default="actor",
+        help="the dub's voices; none subtitles the video instead of dubbing it",
+    )
     a.add_argument(
         "--quicktime-audio",
         action="store_true",

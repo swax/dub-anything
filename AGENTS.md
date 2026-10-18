@@ -98,7 +98,8 @@ work; you direct.
    plays by default. Other target languages use the actor's voice.
    Look at the video's length and skim it for blocks that stay in the original
    (a channel card, commercial breaks, credits) so they can be split off whole.
-   `scripts/dub_anything.py new <video> [--source es|ko|zh|en --target en|ja|es] --voices actor|american|both [--whole A-B ...] [--captions|--subtitles|--auto-text] [--signs]`
+   `scripts/dub_anything.py new <video> [--source es|ko|zh|en --target en|ja|es] --voices actor|american|both|none [--whole A-B ...] [--captions|--subtitles|--auto-text] [--signs]`
+   (`--voices none` subtitles the video instead: see "Subtitles only" below)
    (`--captions` when the picture carries burned-in closed captions,
    `--subtitles` when a film subtitles its foreign-language speech in the
    picture, `--auto-text` to inspect both styles and signs when unsure,
@@ -150,6 +151,18 @@ work; you direct.
    `scripts/dub_anything.py cleanup <slug>` moves the VoiceStudio jobs, parts and
    takes to `videos/_to-delete/<slug>/` for the user to delete. The scripts,
    notes and report stay, so a line can be fixed later.
+
+**Subtitles only.** When the user wants a video subtitled rather than dubbed,
+make the job with `--voices none` (any two languages with a module in
+`scripts/languages/`; the VoiceStudio backend isn't used). The machine splits,
+takes out each part's audio, separates, drafts and reads the signs as for a dub;
+you write each part's `script.json` for reading instead of for the lips (no
+`voice`, everything heard gets a line), check it with `fit.py` (reading speed:
+fix every `FAST`, `LONG` and `SPLIT?`) and mark it ready. Nothing renders: when
+every part is ready, `run` delivers `<name> (subtitled).mkv` (the source's video
+and audio, the translation on by default with the signs placed, the
+transcript) and the translation's `.srt` beside it. See docs/directing.md,
+"Subtitles only".
 
 **A long video: direct in parallel.** The machine work is a few hours for a
 feature film, and directing it alone takes longer. Direct the first two or

@@ -15,9 +15,36 @@ def word_units(text):
     return re.findall(r"[a-z0-9]+", "".join(c for c in text if not unicodedata.combining(c)))
 
 
-def as_written(text):
-    """A subtitle cue's text as it is: players wrap a long line at its spaces."""
-    return text
+LINE = 42  # a subtitle line's usual limit, in letters (a full-width character counts two)
+
+
+def width(text):
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in text)
+
+
+def two_lines(text):
+    """A subtitle cue's text, broken in two when it's longer than a LINE: at the
+    space that keeps the halves most even, one after punctuation if it's nearly
+    as even, and not after a short word (an article, a preposition, "I"), which
+    belongs with the words after it. Players wrap a long line by themselves, but
+    some never do and others leave one word on its own line. Breaks written in
+    the text stay."""
+    if "\n" in text or width(text) <= LINE:
+        return text
+    spaces = [i for i, c in enumerate(text) if c == " "]
+    if not spaces:
+        return text
+
+    def odds(i):
+        before = text[:i].rsplit(" ", 1)[-1]
+        return (
+            abs(width(text[:i]) - width(text[i + 1 :]))
+            - (6 if before[-1] in ",.;:!?…—" else 0)
+            + (6 if len(before) <= 3 and before[-1].isalpha() else 0)
+        )
+
+    cut = min(spaces, key=odds)
+    return text[:cut] + "\n" + text[cut + 1 :]
 
 
 def compare_words(want, got, split, readings, negations, is_number):

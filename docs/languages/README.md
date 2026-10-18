@@ -36,12 +36,13 @@ pykakasi through `kana.py`).
 | `VOICES` | The render voices a dub into the language can have: `("actor",)`, plus `"american"` for English | `dub_anything.py new`, `dub.py` |
 | `JOIN` | What joins Whisper's segments of a take: `" "`, or `""` for a language written without spaces | `lineqa.py` |
 | `compare(want, got)` | QA's check of a take's transcript against its line: `(notes, similarity)`, one note per problem (`match 0.71`, `negation differs`, `number differs: ...`), none when it passes | `lineqa.py` |
-| `TITLES` | Track names in the language: `dub` and `subs` per voice, `signs`, `transcript` and `original` | `assemble.py`, `deliver.py` |
+| `TITLES` | Track names in the language: `dub` and `subs` per voice, `signs`, `subtitles` (a subtitle job's translation), `transcript` and `original` | `assemble.py`, `deliver.py` |
 | `FONT` | A subtitle font that has the language's letters | `ass.py` |
-| `subtitle(text)` | A subtitle cue's text: as written where players wrap it at spaces, broken in two by hand where there are none | `assemble.py`, `signs.py` |
+| `subtitle(text)` | A subtitle cue's text, broken in two when it runs past a line: at the space nearest the middle, or by hand where there are no spaces | `assemble.py`, `signs.py`, `subtitles.py` |
+| `READING_CPS` | Characters a second a subtitle in the language can be read at in comfort (17 for English, 7 for Japanese). Optional (17); `subtitles.py` times cues and flags fast ones by it | `subtitles.py` |
 
 Beside them, `latin.py` holds what the languages written in Latin letters with
-spaces share: `second.py`'s word units, subtitles left as written, and
+spaces share: `second.py`'s word units, subtitles broken in two at a space, and
 `compare_words`, QA's word-by-word check. A module gives `compare_words` its own
 normalizer (numbers spelled out in its words in each reading that matters,
 abbreviations, contractions), its negations and its number words. `kana.py`

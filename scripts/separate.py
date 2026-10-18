@@ -11,6 +11,8 @@ stems produced by each separator on your source material.
 This runs audio-separator on the job's original audio (audio_hq.wav) and swaps
 the new stems in as vocals.wav / no_vocals.wav, keeping htdemucs's as
 *.htdemucs.wav. The background stem is the mix minus the vocals, as before.
+A part prepped for subtitles only (`dub.py prep --subtitles-only`) has no
+htdemucs stems: its only stems are these.
 Run it right after `dub.py prep`, before draft.py and before building voices
 from the clip. A voice already built keeps its old reference until its entry in
 voices.json changes.
@@ -83,12 +85,13 @@ def main():
         bed = next(f for f in out if f is not vocals)
         for stem in STEMS:
             keep = job / stem.replace(".wav", ".htdemucs.wav")
-            if not keep.exists():
+            if not keep.exists() and (job / stem).exists():
                 shutil.copy2(job / stem, keep)
         shutil.move(vocals, job / "vocals.wav")
         shutil.move(bed, job / "no_vocals.wav")
         mark.write_text(json.dumps({"model": args.model}), encoding="utf-8")
-        print(f"{clip}: stems from {args.model} (htdemucs kept as *.htdemucs.wav)")
+        kept = (job / "vocals.htdemucs.wav").exists()
+        print(f"{clip}: stems from {args.model}" + (" (htdemucs kept as *.htdemucs.wav)" if kept else ""))
     shutil.rmtree(tmp, ignore_errors=True)
 
 

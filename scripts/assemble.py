@@ -17,6 +17,15 @@ the dub's language with them (.en.ass, or .ja.ass), and the signs alone,
 .signs.ass (see ass.py). The languages are the parts' (core.langs), and the
 track names theirs (TITLES in languages/<code>.py). Output
 defaults to the parts' `dubbed` folder.
+
+Every subtitle track is timed for reading (subtitles.timed): a cue stays up
+long enough to read and closes small gaps to the next, so text doesn't flash.
+
+--subtitles is for a job that subtitles the video instead of dubbing it: no
+audio is mixed and no video written, only the subtitle files beside
+<stem>.subtitled.mkv (the name deliver.py is given): the .en.srt (the
+translation, with the signs at the top of the picture, {\\an8}, for players that
+read SRT alone), the transcript's .srt and, with signs, the styled .en.ass.
 """
 
 import argparse
@@ -27,6 +36,7 @@ import subprocess
 import sys
 
 import ass
+import subtitles
 from core import ROOT, VOICE_LABEL, WORK, langs, load_json, original_audio_language, out_dir, said, srt_time, voice_part
 from languages import ISO3, LANGUAGES, PAIR
 
@@ -79,6 +89,11 @@ def main():
     ap.add_argument(
         "--encoder", default="auto", help="video encoder when the range doesn't start at 0 (else stream copy)"
     )
+    ap.add_argument(
+        "--subtitles",
+        action="store_true",
+        help="a job that subtitles the video, not dubs it: write only the subtitle files",
+    )
     args = ap.parse_args()
 
     manifest = ROOT / "videos" / f"{args.stem}-parts" / "parts.json"
@@ -97,15 +112,19 @@ def main():
     for p in parts:
         # A part left as it is needs no prep: its own file stands in for the job's.
         doc = load_json(WORK / p["name"] / "segments.json") or {"video": p.get("file", source)}
-        mp4 = out_dir(doc) / f"{p['name']}.{tgt}.mp4"
         script = load_json(WORK / p["name"] / "script.json")
-        if not mp4.exists() and script is not None and not script["lines"] and p.get("file"):
-            # A part directed to stay as it is (commercials, credits): its original audio.
-            print(f"  {p['name']}: no lines to dub, original audio")
-            mp4 = pathlib.Path(p["file"])
-        if not mp4.exists():
-            raise SystemExit(f"{p['name']}: no dub yet ({mp4})")
-        dubs.append((mp4, p["end"] - p["start"]))
+        if args.subtitles:
+            if script is None:
+                raise SystemExit(f"{p['name']}: no script.json yet")
+        else:
+            mp4 = out_dir(doc) / f"{p['name']}.{tgt}.mp4"
+            if not mp4.exists() and script is not None and not script["lines"] and p.get("file"):
+                # A part directed to stay as it is (commercials, credits): its original audio.
+                print(f"  {p['name']}: no lines to dub, original audio")
+                mp4 = pathlib.Path(p["file"])
+            if not mp4.exists():
+                raise SystemExit(f"{p['name']}: no dub yet ({mp4})")
+            dubs.append((mp4, p["end"] - p["start"]))
         off = p["start"] - t0
         # "captions": speech left in the original (another language already,
         # names, whispers) that still belongs in the subtitles.
@@ -115,14 +134,24 @@ def main():
                 original.append((line["start"] + off, line["end"] + off, LANGUAGES[src].subtitle(said(line, src))))
         signs += [{**s, "start": s["start"] + off, "end": s["end"] + off} for s in script.get("signs", [])]
 
+    dubbed, original = subtitles.timed(dubbed, tgt), subtitles.timed(original, src)
     first_doc = load_json(WORK / parts[0]["name"] / "segments.json") or {"video": parts[0].get("file", source)}
     dest = out_dir(first_doc)
     suffix = f".p{args.parts}" if args.parts else ""
     variant = "" if args.voice == "actor" else f".{args.voice}"
-    out = pathlib.Path(args.out) if args.out else dest / f"{args.stem}{variant}.dubbed{suffix}.mp4"
+    kind = "subtitled" if args.subtitles else "dubbed"
+    out = (
+        pathlib.Path(args.out)
+        if args.out
+        else dest
+        / f"{args.stem}{'' if args.subtitles else variant}.{kind}{suffix}.{'mkv' if args.subtitles else 'mp4'}"
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
     subs = []
     for lang, cues in ((tgt, dubbed), (src, original)):
+        if args.subtitles and lang == tgt:
+            # Read alone, the .srt carries the signs too, at the top of the picture.
+            cues = sorted(cues + [(s["start"], s["end"], "{\\an8}" + s["text"].replace("\\n", "\n")) for s in signs])
         if cues:
             srt = out.with_suffix(f".{lang}.srt")
             write_srt(srt, cues)
@@ -131,11 +160,19 @@ def main():
     if signs:
         video = next(s for s in probe(source)["streams"] if s["codec_type"] == "video")
         ass.write(styled[0], video["width"], video["height"], dubbed, signs, lang=tgt)
-        ass.write(styled[1], video["width"], video["height"], (), signs, lang=tgt)
-        print(f"  {len(signs)} signs: {styled[0].name}, {styled[1].name}")
+        if args.subtitles:  # the signs alone are for watching a dub with subtitles off
+            styled[1].unlink(missing_ok=True)
+        else:
+            ass.write(styled[1], video["width"], video["height"], (), signs, lang=tgt)
+        print(f"  {len(signs)} signs: {', '.join(p.name for p in styled if p.exists())}")
     else:
         for path in styled:  # left from an earlier assembly: they would deliver signs no part has now
             path.unlink(missing_ok=True)
+    if args.subtitles:
+        for path, *_ in subs:
+            print(f"  {path.name}")
+        print(f"subtitles for {len(parts)} part(s), {t0:.2f}-{t1:.2f}s -> {out}")
+        return
     for s in args.sub:
         m = re.match(r"^(.+\.(?:srt|ass|ssa|vtt))(?::([^:]+))?(?::(.+))?$", s, re.IGNORECASE)
         if not m:

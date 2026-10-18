@@ -413,7 +413,9 @@ def draft(name, cast, model, embed_once):
 def suggest(name, work, audio, phrases, spans, cast, embed_once):
     """Score each phrase against the cast, print the draft and write draft.json."""
     src = langs(name)[0]
-    embed = embed_once()
+    # A part to subtitle has no voices to cast its lines to.
+    subtitles = load_json(work / "segments.json", {}).get("subtitles_only")
+    embed = None if subtitles else embed_once()
     cents = (
         cast_centroids(embed, set(cast.split(",")) if cast else show_cast(name) or None, exclude=name) if embed else {}
     )
@@ -427,10 +429,11 @@ def suggest(name, work, audio, phrases, spans, cast, embed_once):
             p["alt"], p["alt_score"] = ranked[1][1], round(ranked[1][0], 2)
 
     subs = load_json(work / "subs.json", {}).get("events", [])
-    print(
-        "cast considered: "
-        + (", ".join(f"{k} ({cast_centroids.counts[k]})" for k in cents) or "(none – no usable voices yet)")
-    )
+    if not subtitles:
+        print(
+            "cast considered: "
+            + (", ".join(f"{k} ({cast_centroids.counts[k]})" for k in cents) or "(none – no usable voices yet)")
+        )
     for i, p in enumerate(phrases):
         sure = (
             p.get("score", 0) >= 0.3
@@ -455,7 +458,8 @@ def suggest(name, work, audio, phrases, spans, cast, embed_once):
             p["song"] = True
             print(f"L{i:02d} {p['start']:7.2f}-{p['end']:7.2f}  [song: keep the original]")
             continue
-        print(f"L{i:02d} {p['start']:7.2f}-{p['end']:7.2f}  {who} {alt:18s} {p['said']}{tag}")
+        cols = "" if subtitles else f"{who} {alt:18s} "
+        print(f"L{i:02d} {p['start']:7.2f}-{p['end']:7.2f}  {cols}{p['said']}{tag}")
         if on_screen(subs, p):
             p["cc"] = " / ".join(caption(e) for e in on_screen(subs, p))
             print(f"{'':45s}cc: {p['cc']}")

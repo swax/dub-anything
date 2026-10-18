@@ -130,10 +130,12 @@ TITLES = {
     "dub": {"actor": "粵語配音（演員原聲）"},
     "subs": {"actor": "粵語（演員原聲配音）"},
     "signs": "粵語（畫面文字）",
+    "subtitles": "粵語（字幕）",
     "transcript": "粵語 (transcript)",
     "original": "粵語 (original)",
 }
 FONT = "PingFang HK" if sys.platform == "darwin" else "Microsoft JhengHei"
+READING_CPS = 9  # characters a second a subtitle can be read at in comfort
 
 
 def subtitle(text):

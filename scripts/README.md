@@ -7,11 +7,12 @@ the tools produce evidence and render each part.
 
 | Task | Entry point |
 |---|---|
-| Create, run, inspect, and finish a dub | `scripts/dub_anything.py` |
+| Create, run, inspect, and finish a dub (or subtitles: `--voices none`) | `scripts/dub_anything.py` |
 | Start or inspect the voice backend | `scripts/backend.py` |
 | Cast voices and inspect speakers | `voices.py`, `cast.py`, `frames.py` |
 | Read speech and on-screen text | `asr_words.py`, `subs.py`, `signs.py`, `second.py` |
 | Fit dialogue windows and check takes | `edges.py`, `tails.py`, `fit.py`, `qa.py`, `lineqa.py` |
+| Time subtitles for reading and check their speed | `subtitles.py` (shared), `fit.py` |
 
 `dub_anything.py new ... --auto-text` reads both caption styles and looks for
 signs. For a supervised pause and resume, see the directing guide's

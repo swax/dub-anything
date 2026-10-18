@@ -16,11 +16,20 @@ little). `dub.py generate` prints the same table for the failing lines when a
 line overflows.
 It first warns about any voice whose reference is much faster or slower than
 its speaker's lines: lines on that reference inherit its pace (OmniVoice only).
+
+A part to subtitle (prepped with --subtitles-only), or any part with --read,
+gets its subtitles' reading speed instead (subtitles.rows): each line's
+characters a second over the time it shows once timed for reading, flagged
+FAST (cut words, or merge it with a neighbour), LONG (more than two lines:
+split it at a pause) and SPLIT? (spoken for longer than a subtitle should stay).
+Its "captions" are listed after its lines (C00...).
 """
 
 import argparse
 import statistics
+import sys
 
+import subtitles
 from core import WORK, _omnivoice, fit_rows, langs, load_json, said, voice_clips
 
 ap = argparse.ArgumentParser()
@@ -32,7 +41,23 @@ ap.add_argument(
     help="estimate the part in this voice instead of its own (e.g. the director's script, with each "
     "line's text_us, for the American voice)",
 )
+ap.add_argument("--read", action="store_true", help="check the subtitles' reading speed, not the dub's length")
 args = ap.parse_args()
+
+if args.read or load_json(WORK / args.name / "segments.json", {}).get("subtitles_only"):
+    script = load_json(WORK / args.name / "script.json")
+    tgt = langs(args.name)[1]
+    lines, captions = script["lines"], script.get("captions", [])
+    for row in subtitles.rows(lines + captions, tgt):
+        if args.only_flags and not row["flag"]:
+            continue
+        tag = f"L{row['i']:02d}" if row["i"] < len(lines) else f"C{row['i'] - len(lines):02d}"
+        text = row["text"].replace("\n", " / ")
+        print(
+            f"{tag} {row['start']:7.2f}-{row['end']:7.2f} shown to {row['shown']:7.2f}  "
+            f"{row['cps']:4.1f}/s {row['flag']:11s} {text}"
+        )
+    sys.exit(0)
 
 
 def pace_check(name, tolerance=0.15):

@@ -4,7 +4,7 @@
 import re
 import unicodedata
 
-from .latin import as_written as subtitle, compare_words, word_units as units  # noqa: F401
+from .latin import two_lines as subtitle, compare_words, word_units as units  # noqa: F401
 
 NAME, ISO3, NATIVE = "Spanish", "spa", "Español"
 
@@ -99,7 +99,9 @@ TITLES = {
     "dub": {"actor": "Doblaje en español (voz del actor)"},
     "subs": {"actor": "Español (doblaje con la voz del actor)"},
     "signs": "Español (solo textos en pantalla)",
+    "subtitles": "Español (subtítulos)",
     "transcript": "Español (transcript)",
     "original": "Español (original)",
 }
 FONT = "Arial"  # has the accents, ñ and ¿¡
+READING_CPS = 17  # letters a second a subtitle can be read at in comfort (spaces count)

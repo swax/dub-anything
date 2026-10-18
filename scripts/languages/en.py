@@ -3,7 +3,7 @@ a source for dubs into Japanese and Spanish."""
 
 import re
 
-from .latin import as_written as subtitle, compare_words, word_units as units  # noqa: F401
+from .latin import two_lines as subtitle, compare_words, word_units as units  # noqa: F401
 
 NAME, ISO3, NATIVE = "English", "eng", "English"
 
@@ -171,7 +171,9 @@ TITLES = {
     "dub": {"actor": "English dub (actor's voice)", "american": "English dub (American)"},
     "subs": {"actor": "English (actor-voice dub)", "american": "English (American dub)"},
     "signs": "English (signs only)",
+    "subtitles": "English (subtitles)",
     "transcript": "English (transcript)",
     "original": "English (original)",
 }
 FONT = "Arial"
+READING_CPS = 17  # letters a second a subtitle can be read at in comfort (spaces count); 20 is fast

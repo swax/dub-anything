@@ -737,6 +737,64 @@ The English tracks are then the styled ones, and the signs-only track follows
 them, marked forced, for watching the dub with subtitles off. A player has to
 render ASS subtitles to place them (mpv and VLC do, with libass).
 
+Every subtitle track, a dub's included, is timed for reading as it's assembled
+(`subtitles.py`, below), and a line longer than about 42 letters is broken in
+two near its middle.
+
+## Subtitles only
+
+`scripts/dub_anything.py new <video> --voices none [--source .. --target ..]
+[--signs ...]` makes a job that subtitles the video instead of dubbing it. Any
+two languages with a module will do: `PAIRS` lists the dubs checked end to end,
+and a subtitle needs only the source heard and the target written. Nothing is
+cloned or rendered, so the VoiceStudio backend isn't needed, and `run` doesn't
+start it:
+
+- **Prep** (`dub.py prep --subtitles-only`) only takes each part's audio out
+  into a job folder of VoiceStudio's shape (`local_<id>` beside its own jobs).
+  `separate.py` then separates it (Roformer's are its only stems), and
+  `draft.py` transcribes it as for a dub, without suggesting speakers.
+  `asr_words.py`, `second.py`, `subs.py`, `signs.py` and `frames.py` work as
+  they do for a dub. A part prepped this way can't be dubbed: make a dub job
+  for that.
+- **The script** is the same `script.json` without `voice`: `start`/`end`,
+  the original under the source language's code, `text` for the subtitle,
+  `listen` for a guess (the report lists them under "Check against the
+  original"), and `signs`. `captions` still work, but there is nothing to keep
+  original: give everything heard a line, the walk-ons, announcements and names
+  a dub would leave in the original audio included.
+- **Write for reading, not for the lips.** A cue has at most two lines of about
+  42 letters, and a viewer reads about 17 letters a second in comfort (20 is
+  fast; `READING_CPS` in the target's module). Condense where the speech is
+  fast: drop the fillers, hedges and restarts a dub keeps to fill the actor's
+  time. Split at the speaker's pauses and sentence ends, so each cue is a whole
+  thought, and keep cues under 7 s. A script written for a dub of the same
+  video is a start for the meaning, not for the cues: it was fitted to the
+  actor's time.
+- **Windows** can be looser than a dub's: no clean-window rule, no `fit.py`
+  length prediction, and `edges.py` is optional. Start each at the speech (the
+  draft's windows are snapped already). `assemble.py` then times every cue for
+  reading (`subtitles.timed`): at least 0.83 s, long enough to read at the
+  comfortable rate (up to 7 s), half a second past the speech where there's
+  room, never into the next cue, and a gap under 0.6 s closes, so the text
+  changes instead of blinking off and on.
+- **Check** with `scripts/fit.py <part>`: for a part prepped this way it gives
+  each line's reading speed once timed, instead of the dub's length (`--read`
+  does the same for any part). Fix every `FAST` (fewer words, or merge with a
+  neighbour so the cue has the time), `LONG` (more than two lines: split it at
+  a pause) and `SPLIT?` (spoken for longer than a cue should stay).
+- **Signs** as for a dub (`--signs`). Text that repeats what is said (a variety
+  show's captions of the host's own words) needs no sign: the subtitle says it.
+- Then `scripts/dub_anything.py ready <slug> <NN>`. A ready part is done; when
+  every part is, `run` delivers. `assemble.py --subtitles` writes the subtitle
+  files alone, and `deliver.py --subtitles` puts them into the source:
+  `<name> (subtitled).mkv`, its video and audio copied and verified, the
+  translation on by default (styled with the signs placed, when there are any)
+  and the transcript, with the translation as an SRT beside it
+  (`<name> (subtitled).en.srt`) for players that read subtitles from a file.
+  The SRT carries the signs too, at the top of the picture (`{\an8}`, which most
+  players honour). Delivering again replaces the subtitle tracks it added.
+
 ## Other languages
 
 This guide was written from Japanese → English dubs. For any other pair, read
@@ -888,9 +946,9 @@ The loop, in the order it runs:
 
 | Script | Does |
 |---|---|
-| `scripts/dub_anything.py new\|run\|status\|ready\|report\|cleanup` | A whole dub: runs every machine step below in order, renders each part when its script is ready, QA rounds, delivery, the report |
+| `scripts/dub_anything.py new\|run\|status\|ready\|report\|cleanup` | A whole dub (or with `--voices none`, subtitles): runs every machine step below in order, renders each part when its script is ready, QA rounds, delivery, the report |
 | `scripts/split.py <video>` | Cut a long video into ~N-minute parts at pauses in speech (frame-accurate) |
-| `scripts/dub.py prep <video> [--source en\|es\|ko\|zh --target ja\|en\|es]` | Upload, separate, transcribe, diarize → `work/<name>/segments.json` (with the language pair), source-language `.srt` |
+| `scripts/dub.py prep <video> [--source en\|es\|ko\|zh --target ja\|en\|es] [--subtitles-only]` | Upload, separate, transcribe, diarize → `work/<name>/segments.json` (with the language pair), source-language `.srt`; `--subtitles-only`: the audio alone, no backend |
 | `scripts/separate.py <clip> ... [--restore]` | Re-separate prepped clips with Mel-Band Roformer: far less music left in the vocals, so cleaner clones (own environment; see AGENTS.md) |
 | `scripts/subs.py <clip> [--open]` | Read burned-in closed captions (OCR) → `subs.json`: exact words, speaker names, colours, off-screen marks; song lyrics become bare ♪ markers (own environment). `--open`: a film's own subtitles for foreign-language speech |
 | `scripts/signs.py <clip> [--preview]` | Text in the picture to translate (signs, diagrams, title cards, pages): candidates with times and boxes → `signs.json`, a sheet per candidate and shot thumbnails (subs.py's environment); `--preview` draws the script's signs into their frames |
@@ -902,11 +960,11 @@ The loop, in the order it runs:
 | `scripts/second.py <clip> ... [--script]` | Two more recognisers over each line (ReazonSpeech and SenseVoice for Japanese, Parakeet and SenseVoice for English, Parakeet v3 and Canary for Spanish, the Korean Zipformer and SenseVoice for Korean, Zipformer CTC and SenseVoice for Chinese): flags lines where both disagree with Whisper (own environment) |
 | `scripts/edges.py <name> [--apply]` | Find windows that cut the actor mid-sound and move the clear ones; move touching windows onto the dip between the voices |
 | `scripts/tails.py <name>` | How long each line's original voice rings on: flashback echo, PA announcements, big rooms |
-| `scripts/fit.py <name> [--voice american]` | Each line's length against its window and the actor's speech, predicted before rendering with OmniVoice's own length rule (or IndexTTS's, for the `"american"` voice): `OVER?`, `risk`, `SHORT?` |
+| `scripts/fit.py <name> [--voice american] [--read]` | Each line's length against its window and the actor's speech, predicted before rendering with OmniVoice's own length rule (or IndexTTS's, for the `"american"` voice): `OVER?`, `risk`, `SHORT?`. A part to subtitle (or `--read`): each cue's reading speed, `FAST`, `LONG`, `SPLIT?` |
 | `scripts/dub.py generate <name> --match-level` | Render `script.json` in the chosen voice (per-line references and fill by default, or `"american"`), levelled against the original actors → MP4 + SRT |
 | `scripts/lineqa.py <name> ... [--reroll]` | Transcribe each rendered line alone (Japanese compared by its reading in kana, Spanish without accents); flag leaked, dropped or garbled words and flipped meanings; queue fresh takes |
-| `scripts/assemble.py <stem> [--voice american] [--parts 1-4]` | Join parts: dub + original audio tracks, soft subtitles in both languages, sidecar SRTs (and styled ASS with the signs); a part without lines keeps its original audio |
-| `scripts/deliver.py <source> actor=<mp4> [american=<mp4>] [--source en --target ja]` | Put the dubs and subtitles into the source file, verified, renamed `<name> (dubbed)` (Matroska when there are signs) |
+| `scripts/assemble.py <stem> [--voice american] [--parts 1-4] [--subtitles]` | Join parts: dub + original audio tracks, soft subtitles in both languages, sidecar SRTs (and styled ASS with the signs); a part without lines keeps its original audio. `--subtitles`: the subtitle files alone |
+| `scripts/deliver.py <source> actor=<mp4> [american=<mp4>] [--source en --target ja]` | Put the dubs and subtitles into the source file, verified, renamed `<name> (dubbed)` (Matroska when there are signs); `--subtitles <stem>.subtitled.mkv`: a subtitle job's tracks, `<name> (subtitled).mkv` and an SRT beside it |
 
 Used now and then:
 
@@ -918,4 +976,4 @@ Used now and then:
 | `onsets.py`, `energy.py`, `pitch.py`, `contour.py` | Onset, loudness and pitch checks (the last two need librosa) |
 | `eval/timing.py`, `eval/score.py` | Compare renders of the same part (A/B variants): timing against the actor; delivery, likeness, quality and accent. See [research.md](research.md) |
 | `scripts/backend.py status\|start\|stop\|restart` | Keep the VoiceStudio backend running, detached from the agent's shell |
-| `core.py`, `gpulock.py`, `ass.py`, `languages/` | Not tools: paths, voices, line ids, takes and length prediction shared by the scripts; the lock that keeps GPU jobs from overlapping; the styled subtitles that place the signs; what the scripts know of each language (one module per language: Whisper's hallucinations, the second opinions, how QA compares a take, subtitles and track names; `kana.py` reads Japanese as kana, with pykakasi in its own environment) and the pairs they know |
+| `core.py`, `gpulock.py`, `ass.py`, `subtitles.py`, `languages/` | Not tools: paths, voices, line ids, takes and length prediction shared by the scripts; the lock that keeps GPU jobs from overlapping; the styled subtitles that place the signs; subtitle timing for reading and the reading-speed check; what the scripts know of each language (one module per language: Whisper's hallucinations, the second opinions, how QA compares a take, subtitles and track names; `kana.py` reads Japanese as kana, with pykakasi in its own environment) and the pairs they know |

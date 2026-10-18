@@ -7,6 +7,11 @@ prep <video> [--speakers N] [--source ja --target en]
                               transcript. A voice variant (<part>.us) is the same
                               audio as its prepped part: only uploaded, with the
                               part's transcript and pair
+prep <video> --subtitles-only [--source ja --target en]
+                              for subtitles alone: no backend, no voices. Writes
+                              the audio into a job folder of VoiceStudio's shape
+                              (local_<id>/audio_hq.wav, no transcript) for
+                              separate.py to separate and draft.py to transcribe
 generate <name>               reads work/<name>/script.json (hand-directed lines:
                               start/end/voice/text, optional instruct/effect;
                               voices from work/voices.json) or else <target>.json
@@ -167,10 +172,37 @@ def emo_refs(work, job_id, lines, ids, alpha):
     return refs
 
 
+def prep_subtitles(video, work, src, tgt):
+    """A part to subtitle, not dub: no voices are cloned, so nothing needs VoiceStudio.
+    Its job folder (named local_..., beside VoiceStudio's own) holds the audio as
+    VoiceStudio would (audio_hq.wav); separate.py adds the stems and draft.py
+    transcribes, and every tool that reads a part's vocals finds them there."""
+    for code in (src, tgt):
+        if code not in LANGUAGES:
+            raise SystemExit(f"no languages/{code}.py: the scripts know {', '.join(sorted(LANGUAGES))}")
+    job_id = "local_" + hashlib.sha1(str(video.resolve()).encode()).hexdigest()[:8]
+    folder = JOBS / job_id
+    folder.mkdir(parents=True, exist_ok=True)
+    print(f"{video.name}: audio only, for subtitles ({NAMES[src]} -> {NAMES[tgt]}); job {job_id}")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-map", "0:a:0", "-vn",
+                    "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le", str(folder / "audio_hq.wav")], check=True)  # fmt: skip
+    doc = {
+        "job_id": job_id,
+        "video": str(video),
+        "source_lang": src,
+        "target_lang": tgt,
+        "subtitles_only": True,
+        "segments": [],
+    }
+    (work / "segments.json").write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def cmd_prep(args):
     video = pathlib.Path(args.video)
     work = WORK / video.stem
     work.mkdir(parents=True, exist_ok=True)
+    if args.subtitles_only:
+        return prep_subtitles(video, work, args.source, args.target)
     base = base_part(video.stem)
     variant = base != video.stem and (WORK / base / "segments.json").exists()
     if variant:
@@ -427,6 +459,8 @@ def render_mode(work, script, args, pair=PAIR):
 def cmd_generate(args):
     work = WORK / args.name
     doc = json.loads((work / "segments.json").read_text(encoding="utf-8"))
+    if doc.get("subtitles_only"):
+        raise SystemExit(f"{args.name} was prepped for subtitles only: prep a dub job to render voices")
     job_id = doc["job_id"]
     tgt = langs(args.name)[1]
     script = load_json(work / "script.json")
@@ -762,6 +796,11 @@ def main():
     a.add_argument("--speakers", type=int)
     a.add_argument("--source", default="ja", help="language the video speaks (default ja)")
     a.add_argument("--target", default="en", help="language to dub it into (default en)")
+    a.add_argument(
+        "--subtitles-only",
+        action="store_true",
+        help="prepare the part to be subtitled, not dubbed: the audio alone, without the backend",
+    )
     a.set_defaults(fn=cmd_prep)
     b = sub.add_parser("generate")
     b.add_argument("name")
@@ -832,6 +871,8 @@ def main():
     )
     b.set_defaults(fn=cmd_generate)
     args = p.parse_args()
+    if args.fn is cmd_prep and args.subtitles_only:
+        return cmd_prep(args)  # ffmpeg only: no model, so no GPU lock
     hold_gpu()  # both ask the backend to run models: transcription, or synthesis
     if args.fn is not cmd_generate:
         return args.fn(args)
