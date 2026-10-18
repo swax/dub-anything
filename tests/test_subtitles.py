@@ -134,6 +134,10 @@ class LineBreakTests(unittest.TestCase):
         text = "Here we are, at the station where the line ends today."
         self.assertEqual(two_lines(text).split("\n")[0], "Here we are, at the station")
 
+    def test_no_break_after_a_short_abbreviation(self):
+        text = "It says here that the whole area is No. 1 in Japan for processing octopus."
+        self.assertNotIn("No.\n", two_lines(text))
+
     def test_written_breaks_stay(self):
         self.assertEqual(LANGUAGES["en"].subtitle("One\nTwo"), "One\nTwo")
 

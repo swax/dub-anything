@@ -85,11 +85,19 @@ the voice engine, and the other prerequisites as part of the first run.
 
 ## How long it takes
 
-A short clip takes minutes. A movie with the actors' native accents takes about
-three to four hours of machine time on a laptop RTX 4090, nearly all of it on the
-GPU. Adding an optional American English audio track brings the total to about
-seven hours. The agent directs while the renders run, and on a long video it can
-split the directing across helper agents.
+A short clip takes minutes. A 90-minute film with the actors' native accents
+took 4.1 hours of machine time on a laptop RTX 4090, nearly all of it on the
+GPU: about half preparing the parts and two fifths rendering and checking the
+voices. Adding an optional American English audio track brings the total to
+about seven hours. The agent directs while the renders run, and on a long video
+it can split the directing across helper agents.
+
+Subtitles alone take about half the machine time of a dub, since no voice is
+rendered or checked and the voice engine's own transcription is skipped. A
+30-minute episode took 41 minutes, two thirds of it reading the text in the
+picture to translate it; without that step, it's about 15 minutes per half hour
+of video. That episode was delivered 43 minutes after the job started,
+directing included.
 
 ## Privacy
 

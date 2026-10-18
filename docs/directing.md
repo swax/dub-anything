@@ -785,6 +785,13 @@ start it:
   a pause) and `SPLIT?` (spoken for longer than a cue should stay).
 - **Signs** as for a dub (`--signs`). Text that repeats what is said (a variety
   show's captions of the host's own words) needs no sign: the subtitle says it.
+  A travel or food show is full of captions that don't: the dish, its price
+  and maker, a station's name, a map's labels, a note on local history. Those
+  are worth translating. A narration card on a plain white screen needs
+  `boxed`: white letters with a dark outline don't read on white. On a 30-min
+  episode (nine 3-min parts) local prep took 1-2 s a part, separation and
+  drafting a few minutes per four parts, and `signs.py` 1.5-4.5 min a part,
+  the slowest step: place the first parts' signs while it reads the rest.
 - Then `scripts/dub_anything.py ready <slug> <NN>`. A ready part is done; when
   every part is, `run` delivers. `assemble.py --subtitles` writes the subtitle
   files alone, and `deliver.py --subtitles` puts them into the source:

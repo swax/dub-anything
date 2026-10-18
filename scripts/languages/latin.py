@@ -37,10 +37,14 @@ def two_lines(text):
 
     def odds(i):
         before = text[:i].rsplit(" ", 1)[-1]
+        word = before.rstrip(".")
+        # A short word goes with what follows ("a", "to", "I"), and so does a short
+        # capitalized abbreviation ("No.", "Mr."), whose period ends no sentence.
+        short = word.isalpha() and len(word) <= 3 and (before == word or word[0].isupper())
         return (
             abs(width(text[:i]) - width(text[i + 1 :]))
-            - (6 if before[-1] in ",.;:!?…—" else 0)
-            + (6 if len(before) <= 3 and before[-1].isalpha() else 0)
+            - (6 if before[-1] in ",.;:!?…—" and not short else 0)
+            + (6 if short else 0)
         )
 
     cut = min(spaces, key=odds)
