@@ -14,6 +14,7 @@ import backend
 import core
 import dub_anything
 import frames
+import gpu
 
 
 class FixedHomeTests(unittest.TestCase):
@@ -173,8 +174,14 @@ class BackendPlatformTests(FixedHomeTests):
 
 
 class DubAnythingDependencyTests(unittest.TestCase):
-    def commands(self, platform):
-        with patch("sys.platform", platform), patch.object(backend, "full_env", return_value={}):
+    def commands(self, platform, rocm=None):
+        """dub_anything.py's tool commands on `platform`, with VoiceStudio's torch a CUDA
+        build, or the ROCm one whose uv arguments are `rocm` (not this machine's venv)."""
+        with (
+            patch("sys.platform", platform),
+            patch.object(backend, "full_env", return_value={}),
+            patch.object(gpu, "uv_torch_args", return_value=rocm),
+        ):
             return runpy.run_path(str(pathlib.Path(dub_anything.__file__)))
 
     def test_darwin_separate_dependencies_do_not_contain_cu128(self):
@@ -194,6 +201,16 @@ class DubAnythingDependencyTests(unittest.TestCase):
         self.assertIn("https://download.pytorch.org/whl/cu128", commands["SEPARATE"])
         self.assertIn("torch==2.8.0", commands["SEPARATE"])
         self.assertIn("onnxruntime-gpu[cuda,cudnn]", commands["SUBS"])
+
+    def test_windows_with_rocm_torch_uses_it_and_no_cuda_packages(self):
+        rocm = ["--index", gpu.ROCM_INDEX, "--with", "torch[device-gfx1150]==2.9.1+rocm7.13.0"]
+        commands = self.commands("win32", rocm)
+        for arg in rocm:
+            self.assertIn(arg, commands["SEPARATE"])
+        self.assertNotIn("https://download.pytorch.org/whl/cu128", commands["SEPARATE"])
+        self.assertNotIn("torch==2.8.0", commands["SEPARATE"])
+        self.assertIn("onnxruntime", commands["SUBS"])
+        self.assertNotIn("onnxruntime-gpu[cuda,cudnn]", commands["SUBS"])
 
 
 class FramesFallbackTests(unittest.TestCase):

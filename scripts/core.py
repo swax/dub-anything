@@ -16,6 +16,7 @@ import sys
 import time
 import unicodedata
 
+from gpu import rocm_env
 from languages import LANGUAGES, PAIR, PAIRS, pair_of
 
 HERE = pathlib.Path(__file__).resolve().parent  # the scripts
@@ -55,6 +56,10 @@ def default_cache_dir():
 # Same resolution as VoiceStudio's backend/core/config.py.
 JOBS = default_data_dir() / "dub_jobs"
 HF_CACHE = default_cache_dir()
+# Here, not only in whisper_setup(): huggingface_hub reads it once, on import, and
+# faster-whisper imports it (through ctranslate2) before a script calls whisper_setup().
+os.environ.setdefault("HF_HUB_CACHE", HF_CACHE)
+rocm_env()
 
 
 def patch_av_open():
@@ -242,7 +247,8 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
         spans = [(s["start"] / sr, s["end"] / sr) for s in draft.get_speech_timestamps(audio, opts)]
         from gpulock import hold_gpu
 
-        hold_gpu("window check")
+        if draft.whisper_on_gpu():  # else Whisper and the embeddings both run on the CPU
+            hold_gpu("window check")
         model = draft.WhisperModel("Systran/faster-whisper-large-v3", device="auto", compute_type="default")
         embed = draft.embedder()
         voices = load_json(WORK / "voices.json", {})

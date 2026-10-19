@@ -933,6 +933,13 @@ language there.
 - **After an NVIDIA driver update, restart the backend.** A backend that was
   running during the update keeps "CUDA out of memory" errors on an empty GPU
   and silently runs Whisper on the CPU.
+- **With an AMD GPU (or on a Mac), Whisper runs on the CPU.** CTranslate2 has
+  no backend for either, so the tools that only listen (`asr_words.py`,
+  `voices.py check`, `lineqa.py`, `qa.py`, the window check in `fit.py` and
+  `generate`, `draft.py` with its speaker embeddings) don't wait for the GPU
+  lock and run beside a render. They take the CPU instead: on a 12-core laptop
+  a draft took about 10 minutes a 3-minute part, and two of them at once each
+  ran at half speed. The OmniVoice renders and the separation stay on the GPU.
 - **Speaker detection.** Automatic diarisation can merge similar voices or
   split one speaker. Confirm casting with multiple signals. Sortformer can't
   handle clips over 120 s or more than 4 speakers, ignores
@@ -945,7 +952,10 @@ language there.
   reusable, so the next one re-synthesized everything
   (`backend/api/routers/dub_generate.py`). Reverb presets stopped dead where
   the dry take ended, cutting their own tail (`backend/services/audio_dsp.py`,
-  which also gains the `echo` preset). All are worth reporting upstream.
+  which also gains the `echo` preset). With ROCm's PyTorch on Windows, MIOpen
+  tuned every new convolution shape for minutes and attention took PyTorch's
+  slow math path (`backend/services/model_manager.py`; see
+  [setup.md](setup.md#amd-radeon-rocm-pytorch)). All are worth reporting upstream.
 
 ## Tools
 
@@ -983,4 +993,4 @@ Used now and then:
 | `onsets.py`, `energy.py`, `pitch.py`, `contour.py` | Onset, loudness and pitch checks (the last two need librosa) |
 | `eval/timing.py`, `eval/score.py` | Compare renders of the same part (A/B variants): timing against the actor; delivery, likeness, quality and accent. See [research.md](research.md) |
 | `scripts/backend.py status\|start\|stop\|restart` | Keep the VoiceStudio backend running, detached from the agent's shell |
-| `core.py`, `gpulock.py`, `ass.py`, `subtitles.py`, `languages/` | Not tools: paths, voices, line ids, takes and length prediction shared by the scripts; the lock that keeps GPU jobs from overlapping; the styled subtitles that place the signs; subtitle timing for reading and the reading-speed check; what the scripts know of each language (one module per language: Whisper's hallucinations, the second opinions, how QA compares a take, subtitles and track names; `kana.py` reads Japanese as kana, with pykakasi in its own environment) and the pairs they know |
+| `core.py`, `gpulock.py`, `gpu.py`, `ass.py`, `subtitles.py`, `languages/` | Not tools: paths, voices, line ids, takes and length prediction shared by the scripts; the lock that keeps GPU jobs from overlapping; which PyTorch build VoiceStudio has and what a ROCm one needs; the styled subtitles that place the signs; subtitle timing for reading and the reading-speed check; what the scripts know of each language (one module per language: Whisper's hallucinations, the second opinions, how QA compares a take, subtitles and track names; `kana.py` reads Japanese as kana, with pykakasi in its own environment) and the pairs they know |

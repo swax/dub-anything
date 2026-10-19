@@ -35,6 +35,15 @@ backend, its models, and ffmpeg.
   check (ruff format and lint) and `git config blame.ignoreRevsFile
   .git-blame-ignore-revs` keeps formatting commits out of `git blame`.
 
+### Windows (AMD Radeon)
+- A Radeon that AMD's PyTorch wheels for Windows support (RDNA 3, 3.5 and 4,
+  the Ryzen AI 300 and Max iGPUs included) and a current Adrenalin driver. Run
+  as for NVIDIA, with PyTorch swapped for AMD's ROCm build after `uv sync`
+  (section 3). Integrated GPUs share system memory: 32 GB of RAM or more.
+- Tools as for NVIDIA (`winget install Git.Git astral-sh.uv Gyan.FFmpeg`).
+  `split.py` encodes with x264, and Whisper runs on the CPU: CTranslate2
+  (faster-whisper) has no AMD backend.
+
 ## 2. Models and Data Directories
 
 ### macOS
@@ -114,8 +123,46 @@ voice reference (`scripts/dub.py generate --line-ref`), and its own emotion
 reference for engines that take one (IndexTTS 2,
 `--engine indextts2 --emo-alpha`). For IndexTTS 2.5 it passes a line's speed on as the
 engine's duration factor (it was dropped before), and it gives each line a seed,
-so the `"american"` voice's fill re-times the same take. See
+so the `"american"` voice's fill re-times the same take. With ROCm's PyTorch
+on Windows (an AMD GPU, below) it turns MIOpen off and AOTriton attention on. See
 [directing.md](directing.md#gotchas).
+
+#### AMD Radeon: ROCm PyTorch
+
+`uv sync` installs the CUDA build, which runs on the CPU here. Swap in AMD's
+ROCm build for your GPU's architecture (`gfx1150` for a Radeon 890M or 880M,
+`gfx1151` for Ryzen AI Max, `gfx1100`/`gfx1101`/`gfx1102` for an RX 7900/7800/7600,
+`gfx1200`/`gfx1201` for an RX 9060/9070):
+
+```powershell
+$py = "C:\git\VoiceStudio\.venv\Scripts\python.exe"; $gfx = "gfx1150"
+uv pip install --python $py --index-url https://repo.amd.com/rocm/whl-multi-arch/ --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match "torch[device-$gfx]==2.9.1+rocm7.13.0" "torchvision[device-$gfx]==0.24.0+rocm7.13.0"
+uv pip install --python $py --no-deps --reinstall-package torchaudio "torchaudio==2.8.0" --index-url https://pypi.org/simple
+$lib = "C:\git\VoiceStudio\.venv\Lib\site-packages\torchaudio\lib"
+foreach ($f in "_torchaudio.pyd", "libtorchaudio.pyd") { Rename-Item "$lib\$f" "$f.disabled-for-rocm" }
+& $py -c "import torch, torchaudio, pyannote.audio; print(torch.version.hip, torch.cuda.get_device_name(0))"
+```
+
+Torch 2.9.1 is the oldest ROCm build for Windows. Its torchaudio (2.9) no
+longer has `torchaudio.info` and `list_audio_backends`, which pyannote 3.x
+needs, so torchaudio stays at 2.8. Its compiled extension doesn't load against
+torch 2.9, and without it torchaudio is plain Python (soundfile I/O,
+resampling, filterbanks), all VoiceStudio and the scripts use. `uv sync` puts
+the CUDA build back; the backend runs with `uv run --no-sync`.
+
+`scripts/gpu.py` reads the build from the venv: `separate.py`'s environment
+installs the same one, and every process gets three settings ROCm on Windows
+needs (the patch makes the first two in the backend). AOTriton attention
+(`TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`): PyTorch calls it experimental
+on consumer Radeons and otherwise uses its math attention, which made
+OmniVoice twice as slow on a Radeon 890M. PyTorch's own convolutions instead
+of MIOpen's: MIOpen searches and compiles kernels for each new input shape, so
+the first OmniVoice take sat over 5 minutes in one convolution, and every take
+has a new length. And `KMP_DUPLICATE_LIB_OK=TRUE`: ROCm's torch brings LLVM's
+OpenMP runtime, CTranslate2 brings Intel's, and Intel's aborts a script that
+uses both ("OMP: Error #15"); CUDA's torch uses Intel's too. A test process that
+ran new kernels for the first time sometimes stayed busy at exit for over an
+hour; if a step's log is complete but the step doesn't end, end that process.
 
 IndexTTS 2.5 is optional (about 12 GB). Install it through the running backend:
 `POST http://127.0.0.1:3900/engines/sidecar/indextts2/install`, then poll

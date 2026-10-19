@@ -14,12 +14,11 @@ import pathlib
 import sys
 
 from core import JOBS, WORK, langs, load_json, whisper_setup
-from gpulock import hold_gpu
 
 whisper_setup()  # VoiceStudio's downloaded Whisper + cuDNN 8
 from faster_whisper.audio import decode_audio  # noqa: E402
 from faster_whisper.vad import VadOptions, get_speech_timestamps  # noqa: E402
-from whisper_safe import WhisperModel  # noqa: E402
+from whisper_safe import WhisperModel, hold_gpu_for_whisper  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8")
 ap = argparse.ArgumentParser()
@@ -45,7 +44,7 @@ if seg_doc.exists():
 else:
     source, offset = args.source, (args.times[0] if args.times else 0.0)
 
-hold_gpu()
+hold_gpu_for_whisper()
 model = WhisperModel(args.model, device="auto", compute_type="default")
 segs, _ = model.transcribe(
     source, language=args.lang, beam_size=5, vad_filter=False, condition_on_previous_text=False, word_timestamps=True

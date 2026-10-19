@@ -236,7 +236,9 @@ def cmd_prep(args):
 
     print("transcribe + diarize")
     ensure_diarizer()
-    params = {"per_segment_refs": "true"}
+    # VoiceStudio's per-segment references serve only renders without a script (auto:
+    # profiles). Cutting and transcribing them cost 7 minutes a part with Whisper on the CPU.
+    params = {"per_segment_refs": "true" if args.segment_refs else "false"}
     if args.speakers:
         params["num_speakers"] = args.speakers
     final, t0 = None, time.time()
@@ -800,6 +802,12 @@ def main():
         "--subtitles-only",
         action="store_true",
         help="prepare the part to be subtitled, not dubbed: the audio alone, without the backend",
+    )
+    a.add_argument(
+        "--segment-refs",
+        action="store_true",
+        help="have VoiceStudio cut and transcribe a reference per segment, for undirected renders "
+        "(a script's lines bring their own: core.line_refs)",
     )
     a.set_defaults(fn=cmd_prep)
     b = sub.add_parser("generate")

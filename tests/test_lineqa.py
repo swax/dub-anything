@@ -46,11 +46,11 @@ class KeptTakeTests(unittest.TestCase):
                 patch.object(lineqa, "langs", return_value=("en", "yue")),
                 patch.object(lineqa, "line_id", return_value="line"),
                 patch.object(lineqa, "take_wav", return_value=wav),
-                patch.object(lineqa, "hear", return_value=current),
                 patch.object(lineqa.sf, "info", return_value=types.SimpleNamespace(duration=1.0)),
                 contextlib.redirect_stdout(io.StringIO()),
             ):
-                lineqa.check("clip", object(), False, False)
+                # check() hears each new take through the ear it is given (lineqa.Ear).
+                lineqa.check("clip", lambda wav, lang: current, False, False)
             return wav.read_bytes()
 
     def test_recognized_written_variant_can_restore_an_earlier_take(self):

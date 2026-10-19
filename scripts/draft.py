@@ -65,7 +65,7 @@ whisper_setup()
 import torch  # noqa: E402
 from faster_whisper.audio import decode_audio  # noqa: E402
 from faster_whisper.vad import VadOptions, get_speech_timestamps  # noqa: E402
-from whisper_safe import WhisperModel  # noqa: E402
+from whisper_safe import WhisperModel, hold_gpu_for_whisper, whisper_on_gpu  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 SR = 16000
@@ -185,7 +185,11 @@ def uncovered(phrases, spans, min_len=0.3):
 
 
 def embedder():
-    hold_gpu()
+    # About 40 ms a phrase on the CPU: where Whisper runs on the CPU too (AMD, Apple),
+    # so do the embeddings, and drafting never holds the GPU while a part renders.
+    gpu = whisper_on_gpu() and torch.cuda.is_available()
+    if gpu:
+        hold_gpu()
     from pyannote.audio import Inference, Model
     from pyannote.audio.core.task import Problem, Resolution, Specifications
 
@@ -212,7 +216,7 @@ def embedder():
             pass
     if not ckpt:
         return None
-    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dev = torch.device("cuda" if gpu else "cpu")
     inf = Inference(Model.from_pretrained(ckpt[0]), window="whole", device=dev)
 
     def embed(audio16k):
@@ -312,7 +316,8 @@ def main():
         "building voices for a new show's first drafts)",
     )
     args = ap.parse_args()
-    hold_gpu()
+    if not args.recast:
+        hold_gpu_for_whisper()  # the speaker embeddings wait for the GPU themselves (embedder)
     model = None if args.recast else WhisperModel(args.model, device="auto", compute_type="default")
     loaded = []
 

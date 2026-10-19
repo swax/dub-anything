@@ -57,6 +57,7 @@ import sys
 import time
 
 import backend
+import gpu
 import subtitles
 from core import (
     JOBS,
@@ -80,6 +81,7 @@ QA_ROUNDS = 3  # rounds of fresh takes for flagged lines after the first check
 PREP_CHUNK = 4  # parts prepped, separated and drafted together, after the first part
 PY = backend.vs_python()
 UV = ["uv", "run", "--no-project"]
+ROCM_TORCH = gpu.uv_torch_args()  # AMD: VoiceStudio's ROCm build of torch, in the tools' environments too
 if sys.platform == "darwin":
     SEPARATE = UV + [
         "--python",
@@ -93,6 +95,9 @@ if sys.platform == "darwin":
         "python",
         "scripts/separate.py",
     ]
+elif ROCM_TORCH:
+    SEPARATE = UV + ["--python", "3.11", *ROCM_TORCH, "--with", "audio-separator", "--with", "onnxruntime"]
+    SEPARATE += ["python", "scripts/separate.py"]
 else:
     SEPARATE = UV + [
         "--python",
@@ -126,7 +131,7 @@ SECOND = UV + [
     "python",
     "scripts/second.py",
 ]
-if sys.platform == "darwin":
+if sys.platform == "darwin" or ROCM_TORCH:  # onnxruntime-gpu is NVIDIA-only
     SUBS = UV + [
         "--python",
         "3.12",

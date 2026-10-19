@@ -17,4 +17,5 @@ the tools produce evidence and render each part.
 `dub_anything.py new ... --auto-text` reads both caption styles and looks for
 signs. For a supervised pause and resume, see the directing guide's
 `DUB_PAUSE_FILE` instructions. Shared modules such as `core.py`, `gpulock.py`,
-`whisper_safe.py`, and `languages/` support the tools.
+`gpu.py` (the PyTorch build and what an AMD GPU needs), `whisper_safe.py`, and
+`languages/` support the tools.

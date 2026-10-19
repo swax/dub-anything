@@ -7,8 +7,9 @@ another tool holds the GPU, and keeps it until it exits. Child processes it
 starts (dub.py's voice conversion) share its hold. Waiters take turns in the
 order they arrived (a ticket each in work/gpu.queue), so a tool started while
 dub_anything.py goes from one job to the next gets the card after the current job,
-not after the whole batch. Standard library only, so tools in other
-environments (separate.py) can import it too.
+not after the whole batch. Whisper on the CPU (CTranslate2 has no GPU backend
+on AMD or Apple) doesn't wait (whisper_safe.hold_gpu_for_whisper). Standard
+library only, so tools in other environments (separate.py) can import it too.
 """
 
 import json

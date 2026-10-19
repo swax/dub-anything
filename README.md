@@ -1,40 +1,63 @@
 # Dub Anything
 
-Dub films and shows into another language **in each actor's own voice**, with
+Dub any video into another language **in each actor's own voice**, with
 the original music and sound effects intact. It runs on your own PC, and an AI
 coding agent directs the dub line by line, the way a dubbing director would.
 
 You give it a video file and target language. You get the same file back as
-`my-show (dubbed).mkv`: the dub plays by default, the original audio is one
+`my-video (dubbed).mkv`: the dub plays by default, the original audio is one
 track away, and subtitles in both languages are included.
 
 Or ask for subtitles alone: the same agent-directed transcript and translation,
 timed for reading, with text on screen translated where it appears, as
-`my-show (subtitled).mkv` plus an `.srt` beside it. Subtitles need no voice
+`my-video (subtitled).mkv` plus an `.srt` beside it. Subtitles need no voice
 engine running.
 
 ## Demos
 
-| A Japanese anime, dubbed into English | A Japanese film, dubbed into English |
+| Japanese animation, dubbed into English | Japanese live action, dubbed into English |
 |---|---|
-| [![A Japanese anime, dubbed into English](https://img.youtube.com/vi/qXosYS-cTXk/maxresdefault.jpg)](https://www.youtube.com/watch?v=qXosYS-cTXk) | [![A Japanese film, dubbed into English](https://img.youtube.com/vi/2DsFAoTbQ8E/maxresdefault.jpg)](https://www.youtube.com/watch?v=2DsFAoTbQ8E) |
+| [![Japanese animation, dubbed into English](https://img.youtube.com/vi/qXosYS-cTXk/maxresdefault.jpg)](https://www.youtube.com/watch?v=qXosYS-cTXk) | [![Japanese live action, dubbed into English](https://img.youtube.com/vi/2DsFAoTbQ8E/maxresdefault.jpg)](https://www.youtube.com/watch?v=2DsFAoTbQ8E) |
+
+## What you need
+
+A computer, one of:
+
+- **macOS** (Apple Silicon or Intel)
+- **Windows with an NVIDIA GPU** (6 GB or more)
+- **Windows with an AMD Radeon GPU** (RDNA 3 or newer, Ryzen AI laptop graphics
+  included)
+
+Linux should be a short port; see [below](#other-languages-and-hardware).
+
+An AI coding agent to direct the dub, and a plan to run it, one of:
+
+- **Claude** Pro or Max, with Claude Code or the Claude desktop app
+- **ChatGPT** Plus or Pro, with Codex
+- **OpenCode** with an API key, or a local model that can read images
+
+**Disk space:** about 40 GB, plus room to work (a long video in both voices
+used about 85 GB until it was cleaned up).
+
+Your agent installs [VoiceStudio](https://github.com/debpalash/VoiceStudio),
+the voice engine, and the other prerequisites as part of the first run.
 
 ## Getting started
 
 1. **Install/Open a desktop AI app**, such as ChatGPT, Claude or OpenCode,
    with access to your local files and a terminal. Turn on remote control so 
    you can monitor the dubbing process when you're away from your computer.
-2. **Ask it to dub your movie or show.** Give it this repository, your video's
+2. **Ask it to dub your video.** Give it this repository, your video's
    path and the language you want. For example:
 
-   > Use https://github.com/swax/dub-anything to dub D:\movies\my-show.mkv
+   > Use https://github.com/swax/dub-anything to dub D:\videos\my-video.mkv
    > into English. Download the repository and install the prerequisites for me.
 
 3. **Let the agent handle the rest.** It reads the project instructions,
    installs the tools, VoiceStudio and models, then directs, renders and checks
    the dub. It may ask you to sign in or accept a model license;
    after that, it's mostly hands off. The first run includes large downloads,
-   and a full movie can take hours.
+   and a long video can take hours.
 4. **Watch the result.** You get the dubbed file and a short list of moments to
    check, with timestamps. If anything needs fixing, just ask the AI: tell it
    what went wrong and where, and it re-renders the affected parts.
@@ -70,34 +93,36 @@ a listener notices:
 - **Chosen by ear.** The defaults were picked by listening to the alternatives
   side by side. What was measured is in [docs/research.md](docs/research.md). Feel free to continue fine tuning, and send back your improvements.
 
-## What you need
-
-- **macOS (Apple Silicon or Intel)**, or **a Windows PC with an NVIDIA GPU**
-  with at least 6 GB of memory. Apple Silicon uses Metal (MPS) acceleration.
-  A 16 GB NVIDIA card runs everything at once. (Linux should be a short port; see
-  [below](#other-languages-and-hardware).)
-- **Disk space:** about 40 GB for VoiceStudio, the models and the tools'
-  environments, plus room to work: a movie in both voices used about
-  85 GB until it was cleaned up.
-
-Your agent installs [VoiceStudio](https://github.com/debpalash/VoiceStudio),
-the voice engine, and the other prerequisites as part of the first run.
-
 ## How long it takes
 
-A short clip takes minutes. A 90-minute film with the actors' native accents
+A short clip takes minutes. A 90-minute video with the actors' native accents
 took 4.1 hours of machine time on a laptop RTX 4090, nearly all of it on the
 GPU: about half preparing the parts and two fifths rendering and checking the
 voices. Adding an optional American English audio track brings the total to
-about seven hours. The agent directs while the renders run, and on a long video
-it can split the directing across helper agents.
+about seven hours. The agent directs while the renders run, and on a long
+video it can split the directing across helper agents.
+
+A 16 GB NVIDIA card runs everything at once. Apple Silicon uses Metal (MPS)
+acceleration. AMD runs through AMD's ROCm build of PyTorch and is slower: on a
+laptop's integrated Radeon 890M, 15 minutes of video took about three hours of
+machine time, so a 90-minute video would run overnight or longer. Integrated
+graphics share the system's memory, so give them 32 GB of RAM or more.
 
 Subtitles alone take about half the machine time of a dub, since no voice is
 rendered or checked and the voice engine's own transcription is skipped. A
-30-minute episode took 41 minutes, two thirds of it reading the text in the
+30-minute video took 41 minutes, two thirds of it reading the text in the
 picture to translate it; without that step, it's about 15 minutes per half hour
-of video. That episode was delivered 43 minutes after the job started,
-directing included.
+of video. It was delivered 43 minutes after the job started, directing
+included.
+
+The agent's side takes a lot of tokens. Directing a 15-minute video (five
+parts, about 190 lines) took about 175 agent turns: about 0.2M output tokens
+and 0.4M new input tokens, plus about 110M input tokens read back from the
+prompt cache, since every turn re-reads the conversation so far. A 90-minute
+video has about six times the lines, which the agent shares out among helper
+agents. On a smaller plan, expect to hit its usage limit partway through a long
+video; the job keeps its progress, so ask the agent to carry on once the limit
+resets.
 
 ## Privacy
 
@@ -108,7 +133,7 @@ To run completely offline you need to use a local LLM for the director.
 ## Responsible use
 
 Only dub media you have the rights to, and only clone voices with the consent
-the use requires. A dub made from someone else's film or voice is for private
+the use requires. A dub made from someone else's video or voice is for private
 use unless you have permission.
 
 <a id="how-it-works"></a>
@@ -119,7 +144,7 @@ use unless you have permission.
 2. **Separate** the voices from the music and effects (Mel-Band Roformer).
 3. **Transcribe** each part with Whisper large-v3, with two other recognisers
    as a second opinion, and burned-in captions where there are any.
-4. **Cast** each line by matching voices across the whole show, checked
+4. **Cast** each line by matching voices across the whole video, checked
    against video frames.
 5. **Direct** (the agent): correct the transcript, translate, and time every
    line to the actor.
@@ -174,11 +199,11 @@ directed scripts by hand. With VoiceStudio's Python
 `scripts/dub_anything.py` runs the machine work of a whole dub:
 
 ```powershell
-& $py scripts\dub_anything.py new D:\movies\my-show.mkv --voices both   # a job named my_show
-& $py scripts\dub_anything.py run my_show --watch   # prep, then render each part marked ready
-# write work\my_show-NN\script.json for each part, then:
-& $py scripts\dub_anything.py ready my_show 01
-& $py scripts\dub_anything.py status my_show
+& $py scripts\dub_anything.py new D:\videos\my-video.mkv --voices both   # a job named my_video
+& $py scripts\dub_anything.py run my_video --watch   # prep, then render each part marked ready
+# write work\my_video-NN\script.json for each part, then:
+& $py scripts\dub_anything.py ready my_video 01
+& $py scripts\dub_anything.py status my_video
 ```
 
 <details>
@@ -187,14 +212,14 @@ directed scripts by hand. With VoiceStudio's Python
 With the backend running (`scripts/backend.py start`):
 
 ```powershell
-& $py scripts\split.py videos\episode.mkv                      # long video -> parts at pauses
-& $py scripts\dub.py prep videos\episode-parts\episode-01.mp4  # upload, separate, transcribe
-& $py scripts\draft.py episode-01                              # careful transcript, suggested cast
-# write work\episode-01\script.json and the cast in work\voices.json
-& $py scripts\dub.py generate episode-01 --match-level         # clone, time, mix, export
-& $py scripts\lineqa.py episode-01                             # check each rendered line
-& $py scripts\assemble.py episode --parts 1-4                  # one video with both audio tracks
-& $py scripts\deliver.py D:\movies\episode.mkv actor=videos\episode-parts\dubbed\episode.dubbed.mp4
+& $py scripts\split.py videos\video.mkv                    # long video -> parts at pauses
+& $py scripts\dub.py prep videos\video-parts\video-01.mp4  # upload, separate, transcribe
+& $py scripts\draft.py video-01                            # careful transcript, suggested cast
+# write work\video-01\script.json and the cast in work\voices.json
+& $py scripts\dub.py generate video-01 --match-level       # clone, time, mix, export
+& $py scripts\lineqa.py video-01                           # check each rendered line
+& $py scripts\assemble.py video --parts 1-4                # one video with both audio tracks
+& $py scripts\deliver.py D:\videos\video.mkv actor=videos\video-parts\dubbed\video.dubbed.mp4
 ```
 
 Some steps need their own environments (`separate.py`, `subs.py`,
@@ -224,8 +249,9 @@ short test dub before adding it, as
 with its module, its notes (`docs/languages/<code>.md`) and the pair's entry in
 `PAIRS`, so the next person gets it ready-made.
 
-The models run on Metal MPS (on Apple Silicon macOS) or CUDA (on Windows/Linux)
-and fall back to the CPU without it, slower. Video is encoded with
+The models run on Metal MPS (on Apple Silicon macOS), CUDA (on Windows/Linux)
+or ROCm (AMD Radeon on Windows; Whisper stays on the CPU there) and fall back
+to the CPU without them, slower. Video is encoded with
 Apple VideoToolbox on macOS, NVENC on Windows/Linux when NVIDIA is present,
 else x264. Platform differences (paths, desktop app runtime detection, GPU locks,
 audio separation environments) are handled automatically across macOS and Windows.

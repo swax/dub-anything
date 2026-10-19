@@ -20,6 +20,8 @@ import subprocess
 import sys
 import time
 
+from gpu import ROCM_ENV, rocm_env
+
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 API = os.environ.get("VOICESTUDIO_API", "http://127.0.0.1:3900")
 PORT = int(re.search(r":(\d+)", API.split("//", 1)[-1]).group(1)) if re.search(r":\d+", API.split("//", 1)[-1]) else 80
@@ -77,6 +79,7 @@ def full_env():
     for name in ("OMNIVOICE_DATA_DIR", "OMNIVOICE_CACHE_DIR"):
         if user_env(name):
             env[name] = user_env(name)
+    rocm_env(env)
     if sys.platform == "win32":
         import winreg
 
@@ -244,7 +247,7 @@ def start(wait=600):
         launcher.parent.mkdir(exist_ok=True)
         lines = ["@echo off"] + [
             f'set "{k}={env[k].replace("%", "%%")}"'
-            for k in ("PATH", "OMNIVOICE_DATA_DIR", "OMNIVOICE_CACHE_DIR")
+            for k in ("PATH", "OMNIVOICE_DATA_DIR", "OMNIVOICE_CACHE_DIR", *ROCM_ENV)
             if env.get(k)
         ]
         lines += [f'cd /d "{VS_DIR}"', subprocess.list2cmdline(cmd) + f' > "{log}" 2>&1']

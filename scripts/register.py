@@ -35,7 +35,6 @@ import numpy as np
 
 import draft
 from core import JOBS, WORK, bare, langs, line_id, load_json, said, take_wav, update_voices, voice_clips
-from gpulock import hold_gpu
 from faster_whisper.audio import decode_audio
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 
@@ -237,7 +236,7 @@ def cmd_build(args):
     target = float(np.median(gaps))
     embed = draft.embedder()
     centroid = draft.cast_centroids(embed, {base})[base]
-    hold_gpu()
+    draft.hold_gpu_for_whisper()
     model = draft.WhisperModel("Systran/faster-whisper-large-v3", device="auto", compute_type="default")
     picked, total = [], 0.0
     for clip, i, line, f in sorted(clean_lines(show, base), key=lambda x: abs(arousal(x[3], nm) - target)):

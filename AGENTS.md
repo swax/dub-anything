@@ -64,10 +64,13 @@ cloned or shared are final.
   - `separate.py`:
     macOS: `uv run --no-project --python 3.11 --with torch --with audio-separator --with onnxruntime python scripts/separate.py <clip> ...`
     Windows: `uv run --no-project --python 3.11 --index https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match --with torch==2.8.0 --with audio-separator --with onnxruntime python scripts/separate.py <clip> ...`
+    Windows with an AMD GPU: the same with VoiceStudio's ROCm torch in place of the
+    CUDA index and torch (`scripts/gpu.py` prints the arguments; `dub_anything.py` uses them itself)
   - `second.py`: `uv run --no-project --python 3.12 --with sherpa-onnx --with soundfile --with scipy --with pykakasi --with huggingface_hub python scripts/second.py <clip> ...`
   - `subs.py` (burned-in captions):
     macOS: `uv run --no-project --python 3.12 --with rapidocr --with onnxruntime python scripts/subs.py <clip>`
-    Windows: `uv run --no-project --python 3.12 --with rapidocr --with "onnxruntime-gpu[cuda,cudnn]" python scripts/subs.py <clip>`;
+    Windows: `uv run --no-project --python 3.12 --with rapidocr --with "onnxruntime-gpu[cuda,cudnn]" python scripts/subs.py <clip>`
+    (with an AMD GPU, `--with onnxruntime`: the OCR runs on the CPU);
     `signs.py` (text in the picture to translate) runs the same way
   - `pitch.py`, `contour.py`: `uv run --no-project --python 3.12 --with librosa --with soundfile python scripts/<script>`
   - `vc.py` (the `"american"` voice), which `scripts/dub.py generate` starts

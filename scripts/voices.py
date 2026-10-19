@@ -79,14 +79,13 @@ def add(key, src, clips, text, replace):
 
 
 def check(keys):
-    from gpulock import hold_gpu
-
     voices = load_json(WORK / "voices.json")
     wavs = {k: voice_wav(k) for k in keys}
-    hold_gpu()
     whisper_setup()
     from faster_whisper.audio import decode_audio
-    from whisper_safe import WhisperModel
+    from whisper_safe import WhisperModel, hold_gpu_for_whisper
+
+    hold_gpu_for_whisper()
 
     model = WhisperModel("Systran/faster-whisper-large-v3", device="auto", compute_type="default")
     for k in keys:

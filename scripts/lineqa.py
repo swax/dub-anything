@@ -43,11 +43,10 @@ import time
 import soundfile as sf
 
 from core import WORK, langs, line_id, load_json, take_wav, whisper_setup
-from gpulock import hold_gpu
 from languages import LANGUAGES
 
 whisper_setup()
-from whisper_safe import WhisperModel  # noqa: E402
+from whisper_safe import WhisperModel, hold_gpu_for_whisper  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -73,7 +72,7 @@ class Ear:
     def __call__(self, wav, lang):
         if self.model is None:
             t = time.time()
-            hold_gpu()
+            hold_gpu_for_whisper()
             self.model = WhisperModel(self.MODEL, device="auto", compute_type="default")
             self.load_s += time.time() - t
         t = time.time()

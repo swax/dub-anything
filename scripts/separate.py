@@ -68,9 +68,13 @@ def main():
             restore(clip)
         return
 
+    import torch
     from audio_separator.separator import Separator
 
+    from gpu import rocm_settings
+
     hold_gpu()
+    rocm_settings(torch)
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="separate-"))
     sep = Separator(model_file_dir=str(MODELS), output_dir=str(tmp), output_format="WAV")
     sep.load_model(model_filename=args.model)

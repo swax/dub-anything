@@ -73,8 +73,9 @@ def engine(lang):
         pass
     from rapidocr import LangRec, ModelType, OCRVersion, RapidOCR
 
-    hold_gpu()
     cuda = "CUDAExecutionProvider" in onnxruntime.get_available_providers()
+    if cuda:  # on the CPU (an AMD GPU, a Mac) the OCR needn't wait for renders
+        hold_gpu()
     rec, model = LANGUAGES[lang].OCR
     return RapidOCR(
         params={

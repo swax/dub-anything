@@ -261,10 +261,41 @@ index 08758823..039dbf0f 100644
      except Exception as e:
          logger.warning("Effects chain failed: %s — returning unmodified audio", e)
 diff --git a/backend/services/model_manager.py b/backend/services/model_manager.py
-index bbcbd7de..4a86a6f5 100644
+index bbcbd7de..b0dd01bf 100644
 --- a/backend/services/model_manager.py
 +++ b/backend/services/model_manager.py
-@@ -2444,9 +2444,13 @@ def _load_model_sync():
+@@ -25,9 +25,30 @@ def _lazy_torch():
+     if _torch is None:
+         import torch as _t
+         _torch = _t
++        _configure_rocm_windows(_t)
+     return _torch
+ 
+ 
++def _configure_rocm_windows(torch):
++    """ROCm on Windows: PyTorch's own convolutions instead of MIOpen's, and
++    AOTriton attention on consumer Radeons.
++
++    MIOpen searches and compiles kernels for every new input shape, and every
++    take has a new length: the first generate on a Radeon 890M spent over 300 s
++    in the audio tokenizer's first convolution. Without AOTriton (experimental
++    on RDNA 3) attention takes the math path, about 10x slower.
++    OMNIVOICE_MIOPEN=1 keeps MIOpen.
++    """
++    if sys.platform != "win32" or getattr(torch.version, "hip", None) is None:
++        return
++    os.environ.setdefault("TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL", "1")
++    if os.environ.get("OMNIVOICE_MIOPEN") != "1":
++        torch.backends.cudnn.enabled = False
++        logging.getLogger("omnivoice.model").info(
++            "ROCm on Windows: MIOpen off (OMNIVOICE_MIOPEN=1 keeps it), AOTriton attention on"
++        )
++
++
+ def _missing_module_is_omnivoice(exc: ModuleNotFoundError) -> bool:
+     """True when *exc* says the ``omnivoice`` package itself is not importable.
+ 
+@@ -2444,9 +2465,13 @@ def _load_model_sync():
              logger.info("Preloading PyTorch Whisper after TTS model load.")
          else:
              logger.info("Skipping PyTorch Whisper preload; ASR will load on demand.")
