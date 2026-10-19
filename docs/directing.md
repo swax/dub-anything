@@ -940,6 +940,15 @@ language there.
   lock and run beside a render. They take the CPU instead: on a 12-core laptop
   a draft took about 10 minutes a 3-minute part, and two of them at once each
   ran at half speed. The OmniVoice renders and the separation stay on the GPU.
+  Running `lineqa.py` beside a render doesn't pay on an integrated GPU, which
+  shares the system's memory with the CPU. On a Radeon 890M, renders beside a
+  check ran 1.9-2.4x slower and the check 1.7-2x slower, though the CPU was
+  only half busy and the check ran below normal priority. A two-part test dub
+  in both voices took 2 h 27 min that way against 2 h 9 min with each check
+  in turn. An actor line also ran past VoiceStudio's 300 s batch limit
+  ("Generation failed"), and IndexTTS then started in CPU mode until
+  `scripts/backend.py restart`. So `dub_anything.py` runs each check in turn
+  there too.
 - **Speaker detection.** Automatic diarisation can merge similar voices or
   split one speaker. Confirm casting with multiple signals. Sortformer can't
   handle clips over 120 s or more than 4 speakers, ignores

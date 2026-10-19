@@ -1,4 +1,5 @@
-"""Voice-converter initialization failures must preserve CUDA recovery."""
+"""Voice-converter initialization failures must preserve CUDA recovery, and only an
+AMD GPU runs the flow decoder in bf16."""
 
 import contextlib
 import io
@@ -13,15 +14,22 @@ import vc
 
 
 class ChatterboxInitializationTests(unittest.TestCase):
-    def load(self, device, error):
+    def load(self, device, error, hip=None, env=None):
         torch = types.ModuleType("torch")
-        torch.version = types.SimpleNamespace(hip=None)
+        torch.version = types.SimpleNamespace(hip=hip)
         torch.cuda = types.SimpleNamespace(is_available=lambda: device == "cuda")
-        torch.backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: device == "mps"))
+        torch.backends = types.SimpleNamespace(
+            mps=types.SimpleNamespace(is_available=lambda: device == "mps"), cudnn=types.SimpleNamespace(enabled=True)
+        )
+        torch.bfloat16 = "bf16"
+        torch.autocast = lambda device_type, dtype: lambda f: ("autocast", device_type, dtype, f)
         tokenizer = types.ModuleType("chatterbox.models.s3tokenizer")
         tokenizer.S3_SR = 16000
         converter = types.ModuleType("chatterbox.vc")
-        loaded = types.SimpleNamespace(sr=24000, device="cpu" if error else device)
+        self.forward = object()
+        estimator = types.SimpleNamespace(forward=self.forward)
+        s3gen = types.SimpleNamespace(flow=types.SimpleNamespace(decoder=types.SimpleNamespace(estimator=estimator)))
+        loaded = types.SimpleNamespace(sr=24000, device="cpu" if error else device, s3gen=s3gen)
         self.loader = MagicMock(side_effect=[error, loaded] if error else [loaded])
         converter.ChatterboxVC = types.SimpleNamespace(from_pretrained=self.loader)
         self.output = io.StringIO()
@@ -29,10 +37,29 @@ class ChatterboxInitializationTests(unittest.TestCase):
             patch.dict(
                 sys.modules, {"torch": torch, "chatterbox.models.s3tokenizer": tokenizer, "chatterbox.vc": converter}
             ),
+            patch.dict("os.environ", env or {}, clear=True),
             patch.object(pathlib.Path, "exists", return_value=True),
             contextlib.redirect_stdout(self.output),
         ):
             return vc.Chatterbox()
+
+    def test_rocm_runs_the_flow_estimator_in_bf16(self):
+        model = self.load("cuda", None, hip="7.13")
+        self.assertEqual(model.vc.s3gen.flow.decoder.estimator.forward, ("autocast", "cuda", "bf16", self.forward))
+
+    def test_rocm_keeps_fp32_on_request(self):
+        model = self.load("cuda", None, hip="7.13", env={"DUB_ANYTHING_VC_FP32": "1"})
+        self.assertIs(model.vc.s3gen.flow.decoder.estimator.forward, self.forward)
+
+    def test_nvidia_and_mac_stay_fp32(self):
+        for device in ("cuda", "mps"):
+            with self.subTest(device=device):
+                model = self.load(device, None)
+                self.assertIs(model.vc.s3gen.flow.decoder.estimator.forward, self.forward)
+
+    def test_rocm_build_on_the_cpu_stays_fp32(self):
+        model = self.load("cpu", None, hip="7.13")
+        self.assertIs(model.vc.s3gen.flow.decoder.estimator.forward, self.forward)
 
     def test_cuda_oom_reaches_runner(self):
         with self.assertRaisesRegex(RuntimeError, "CUDA out of memory"):

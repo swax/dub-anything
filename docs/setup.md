@@ -192,7 +192,12 @@ with 0xC0000374), and runs IndexTTS's s2mel diffusion in bf16 instead of
 upstream's fp32. On a Radeon 890M that is about 10 s a line against 44 s, with
 an output 0.3% different; `OMNIVOICE_INDEXTTS_FP16=0` keeps fp32 throughout.
 `vc.py` (the `"american"` voice) installs AMD's torchaudio 2.9 for its torch.
-Chatterbox only resamples and takes filterbanks with it.
+Chatterbox only resamples and takes filterbanks with it. `vc.py` runs
+Chatterbox's flow-matching decoder (its ten steps take nearly all of a take's
+time) under bf16 autocast, and the vocoder in fp32. On a Radeon 890M that is
+2.7 s a take against 7.2 s, and the converted take moves about 6% as far from
+the fp32 one as a fresh seed does (log-mel distance), with the same speaker
+similarity, pitch and transcriptions. `DUB_ANYTHING_VC_FP32=1` keeps fp32.
 
 ## 4. Start the backend
 

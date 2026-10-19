@@ -18,6 +18,11 @@ outside the input's own speech (as VoiceStudio trims takes): the model now and
 then turns the silence around a take into sound, a stray "and" before the line,
 which made the take longer than its window.
 
+On an AMD GPU (a ROCm build of PyTorch) the flow-matching decoder's estimator,
+ten steps that take nearly all of a take's time, runs under bf16 autocast:
+fp32 matrix math is several times slower there. The vocoder and its pitch
+predictor stay fp32. DUB_ANYTHING_VC_FP32=1 keeps fp32 throughout.
+
 Setup: a clone of github.com/resemble-ai/chatterbox in vendor/chatterbox (or set
 CHATTERBOX_SRC). Only its voice converter is imported: the package's own
 __init__ loads the TTS models too and wants pip metadata. Weights
@@ -130,6 +135,14 @@ def active_rms(x, sr):
     return float(np.sqrt(np.mean(loud**2)))
 
 
+def flow_dtype(torch, device):
+    """What the flow-matching decoder's estimator runs in under autocast: bf16 on an
+    AMD GPU (above), None (fp32) on any other device or with DUB_ANYTHING_VC_FP32=1."""
+    if device != "cuda" or getattr(torch.version, "hip", None) is None:
+        return None
+    return None if os.environ.get("DUB_ANYTHING_VC_FP32") == "1" else torch.bfloat16
+
+
 class Chatterbox:
     def __init__(self):
         import types
@@ -167,6 +180,9 @@ class Chatterbox:
                 raise
             print(f"  Chatterbox: MPS initialization failed ({exc}); retrying on CPU", flush=True)
             self.vc = ChatterboxVC.from_pretrained("cpu")
+        if dtype := flow_dtype(torch, self.vc.device):
+            estimator = self.vc.s3gen.flow.decoder.estimator
+            estimator.forward = torch.autocast("cuda", dtype=dtype)(estimator.forward)
         self.sr = self.vc.sr
         self.target = None
 
