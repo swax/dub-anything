@@ -130,11 +130,115 @@ index e30baa66..872694d1 100644
  
          if (
              emo_vector
+diff --git a/backend/engines/indextts/bootstrap.py b/backend/engines/indextts/bootstrap.py
+index cdf07f53..64044557 100644
+--- a/backend/engines/indextts/bootstrap.py
++++ b/backend/engines/indextts/bootstrap.py
+@@ -212,6 +212,15 @@ def _venv_can_import_indextts(python_path: Path) -> ProbeResult:
+         " if exc.name != 'indextts.infer_v2_5': raise\n"
+         " import indextts.infer_v2\n"
+     )
++    if os.name == "nt":
++        # The sidecar adapts a ROCm torch before it imports indextts; so must
++        # the probe, or it rejects a working venv (main._configure_rocm_windows).
++        # main.py is stdlib-only at import time.
++        probe = (
++            "import importlib.util as u\n"
++            f"s = u.spec_from_file_location('indextts_sidecar', {str(INDEXTTS_SIDECAR_SCRIPT)!r})\n"
++            "m = u.module_from_spec(s); s.loader.exec_module(m); m._configure_rocm_windows()\n"
++        ) + probe
+     return venv_can_import(python_path, probe, engine="indextts", logger=logger)
+ 
+ 
 diff --git a/backend/engines/indextts/main.py b/backend/engines/indextts/main.py
-index 34bf6d7a..7f78d344 100644
+index 34bf6d7a..5ac35c0d 100644
 --- a/backend/engines/indextts/main.py
 +++ b/backend/engines/indextts/main.py
-@@ -383,6 +383,16 @@ def _handle_synthesize(msg: dict, stdout) -> None:
+@@ -294,6 +294,67 @@ def _model_init_kwargs(
+     return kwargs
+ 
+ 
++def _configure_rocm_windows() -> None:
++    """ROCm on Windows: PyTorch's own convolutions instead of MIOpen's, and
++    AOTriton attention, as the backend does (services/model_manager.py).
++    MIOpen tunes every new input shape for minutes. OMNIVOICE_MIOPEN=1 keeps it.
++
++    Also run by the venv probe (bootstrap.py) before it imports indextts: a
++    probe that fails here makes the backend bootstrap a CUDA venv of its own,
++    which runs on the CPU.
++    """
++    if sys.platform != "win32":
++        return
++    import importlib.util
++
++    if importlib.util.find_spec("torch") is None:
++        return
++    import torch
++
++    if getattr(torch.version, "hip", None) is None:
++        return
++    os.environ.setdefault("TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL", "1")
++    if os.environ.get("OMNIVOICE_MIOPEN") != "1":
++        torch.backends.cudnn.enabled = False
++    # TorchScript's fuser compiles bf16 kernels that corrupt the heap here (the
++    # s2mel wavenet's scripted gate; 0xC0000374). The ops run unfused instead.
++    torch._C._jit_set_texpr_fuser_enabled(False)
++    if not torch.distributed.is_available():
++        # This torch has no distributed backend. transformers 4.52 (IndexTTS's
++        # pin) imports torch.distributed.tensor unguarded, and audiotools (s2mel)
++        # names dist.ReduceOp.AVG as a default argument. Their other uses check
++        # that distributed is available first.
++        import enum
++        import types
++
++        sys.modules.setdefault("torch.distributed.tensor", types.ModuleType("torch.distributed.tensor"))
++        if not hasattr(torch.distributed, "ReduceOp"):
++            torch.distributed.ReduceOp = enum.Enum("ReduceOp", "SUM AVG PRODUCT MIN MAX")
++
++
++def _rocm_reduced_precision_s2mel(model) -> None:
++    """ROCm on Windows: run s2mel's diffusion under the GPT's reduced precision.
++
++    Upstream runs it in fp32, which takes a consumer Radeon 4-5x as long as
++    bf16 (some 40 s a line); the output differs by about 0.3%. The ODE state
++    stays fp32. With OMNIVOICE_INDEXTTS_FP16=0 the model has no reduced
++    precision and this keeps fp32.
++    """
++    import torch
++
++    dtype = getattr(model, "dtype", None)
++    if sys.platform != "win32" or getattr(torch.version, "hip", None) is None or dtype is None:
++        return
++    cfm = model.s2mel.models["cfm"]
++    inference = cfm.inference
++
++    def reduced(*args, **kwargs):
++        with torch.amp.autocast("cuda", dtype=dtype):
++            return inference(*args, **kwargs).float()
++
++    cfm.inference = reduced
++
++
+ def _load_model(stdout) -> object:
+     """Cold-construct IndexTTS2 from OMNIVOICE_INDEXTTS_DIR/checkpoints/.
+ 
+@@ -307,6 +368,7 @@ def _load_model(stdout) -> object:
+     if _model is not None:
+         return _model
+ 
++    _configure_rocm_windows()
+     _send(stdout, {"op": "progress", "stage": "loading_model", "percent": 0})
+ 
+     # Imported lazily so a missing dep doesn't block the ready handshake.
+@@ -331,6 +393,7 @@ def _load_model(stdout) -> object:
+     with _heartbeat(stdout, "loading_model"):
+         with _local_checkpoint_config(model_kw["cfg_path"], model_kw["model_dir"]) as cfg_path:
+             _model = IndexTTS2(**{**model_kw, "cfg_path": cfg_path})
++    _rocm_reduced_precision_s2mel(_model)
+ 
+     _send(stdout, {"op": "progress", "stage": "loading_model", "percent": 100})
+     return _model
+@@ -383,6 +446,16 @@ def _handle_synthesize(msg: dict, stdout) -> None:
      # has already done any vector-vs-audio-vs-text emotion priority
      # arbitration; we just forward whichever keys it sent.
      infer_kw = _build_infer_kwargs(msg, ref_audio, is_v25=_model_version == "2.5")

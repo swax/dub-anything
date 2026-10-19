@@ -955,7 +955,13 @@ language there.
   which also gains the `echo` preset). With ROCm's PyTorch on Windows, MIOpen
   tuned every new convolution shape for minutes and attention took PyTorch's
   slow math path (`backend/services/model_manager.py`; see
-  [setup.md](setup.md#amd-radeon-rocm-pytorch)). All are worth reporting upstream.
+  [setup.md](setup.md#amd-radeon-rocm-pytorch)). IndexTTS's venv probe
+  rejected a ROCm venv and the backend fell back to a CUDA venv on the CPU,
+  and s2mel ran in fp32, 4-5x slower than bf16 on a Radeon
+  (`backend/engines/indextts/`). All are worth reporting upstream.
+- **On an AMD GPU, check that IndexTTS is on it.** "CPU mode" in `backend.log`
+  after the sidecar spawns means it is not (setup.md); a line then takes about
+  a minute.
 
 ## Tools
 

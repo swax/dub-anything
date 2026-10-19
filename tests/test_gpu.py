@@ -34,6 +34,8 @@ class VoiceStudioTorchTests(unittest.TestCase):
         self.assertIn(gpu.ROCM_INDEX, args)
         self.assertIn("torch[device-gfx1150]==2.9.1+rocm7.13.0", args)
         self.assertIn("torchvision[device-gfx1150]==0.24.0+rocm7.13.0", args)
+        self.assertFalse(any(a.startswith("torchaudio") for a in args))
+        self.assertIn("torchaudio==2.9.0+rocm7.13.0", gpu.uv_torch_args(audio=True))
 
     def test_cuda_and_cpu_builds_change_nothing(self):
         for record in ("torch-2.8.0+cu128.dist-info", "torch-2.8.0.dist-info"):

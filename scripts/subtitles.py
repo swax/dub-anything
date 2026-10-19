@@ -9,7 +9,9 @@ it for reading:
     (a line spoken for longer keeps its own length);
   - LINGER past the speech where there is room;
   - never into the next cue (GAP before it), and a gap shorter than CHAIN closes
-    up to GAP, so the text changes instead of blinking.
+    up to GAP, so the text changes instead of blinking;
+  - never past `until`, the video's end when it is known: a cue lengthened past
+    it makes the subtitle track, and the file, longer than the picture.
 Cues that already overlap (two speakers at once, a caption under a line) stay
 as they are. assemble.py times every subtitle track this way, dubs' included.
 
@@ -41,8 +43,9 @@ def rate(lang):
     return getattr(LANGUAGES[lang], "READING_CPS", 17)
 
 
-def timed(cues, lang):
-    """[(start, end, text)] -> the same cues, sorted, each shown long enough to read."""
+def timed(cues, lang, until=float("inf")):
+    """[(start, end, text)] -> the same cues, sorted, each shown long enough to read
+    (and lengthened no further than `until`)."""
     cues = sorted(cues, key=lambda c: (c[0], c[1]))
     out = []
     for i, (a, b, text) in enumerate(cues):
@@ -55,7 +58,7 @@ def timed(cues, lang):
         end = max(b, min(end, nxt - GAP))
         if nxt - end < CHAIN:
             end = max(end, nxt - GAP)
-        out.append((a, round(end, 3), text))
+        out.append((a, round(max(b, min(end, until)), 3), text))
     return out
 
 

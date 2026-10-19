@@ -15,6 +15,7 @@ import vc
 class ChatterboxInitializationTests(unittest.TestCase):
     def load(self, device, error):
         torch = types.ModuleType("torch")
+        torch.version = types.SimpleNamespace(hip=None)
         torch.cuda = types.SimpleNamespace(is_available=lambda: device == "cuda")
         torch.backends = types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: device == "mps"))
         tokenizer = types.ModuleType("chatterbox.models.s3tokenizer")

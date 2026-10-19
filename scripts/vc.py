@@ -34,50 +34,46 @@ import time
 import numpy as np
 import soundfile as sf
 
+from gpu import rocm_settings, uv_torch_args
 from gpulock import hold_gpu
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # The environment it runs in (dub.py prepends this to "python vc.py ...").
+DEPS = [
+    "--with",
+    "numpy<2",
+    "--with",
+    "scipy",
+    "--with",
+    "librosa==0.11.0",
+    "--with",
+    "soundfile",
+    "--with",
+    "huggingface_hub==0.25.2",
+    "--with",
+    "s3tokenizer",
+    "--with",
+    "diffusers==0.29.0",
+    "--with",
+    "conformer==0.3.2",
+    "--with",
+    "safetensors==0.5.3",
+    "--with",
+    "omegaconf",
+    "--with",
+    "einops",
+    "--with",
+    "resemble-perth",
+    "--with",
+    "setuptools<81",
+    "--with",
+    "tqdm",
+]
+ROCM_TORCH = uv_torch_args(audio=True)  # AMD: VoiceStudio's ROCm build of torch, and its torchaudio
 if sys.platform == "darwin":
-    UV_RUN = [
-        "uv",
-        "run",
-        "--no-project",
-        "--python",
-        "3.11",
-        "--with",
-        "torch",
-        "--with",
-        "torchaudio",
-        "--with",
-        "numpy<2",
-        "--with",
-        "scipy",
-        "--with",
-        "librosa==0.11.0",
-        "--with",
-        "soundfile",
-        "--with",
-        "huggingface_hub==0.25.2",
-        "--with",
-        "s3tokenizer",
-        "--with",
-        "diffusers==0.29.0",
-        "--with",
-        "conformer==0.3.2",
-        "--with",
-        "safetensors==0.5.3",
-        "--with",
-        "omegaconf",
-        "--with",
-        "einops",
-        "--with",
-        "resemble-perth",
-        "--with",
-        "setuptools<81",
-        "--with",
-        "tqdm",
-    ]
+    UV_RUN = ["uv", "run", "--no-project", "--python", "3.11", "--with", "torch", "--with", "torchaudio"] + DEPS
+elif ROCM_TORCH:
+    UV_RUN = ["uv", "run", "--no-project", "--python", "3.11", *ROCM_TORCH] + DEPS
 else:
     UV_RUN = [
         "uv",
@@ -93,35 +89,7 @@ else:
         "torch==2.8.0",
         "--with",
         "torchaudio==2.8.0",
-        "--with",
-        "numpy<2",
-        "--with",
-        "scipy",
-        "--with",
-        "librosa==0.11.0",
-        "--with",
-        "soundfile",
-        "--with",
-        "huggingface_hub==0.25.2",
-        "--with",
-        "s3tokenizer",
-        "--with",
-        "diffusers==0.29.0",
-        "--with",
-        "conformer==0.3.2",
-        "--with",
-        "safetensors==0.5.3",
-        "--with",
-        "omegaconf",
-        "--with",
-        "einops",
-        "--with",
-        "resemble-perth",
-        "--with",
-        "setuptools<81",
-        "--with",
-        "tqdm",
-    ]
+    ] + DEPS
 
 
 def resample(x, sr, to):
@@ -180,6 +148,7 @@ class Chatterbox:
         from chatterbox.vc import ChatterboxVC
 
         self.torch, self.S3_SR = torch, S3_SR
+        rocm_settings(torch)
         device = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
         try:
             self.vc = ChatterboxVC.from_pretrained(device)

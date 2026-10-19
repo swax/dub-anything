@@ -105,7 +105,9 @@ video it can split the directing across helper agents.
 A 16 GB NVIDIA card runs everything at once. Apple Silicon uses Metal (MPS)
 acceleration. AMD runs through AMD's ROCm build of PyTorch and is slower: on a
 laptop's integrated Radeon 890M, 15 minutes of video took about three hours of
-machine time, so a 90-minute video would run overnight or longer. Integrated
+machine time, and the American English track about 2.7 hours more, a third of
+it checking the takes with Whisper on the CPU. A 90-minute video would run
+overnight or longer. Integrated
 graphics share the system's memory, so give them 32 GB of RAM or more.
 
 Subtitles alone take about half the machine time of a dub, since no voice is

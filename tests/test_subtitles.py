@@ -103,6 +103,12 @@ class TimingTests(unittest.TestCase):
         cues = [(0.0, 3.0, "Over a long line."), (1.0, 2.0, "A caption under it.")]
         self.assertEqual(subtitles.timed(cues, "en")[0], cues[0])
 
+    def test_last_cue_stops_at_the_end_of_the_video(self):
+        (cue,) = subtitles.timed([(898.1, 900.0, "Last words.")], "en", until=900.1)
+        self.assertEqual(cue[1], 900.1)
+        (cue,) = subtitles.timed([(898.1, 900.0, "Last words.")], "en", until=899.5)
+        self.assertEqual(cue[1], 900.0)  # never shorter than the speech
+
     def test_long_speech_keeps_its_own_length(self):
         (cue,) = subtitles.timed([(0.0, 9.0, "A long speech.")], "en")
         self.assertEqual(cue[1], 9.0)

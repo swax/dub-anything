@@ -19,7 +19,8 @@ track names theirs (TITLES in languages/<code>.py). Output
 defaults to the parts' `dubbed` folder.
 
 Every subtitle track is timed for reading (subtitles.timed): a cue stays up
-long enough to read and closes small gaps to the next, so text doesn't flash.
+long enough to read and closes small gaps to the next, so text doesn't flash,
+but never past the end of the video.
 
 --subtitles is for a job that subtitles the video instead of dubbing it: no
 audio is mixed and no video written, only the subtitle files beside
@@ -134,7 +135,7 @@ def main():
                 original.append((line["start"] + off, line["end"] + off, LANGUAGES[src].subtitle(said(line, src))))
         signs += [{**s, "start": s["start"] + off, "end": s["end"] + off} for s in script.get("signs", [])]
 
-    dubbed, original = subtitles.timed(dubbed, tgt), subtitles.timed(original, src)
+    dubbed, original = subtitles.timed(dubbed, tgt, t1 - t0), subtitles.timed(original, src, t1 - t0)
     first_doc = load_json(WORK / parts[0]["name"] / "segments.json") or {"video": parts[0].get("file", source)}
     dest = out_dir(first_doc)
     suffix = f".p{args.parts}" if args.parts else ""

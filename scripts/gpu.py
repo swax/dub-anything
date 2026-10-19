@@ -79,10 +79,12 @@ def rocm_env(env=os.environ):
     return env
 
 
-def uv_torch_args():
+def uv_torch_args(audio=False):
     """uv run arguments that install VoiceStudio's ROCm torch (and its torchvision,
     which would otherwise resolve to one built for a newer torch) in a tool's own
-    environment, or None when VoiceStudio's torch isn't a ROCm build."""
+    environment, or None when VoiceStudio's torch isn't a ROCm build. With `audio`,
+    AMD's torchaudio for that torch too (X.Y.0 for torch X.Y.*, as AMD's index has
+    it up to 2.11; VoiceStudio itself keeps torchaudio 2.8, docs/setup.md)."""
     t = rocm_torch()
     if not t:
         return None
@@ -92,6 +94,8 @@ def uv_torch_args():
     vision = _installed(_site_packages(), "torchvision")
     if vision and vision[1] == build:
         args += ["--with", f"torchvision[device-{gfx}]=={vision[0]}+{build}"]
+    if audio:
+        args += ["--with", f"torchaudio=={'.'.join(version.split('.')[:2])}.0+{build}"]
     return args
 
 

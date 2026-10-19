@@ -124,7 +124,8 @@ reference for engines that take one (IndexTTS 2,
 `--engine indextts2 --emo-alpha`). For IndexTTS 2.5 it passes a line's speed on as the
 engine's duration factor (it was dropped before), and it gives each line a seed,
 so the `"american"` voice's fill re-times the same take. With ROCm's PyTorch
-on Windows (an AMD GPU, below) it turns MIOpen off and AOTriton attention on. See
+on Windows (an AMD GPU, below) it turns MIOpen off and AOTriton attention on,
+in the backend and in IndexTTS's sidecar, and fits IndexTTS to that torch. See
 [directing.md](directing.md#gotchas).
 
 #### AMD Radeon: ROCm PyTorch
@@ -167,6 +168,31 @@ hour; if a step's log is complete but the step doesn't end, end that process.
 IndexTTS 2.5 is optional (about 12 GB). Install it through the running backend:
 `POST http://127.0.0.1:3900/engines/sidecar/indextts2/install`, then poll
 `.../install/status`.
+
+With an AMD GPU, IndexTTS's own venv gets the CUDA build too. Swap it the same
+way (it has no torchvision), then `scripts/backend.py restart`:
+
+```powershell
+$py = "C:\VoiceStudioData\data\engines\indextts2\index-tts-2.5\.venv\Scripts\python.exe"   # under OMNIVOICE_DATA_DIR
+uv pip install --python $py --index-url https://repo.amd.com/rocm/whl-multi-arch/ --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match "torch[device-$gfx]==2.9.1+rocm7.13.0"
+uv pip install --python $py --no-deps --reinstall-package torchaudio "torchaudio==2.8.0" --index-url https://pypi.org/simple
+$lib = "$(Split-Path (Split-Path $py))\Lib\site-packages\torchaudio\lib"
+foreach ($f in "_torchaudio.pyd", "libtorchaudio.pyd") { Rename-Item "$lib\$f" "$f.disabled-for-rocm" }
+```
+
+The backend log should then say `IndexTTS venv resolved from
+OMNIVOICE_INDEXTTS_DIR`. When its import probe of that venv fails, the backend
+quietly builds a CUDA venv of its own in `backend\engines\indextts\.venv`,
+which runs on the CPU (IndexTTS logs "CPU mode", about a minute a line). The
+patch makes the probe and the sidecar fit this torch, which has no distributed
+backend: transformers 4.52 imports `torch.distributed.tensor` unguarded, and
+audiotools names `dist.ReduceOp` as a default argument. It also turns
+TorchScript's fuser off, whose bf16 kernels corrupt the heap (the process ends
+with 0xC0000374), and runs IndexTTS's s2mel diffusion in bf16 instead of
+upstream's fp32. On a Radeon 890M that is about 10 s a line against 44 s, with
+an output 0.3% different; `OMNIVOICE_INDEXTTS_FP16=0` keeps fp32 throughout.
+`vc.py` (the `"american"` voice) installs AMD's torchaudio 2.9 for its torch.
+Chatterbox only resamples and takes filterbanks with it.
 
 ## 4. Start the backend
 
