@@ -25,7 +25,8 @@ next check puts the best one back if the new take transcribes worse; the next
 `generate` then re-mixes it without synthesizing anything.
 What Whisper heard in each take is kept by the take's hash (work/<name>/heard.json),
 so a check after a round of fresh takes only listens to the takes that changed;
-with none changed, Whisper isn't even loaded.
+with none changed, Whisper isn't even loaded. On the CPU it listens in int8 (Ear),
+and those hearings are kept apart from float32's and the GPU's.
 In the "american" voice most flags come from the conversion, not from IndexTTS:
 when IndexTTS's own take of a flagged line says it right, the line is queued to
 be converted again (conversion is random too), keeping the take; after
@@ -46,7 +47,7 @@ from core import WORK, langs, line_id, load_json, take_wav, whisper_setup
 from languages import LANGUAGES
 
 whisper_setup()
-from whisper_safe import WhisperModel, hold_gpu_for_whisper  # noqa: E402
+from whisper_safe import WhisperModel, hold_gpu_for_whisper, whisper_on_gpu  # noqa: E402
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -61,19 +62,24 @@ def better(a, b):
 
 
 class Ear:
-    """Whisper, loaded (and the GPU waited for) only when a take hasn't been heard before."""
+    """Whisper, loaded (and the GPU waited for) only when a take hasn't been heard before.
+    On the CPU (an AMD GPU, a Mac) in int8: CTranslate2 would turn large-v3's float16
+    into float32 there, which heard a part's takes 1.4-1.6x as slowly, flagging the same."""
 
     MODEL = "Systran/faster-whisper-large-v3"
 
     def __init__(self):
         self.model = None
+        self.compute_type = "default" if whisper_on_gpu() else "int8"
+        # heard.json keys a hearing by this: one in int8 isn't reused for float32's, or back.
+        self.tag = self.MODEL.rsplit("-", 1)[-1] + ("" if self.compute_type == "default" else f"-{self.compute_type}")
         self.load_s = self.hear_s = 0.0  # waiting for the GPU and loading; listening
 
     def __call__(self, wav, lang):
         if self.model is None:
             t = time.time()
             hold_gpu_for_whisper()
-            self.model = WhisperModel(self.MODEL, device="auto", compute_type="default")
+            self.model = WhisperModel(self.MODEL, device="auto", compute_type=self.compute_type)
             self.load_s += time.time() - t
         t = time.time()
         got = hear(self.model, wav, lang)
@@ -89,7 +95,7 @@ def check(name, ear, show_all, reroll):
     # same way, so only new takes need listening to (a round re-rolls a few lines).
     heard_path = work / "heard.json"
     heard = load_json(heard_path, {})
-    model_tag = Ear.MODEL.rsplit("-", 1)[-1]
+    model_tag = getattr(ear, "tag", Ear.MODEL.rsplit("-", 1)[-1])
     new = []
 
     def listen(wav):

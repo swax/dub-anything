@@ -948,7 +948,11 @@ language there.
   in turn. An actor line also ran past VoiceStudio's 300 s batch limit
   ("Generation failed"), and IndexTTS then started in CPU mode until
   `scripts/backend.py restart`. So `dub_anything.py` runs each check in turn
-  there too.
+  there too. `lineqa.py` hears in int8 there instead: on the CPU CTranslate2
+  turns large-v3's float16 into float32, and int8 heard a part's 48 takes in
+  280-290 s instead of 450 s (the American voice's in 315 s instead of 435 s),
+  flagging the same lines in all 96; ten transcripts were a word or a comma
+  apart. Takes heard in float32 before are heard again once.
 - **Speaker detection.** Automatic diarisation can merge similar voices or
   split one speaker. Confirm casting with multiple signals. Sortformer can't
   handle clips over 120 s or more than 4 speakers, ignores
