@@ -32,7 +32,7 @@ def default_data_dir():
         return pathlib.Path(os.environ.get("APPDATA", "")) / "OmniVoice"
     if sys.platform == "darwin":
         return pathlib.Path.home() / "Library" / "Application Support" / "OmniVoice"
-    return pathlib.Path.home() / ".local" / "share" / "OmniVoice"
+    return pathlib.Path.home() / ".omnivoice"
 
 
 def cache_root():
@@ -49,8 +49,14 @@ def cache_root():
 
 def default_cache_dir():
     """The Hugging Face model cache: $HF_HUB_CACHE, else $OMNIVOICE_CACHE_DIR
-    itself, else hf_cache in the platform's default."""
-    return os.environ.get("HF_HUB_CACHE") or os.environ.get("OMNIVOICE_CACHE_DIR") or str(cache_root() / "hf_cache")
+    itself, else hf_cache in the platform's default. On Linux VoiceStudio leaves
+    the cache where Hugging Face puts it, so the scripts look there too."""
+    if os.environ.get("HF_HUB_CACHE") or os.environ.get("OMNIVOICE_CACHE_DIR"):
+        return os.environ.get("HF_HUB_CACHE") or os.environ["OMNIVOICE_CACHE_DIR"]
+    if sys.platform not in ("win32", "darwin"):
+        cache = os.environ.get("XDG_CACHE_HOME") or str(pathlib.Path.home() / ".cache")
+        return str(pathlib.Path(os.environ.get("HF_HOME") or pathlib.Path(cache) / "huggingface") / "hub")
+    return str(cache_root() / "hf_cache")
 
 
 # Same resolution as VoiceStudio's backend/core/config.py.
@@ -89,17 +95,26 @@ patch_av_open()
 
 def whisper_setup():
     """Prepare a standalone faster-whisper: reuse VoiceStudio's downloaded models
-    and preload the cuDNN 8 DLLs CTranslate2 needs on CUDA (PyTorch ships cuDNN 9;
-    the backend does the same in backend/core/cudnn8.py)."""
+    and preload the cuDNN 8 libraries CTranslate2 needs on CUDA (PyTorch ships
+    cuDNN 9; the backend does the same in backend/core/cudnn8.py)."""
     patch_av_open()
     os.environ.setdefault("HF_HUB_CACHE", HF_CACHE)
-    lib = pathlib.Path(sys.prefix) / "Lib" / "site-packages" / "cudnn8_compat" / "nvidia" / "cudnn" / "bin"
-    if sys.platform == "win32" and lib.is_dir():
-        import ctypes
+    if sys.platform == "darwin":
+        return
+    import ctypes
 
-        whisper_setup.cookie = os.add_dll_directory(str(lib))  # must stay alive
-        for dll in sorted(lib.glob("cudnn*64_8.dll")):
-            ctypes.CDLL(str(dll))
+    if sys.platform == "win32":
+        lib = pathlib.Path(sys.prefix) / "Lib" / "site-packages" / "cudnn8_compat" / "nvidia" / "cudnn" / "bin"
+        if lib.is_dir():
+            whisper_setup.cookie = os.add_dll_directory(str(lib))  # must stay alive
+            for dll in sorted(lib.glob("cudnn*64_8.dll")):
+                ctypes.CDLL(str(dll))
+        return
+    # Linux: the loader finds a library CTranslate2 asks for by name once it is
+    # loaded globally; each one finds its own dependencies beside it ($ORIGIN).
+    for lib in pathlib.Path(sys.prefix).glob("lib/python3*/site-packages/cudnn8_compat/nvidia/cudnn/lib"):
+        for so in sorted(lib.glob("libcudnn*.so.8")):
+            ctypes.CDLL(str(so), mode=ctypes.RTLD_GLOBAL)
 
 
 def out_dir(doc):

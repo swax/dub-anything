@@ -44,6 +44,30 @@ backend, its models, and ffmpeg.
   `split.py` encodes with x264, and Whisper runs on the CPU: CTranslate2
   (faster-whisper) has no AMD backend.
 
+### Linux (NVIDIA), and Windows through WSL2
+- An NVIDIA GPU with ≥ 6 GB of VRAM and its driver. `nvidia-smi` should work.
+  Checked on Ubuntu 22.04 under WSL2, where the Windows NVIDIA driver provides
+  CUDA and NVENC inside Linux: don't install a Linux NVIDIA driver in WSL.
+- `sudo apt install git ffmpeg psmisc build-essential` and uv:
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`. psmisc has `fuser`,
+  which `scripts/backend.py` uses when `lsof` is missing. The compiler builds
+  audio-separator's `diffq` for `separate.py` (section 6). Ubuntu's ffmpeg has
+  `h264_nvenc`, which `split.py` picks when the driver takes it.
+- For dubs into Japanese, Korean or Chinese, `sudo apt install fonts-noto-cjk`:
+  subtitle styles name Windows fonts, and fontconfig substitutes one that has
+  the characters (in signs previews, and in players on this machine).
+- In WSL, keep the clones, `videos/` and the data and model folders in the
+  Linux filesystem (`~/`), not under `/mnt/c`: reading the Windows drive from
+  WSL is many times slower (about 25 MB/s copying models), and a dub reads and
+  writes gigabytes of audio.
+- In WSL a missing command fails with "Permission denied" rather than "not
+  found": WSL appends the Windows PATH, and some of its folders can't be
+  searched from Linux. "Permission denied: 'cc'" means there is no compiler.
+  The backend log's "torch.compile disabled ... Permission denied: 'nvcc'"
+  is harmless: without the CUDA toolkit OmniVoice runs uncompiled, as on Windows.
+- In the clone, `git config core.hooksPath .githooks` and
+  `git config blame.ignoreRevsFile .git-blame-ignore-revs`, as on the others.
+
 ## 2. Models and Data Directories
 
 ### macOS
@@ -74,6 +98,21 @@ $d = "C:\VoiceStudioData"
 [Environment]::SetEnvironmentVariable("HF_TOKEN_PATH", "$env:USERPROFILE\.cache\huggingface\token", "User")
 ```
 
+### Linux
+By default VoiceStudio keeps its data in `~/.omnivoice` (dub jobs in
+`~/.omnivoice/dub_jobs`) and its models in Hugging Face's own cache
+(`~/.cache/huggingface/hub`); the scripts' own models, like `separate.py`'s,
+go in `~/.cache/OmniVoice`. To put them elsewhere, add to your `~/.bashrc`:
+```bash
+export OMNIVOICE_DATA_DIR="$HOME/VoiceStudioData/data"
+export OMNIVOICE_CACHE_DIR="$HOME/VoiceStudioData/models"
+```
+In WSL, models already downloaded on the Windows side can be copied over
+instead of downloaded again: the `models--*` folders of the Windows cache
+(`C:\VoiceStudioData\models` above, `/mnt/c/VoiceStudioData/models` in WSL) go
+into the Hugging Face cache as they are, and `audio-separator/` into the
+scripts' folder (with `OMNIVOICE_CACHE_DIR` set, both are that folder).
+
 Dub Anything's scripts find VoiceStudio's jobs through `OMNIVOICE_DATA_DIR` (or system defaults), so set it in any shell that runs them if you use a custom path.
 
 ## 3. VoiceStudio, pinned, with local fixes
@@ -99,7 +138,7 @@ runtime). For one elsewhere, like this one, add to your `~/.zshrc`:
 ```bash
 export VOICESTUDIO_DIR="$HOME/python/VoiceStudio"
 ```
-*(On macOS, PyTorch on Apple Silicon uses Metal / MPS acceleration; `scripts/setup.py` cuDNN 8 installation is Windows-only).*
+*(On macOS, PyTorch on Apple Silicon uses Metal / MPS acceleration; `scripts/setup.py` cuDNN 8 installation is for CUDA on Windows and Linux).*
 
 ### Windows
 ```powershell
@@ -110,8 +149,22 @@ cd C:\git\VoiceStudio; uv sync; uv run --no-sync python scripts/setup.py
 uv run --no-sync python -c "import torch; print(torch.cuda.is_available())"   # True
 ```
 
-`uv sync` installs the CUDA 12.8 PyTorch build on Windows. `scripts/setup.py`
+### Linux
+```bash
+git clone https://github.com/debpalash/VoiceStudio.git ~/git/VoiceStudio
+git -C ~/git/VoiceStudio checkout -b local-fixes c52618af
+git -C ~/git/VoiceStudio apply ~/git/dub-anything/patches/voicestudio-local-fixes.patch
+cd ~/git/VoiceStudio && uv sync && uv run --no-sync python scripts/setup.py
+uv run --no-sync python -c "import torch; print(torch.cuda.is_available())"   # True
+```
+Clone it beside this repo (here both in `~/git`), or set `VOICESTUDIO_DIR`.
+
+`uv sync` installs the CUDA 12.8 PyTorch build on Windows and Linux. `scripts/setup.py`
 adds the cuDNN 8 libraries that faster-whisper needs next to PyTorch's cuDNN 9.
+The scripts load them before Whisper runs (`core.whisper_setup`); on Linux
+without them, Whisper on the GPU fails with "Could not load library
+libcudnn_ops_infer.so.8".
+
 The patch fixes three bugs. The dubbing transcriber ignored the source-language
 hint. OmniVoice ran in float16 on CPU (about 7× slower). And a render that
 stopped at a timing overflow threw its takes away: the next attempt
@@ -233,9 +286,26 @@ Restart it after an NVIDIA driver update. A backend that was running across the
 update reports "CUDA out of memory" on an empty GPU and falls back to the CPU,
 while `/health` still says `cuda`.
 
+### Linux
+```bash
+~/git/VoiceStudio/.venv/bin/python scripts/backend.py start
+```
+As on Windows it starts detached, in its own session with no terminal input,
+and waits for `/health`. With `OMNIVOICE_DATA_DIR` set the log is `backend.log`
+beside the data folder, else in the VoiceStudio checkout.
+
+In WSL, run one backend on port 3900 at a time: WSL forwards its ports to
+Windows, so a WSL backend answers the Windows scripts too, with Linux paths.
+Stop the Windows one before starting it in WSL (and the other way round), or
+give one of them another port through `VOICESTUDIO_API`. They share the GPU,
+and the GPU lock (`work/gpu.lock`) is per clone, so don't dub on both sides
+at once either. A WSL backend outlives the shell that started it, but not the
+distribution: WSL may stop that once no WSL terminal or command is left
+running. `scripts/dub_anything.py run` keeps one running while it works.
+
 ## 5. Models (~15 GB)
 
-### macOS
+### macOS and Linux
 ```bash
 api="http://127.0.0.1:3900"
 for r in "k2-fsa/OmniVoice" "Systran/faster-whisper-large-v3" "audio-cpp/audio.cpp-gguf"; do
@@ -259,9 +329,9 @@ the licenses of `pyannote/speaker-diarization-3.1` and
 `pyannote/segmentation-3.0` on Hugging Face. Then log in with a read token and
 install it:
 
-#### macOS
+#### macOS and Linux
 ```bash
-hf auth login   # or hf login
+hf auth login   # or hf login; on Linux ~/git/VoiceStudio/.venv/bin/hf
 curl -s -X POST "http://127.0.0.1:3900/models/install" -H "Content-Type: application/json" -d '{"repo_id":"pyannote/speaker-diarization-3.1"}'
 curl -s -X POST "http://127.0.0.1:3900/engines/diarisation/select" -H "Content-Type: application/json" -d '{"engine_id":"pyannote"}'
 ```
@@ -314,15 +384,24 @@ $py = "C:\git\VoiceStudio\.venv\Scripts\python.exe"
 & $py scripts\dub.py prep <some short clip>.mp4      # prints a Japanese transcript
 ```
 
+### Linux
+```bash
+cd <path-to-dub-anything>
+~/git/VoiceStudio/.venv/bin/python scripts/dub.py prep <some short clip>.mp4   # prints a Japanese transcript
+```
+
 Five tools run in their own throwaway uv environments, so they can't disturb
 VoiceStudio's:
-- `separate.py`: audio-separator (on macOS with PyPI torch; on Windows with CUDA 12.8 PyTorch). Its Roformer model
+- `separate.py`: audio-separator (on macOS with PyPI torch; on Windows and Linux with CUDA 12.8 PyTorch). Its Roformer model
   (about 900 MB) downloads on first use into the model cache (`audio-separator`).
+  On Linux and macOS its `diffq` dependency compiles from source (it has no
+  wheel for Python 3.11 there): without a C compiler the environment fails to
+  build (on Ubuntu with "error: [Errno 13] Permission denied: 'cc'").
 - `second.py`: sherpa-onnx (its models, about 850 MB for Japanese speech,
   1 GB for English, 900 MB for Spanish and 320 MB for Korean, download into the
   model cache on first use).
 - `subs.py`: RapidOCR (its Korean recogniser downloads on first use, for a
-  Korean source; uses standard onnxruntime on macOS, onnxruntime-gpu on Windows).
+  Korean source; uses standard onnxruntime on macOS, onnxruntime-gpu on Windows and Linux).
 - `vc.py`: Chatterbox, which `scripts/dub.py generate` starts itself for the
   `"american"` voice.
 - `languages/kana.py`: pykakasi, which `lineqa.py` starts itself to read takes in

@@ -25,10 +25,8 @@ A computer, one of:
 
 - **macOS** (Apple Silicon or Intel)
 - **Windows with an NVIDIA GPU** (6 GB or more)
-- **Windows with an AMD Radeon GPU** (RDNA 3 or newer, Ryzen AI laptop graphics
-  included)
-
-Linux should be a short port; see [below](#other-languages-and-hardware).
+- **Windows with an AMD Radeon GPU** (RDNA 3 or newer, Ryzen AI)
+- **Linux with an NVIDIA GPU** (6 GB or more) an AMD GPU should work, but not tested yet
 
 An AI coding agent to direct the dub, and a plan to run it, one of:
 
@@ -256,7 +254,8 @@ or ROCm (AMD Radeon on Windows; Whisper stays on the CPU there) and fall back
 to the CPU without them, slower. Video is encoded with
 Apple VideoToolbox on macOS, NVENC on Windows/Linux when NVIDIA is present,
 else x264. Platform differences (paths, desktop app runtime detection, GPU locks,
-audio separation environments) are handled automatically across macOS and Windows.
+audio separation environments) are handled automatically across macOS, Windows
+and Linux.
 
 </details>
 

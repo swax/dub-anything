@@ -1,5 +1,6 @@
 """Unit tests for macOS cross-platform support and fallbacks."""
 
+import ctypes
 import os
 import pathlib
 import runpy
@@ -39,7 +40,7 @@ class PlatformPathTests(FixedHomeTests):
 
             with patch("sys.platform", "linux"):
                 p = core.default_data_dir()
-                self.assertEqual(p, pathlib.Path.home() / ".local" / "share" / "OmniVoice")
+                self.assertEqual(p, pathlib.Path.home() / ".omnivoice")
 
     def test_default_cache_dir_resolution(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -51,6 +52,19 @@ class PlatformPathTests(FixedHomeTests):
                 with patch.dict(os.environ, {"LOCALAPPDATA": "/mock/LocalAppData"}):
                     p = core.default_cache_dir()
                     self.assertEqual(p, str(pathlib.Path("/mock/LocalAppData/OmniVoice/hf_cache")))
+
+    def test_linux_cache_is_hugging_faces_own_as_for_voicestudio(self):
+        with patch("sys.platform", "linux"):
+            for env, want in (
+                ({}, str(pathlib.Path.home() / ".cache" / "huggingface" / "hub")),
+                ({"XDG_CACHE_HOME": "/xdg"}, str(pathlib.Path("/xdg/huggingface/hub"))),
+                ({"HF_HOME": "/hf-home", "XDG_CACHE_HOME": "/xdg"}, str(pathlib.Path("/hf-home/hub"))),
+                ({"OMNIVOICE_CACHE_DIR": "/models"}, "/models"),
+            ):
+                with self.subTest(env=env), patch.dict(os.environ, env, clear=True):
+                    self.assertEqual(core.default_cache_dir(), want)
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(core.cache_root(), pathlib.Path.home() / ".cache" / "OmniVoice")
 
     def test_explicit_env_overrides_paths(self):
         with patch.dict(
@@ -70,6 +84,20 @@ class PlatformPathTests(FixedHomeTests):
         ):
             self.assertEqual(core.cache_root(), pathlib.Path("/mock/LocalAppData/OmniVoice"))
             self.assertEqual(core.default_cache_dir(), "/hf")
+
+    def test_whisper_setup_loads_cudnn8_globally_on_linux(self):
+        # CTranslate2 asks for libcudnn_ops_infer.so.8 by name, which Linux finds only once it's loaded.
+        with tempfile.TemporaryDirectory() as prefix:
+            lib = pathlib.Path(prefix, "lib", "python3.11", "site-packages", "cudnn8_compat", "nvidia", "cudnn", "lib")
+            lib.mkdir(parents=True)
+            for name in ("libcudnn_ops_infer.so.8", "libcudnn.so.8", "__init__.py"):
+                (lib / name).touch()
+            with patch("sys.platform", "linux"), patch("sys.prefix", prefix), patch("ctypes.CDLL") as cdll:
+                core.whisper_setup()
+        loaded = [(pathlib.Path(c.args[0]).name, c.kwargs.get("mode")) for c in cdll.call_args_list]
+        self.assertEqual(
+            loaded, [("libcudnn.so.8", ctypes.RTLD_GLOBAL), ("libcudnn_ops_infer.so.8", ctypes.RTLD_GLOBAL)]
+        )
 
 
 class BackendPlatformTests(FixedHomeTests):

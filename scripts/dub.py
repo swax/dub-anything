@@ -526,7 +526,7 @@ def cmd_generate(args):
                 check=True,
                 env={**os.environ, "HF_HUB_CACHE": HF_CACHE},
             )
-        except FileNotFoundError:
+        except OSError:  # not found; in WSL, whose PATH has Windows folders it can't search, permission denied
             raise SystemExit("voice conversion needs uv on PATH (see AGENTS.md)")
         for p in todo:
             converted[p["id"]] = file_sha(p["out"])

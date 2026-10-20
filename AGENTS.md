@@ -51,11 +51,13 @@ cloned or shared are final.
   learn something about a show.
 - The scripts are in `scripts/`. Run them from the repo root with VoiceStudio's
   Python (on Windows: `C:\git\VoiceStudio\.venv\Scripts\python.exe scripts/fit.py <part>`;
+  on Linux: `~/git/VoiceStudio/.venv/bin/python scripts/fit.py <part>`;
   on macOS: `python3 scripts/fit.py <part>` or with VoiceStudio's virtualenv python).
   A script named alone in these docs (`fit.py`) is one of them.
   Make sure `OMNIVOICE_DATA_DIR` / `OMNIVOICE_CACHE_DIR` are set in the shell if using
   custom paths (on macOS, standard defaults in `~/Library/Application Support/OmniVoice`
-  and `~/Library/Caches/OmniVoice` are used automatically when unset).
+  and `~/Library/Caches/OmniVoice` are used automatically when unset; on Linux,
+  VoiceStudio's `~/.omnivoice` and Hugging Face's `~/.cache/huggingface/hub`).
 - The VoiceStudio backend must be up: `scripts/backend.py status`.
   `scripts/backend.py start` starts it detached from your shell, so it outlives
   your session, and waits until it answers (`restart` after a driver/system
@@ -63,13 +65,13 @@ cloned or shared are final.
 - Tools in their own environments (`scripts/dub_anything.py run` starts them itself):
   - `separate.py`:
     macOS: `uv run --no-project --python 3.11 --with torch --with audio-separator --with onnxruntime python scripts/separate.py <clip> ...`
-    Windows: `uv run --no-project --python 3.11 --index https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match --with torch==2.8.0 --with audio-separator --with onnxruntime python scripts/separate.py <clip> ...`
+    Windows and Linux: `uv run --no-project --python 3.11 --index https://download.pytorch.org/whl/cu128 --index-strategy unsafe-best-match --with torch==2.8.0 --with audio-separator --with onnxruntime python scripts/separate.py <clip> ...`
     Windows with an AMD GPU: the same with VoiceStudio's ROCm torch in place of the
     CUDA index and torch (`scripts/gpu.py` prints the arguments; `dub_anything.py` uses them itself)
   - `second.py`: `uv run --no-project --python 3.12 --with sherpa-onnx --with soundfile --with scipy --with pykakasi --with huggingface_hub python scripts/second.py <clip> ...`
   - `subs.py` (burned-in captions):
     macOS: `uv run --no-project --python 3.12 --with rapidocr --with onnxruntime python scripts/subs.py <clip>`
-    Windows: `uv run --no-project --python 3.12 --with rapidocr --with "onnxruntime-gpu[cuda,cudnn]" python scripts/subs.py <clip>`
+    Windows and Linux: `uv run --no-project --python 3.12 --with rapidocr --with "onnxruntime-gpu[cuda,cudnn]" python scripts/subs.py <clip>`
     (with an AMD GPU, `--with onnxruntime`: the OCR runs on the CPU);
     `signs.py` (text in the picture to translate) runs the same way
   - `pitch.py`, `contour.py`: `uv run --no-project --python 3.12 --with librosa --with soundfile python scripts/<script>`
