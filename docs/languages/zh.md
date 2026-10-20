@@ -58,5 +58,6 @@ What differs when Chinese is the source. Read beside
 
 Not enabled: English → Chinese is not in `PAIRS`. The module's Chinese
 synthesis helpers satisfy the language interface but have not been checked
-on rendered Chinese takes; Chinese numbers and simplified/traditional
-normalization need further work before adding that direction.
+on rendered Chinese takes. `compare` reads numbers written in digits or
+characters alike (`hanzi.py`, shared with Cantonese); simplified/traditional
+normalization needs further work before adding that direction.

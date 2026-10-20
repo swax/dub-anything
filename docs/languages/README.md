@@ -50,6 +50,8 @@ reads Japanese as hiragana for `ja.py`. Korean has spaces, but recognisers place
 them differently, so `ko.py` compares by syllables, as `ja.py` does by kana.
 Chinese's `zh.py` compares characters with punctuation, spacing and width aside;
 it preserves simplified/traditional variants and homophones for review.
+`hanzi.py` holds what the languages written in Chinese characters share: QA's
+reading of numbers in digits or characters (三點五 as 3.5), for `yue.py` and `zh.py`.
 
 A language that is only a source still defines every name: `ko.py`'s `compare`
 has never checked a rendered take, since nothing dubs into Korean yet.

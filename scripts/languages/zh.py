@@ -7,6 +7,8 @@ import difflib
 import re
 import unicodedata
 
+from .hanzi import normalize_numbers
+
 NAME, ISO3, NATIVE = "Chinese", "zho", "中文"
 
 # ---- heard: the source ----
@@ -58,10 +60,13 @@ def speakable(text):
 
 
 def compare(want, got):
-    """Untested for Chinese synthesis: character match, negation and digit checks.
-    English takes in zh -> en use en.compare, not this function.
+    """Untested for Chinese synthesis: character match, negation and number checks,
+    numbers written in digits or characters alike. English takes in zh -> en use
+    en.compare, not this function.
     """
-    want_s, got_s = units(want), units(got)
+    want_normal, want_numbers = normalize_numbers(want)
+    got_normal, got_numbers = normalize_numbers(got)
+    want_s, got_s = units(want_normal), units(got_normal)
     notes = []
     head = want_s[:3]
     k = got_s.find(head) if len(head) == 3 else -1
@@ -72,11 +77,10 @@ def compare(want, got):
         notes.append("silent or unintelligible")
     elif ratio < MATCH:
         notes.append(f"match {ratio:.2f}")
-    if got_s and len(NEGATION.findall(want_s)) != len(NEGATION.findall(got_s)):
+    if got_s and len(NEGATION.findall(want_normal)) != len(NEGATION.findall(got_normal)):
         notes.append("negation differs")
-    digits = lambda s: re.findall(r"\d+", s)  # noqa: E731
-    if got_s and digits(want_s) and digits(want_s) != digits(got_s):
-        notes.append(f"number differs: {digits(want_s)} -> {digits(got_s)}")
+    if got_s and want_numbers != got_numbers:
+        notes.append(f"number differs: {want_numbers} -> {got_numbers}")
     return notes, ratio
 
 

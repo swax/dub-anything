@@ -43,6 +43,28 @@ class ChineseSourceTests(unittest.TestCase):
         self.assertEqual(wrapped.replace("\n", ""), text)
         self.assertEqual(wrapped.count("\n"), 1)
 
+    def test_digit_and_written_numbers_compare_equally(self):
+        for written, digits in (
+            ("三", "3"),
+            ("两", "2"),
+            ("一百零二", "102"),
+            ("三点五", "3.5"),
+            ("一万二千", "12,000"),
+        ):
+            with self.subTest(written=written):
+                self.assertEqual(LANGUAGES["zh"].compare(f"有{written}个", f"有{digits}个"), ([], 1))
+
+    def test_missing_extra_and_changed_numbers_are_flagged(self):
+        for want, got in (
+            ("我们有三个苹果在桌上", "我们有四个苹果在桌上"),
+            ("我们有三个苹果在桌上", "我们有苹果在桌上"),
+            ("我们有苹果在桌上", "我们有三个苹果在桌上"),
+            ("价格是三点五元", "价格是三十五元"),
+        ):
+            with self.subTest(want=want, got=got):
+                notes, _ = LANGUAGES["zh"].compare(want, got)
+                self.assertTrue(any("number differs" in n for n in notes))
+
     def test_english_take_qa_still_checks_negation_and_numbers(self):
         compare = LANGUAGES["en"].compare
         self.assertEqual(compare("I have 12 books.", "I have twelve books.")[0], [])

@@ -1,8 +1,8 @@
 """What the scripts know about each language they dub from or into: one module per
 language, named for its ISO 639-1 code (en.py, es.py, ja.py, ko.py, zh.py), or its
 ISO 639-3 code when it has no two-letter one (yue.py), and the pairs that have been
-dubbed and checked end to end (PAIRS). Helpers beside them (kana.py, latin.py) have
-longer names, so they aren't taken for languages.
+dubbed and checked end to end (PAIRS). Helpers beside them (hanzi.py, kana.py,
+latin.py) have longer names, so they aren't taken for languages.
 
   LANGUAGES["es"].compare(want, got)   a language's module, by code
   PAIRS[("en", "es")]["line_ref"]      what was measured for a pair

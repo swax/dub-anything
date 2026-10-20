@@ -3,7 +3,9 @@
 import os
 import pathlib
 import runpy
+import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import MagicMock, patch
@@ -171,6 +173,43 @@ class BackendPlatformTests(FixedHomeTests):
         ):
             backend.stop()
         kill.assert_called_once_with(4242, 15)
+
+    def test_listener_found_without_lsof(self):
+        ss = 'LISTEN 0 2048 127.0.0.1:3900 0.0.0.0:* users:(("python",pid=4242,fd=13))\n'
+        for tools, out, asked in (
+            ({"lsof", "fuser", "ss"}, "4242\n", "lsof"),
+            ({"fuser", "ss"}, " 4242\n", "fuser"),
+            ({"ss"}, ss, "ss"),
+            ({"ss"}, "", "ss"),
+            (set(), "", None),
+        ):
+            with (
+                self.subTest(tools=sorted(tools), out=out),
+                patch("sys.platform", "linux"),
+                patch(
+                    "shutil.which", side_effect=lambda name, tools=tools: f"/usr/bin/{name}" if name in tools else None
+                ),
+                patch("subprocess.run", return_value=MagicMock(stdout=out)) as run,
+            ):
+                self.assertEqual(backend.listening_pid(), 4242 if out else None)
+                self.assertEqual(run.call_args.args[0][0] if run.called else None, asked)
+
+    def test_posix_start_gives_the_backend_no_stdin(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch("sys.platform", "linux"),
+            patch.object(backend, "healthy", side_effect=[False, True]),
+            patch.object(backend, "listening_pid", return_value=None),
+            patch.object(backend, "full_env", return_value={}),
+            patch.object(backend, "log_path", return_value=pathlib.Path(tmp) / "backend.log"),
+            patch.object(backend, "launch_cmd", return_value=["uvicorn"]),
+            patch.object(pathlib.Path, "is_dir", return_value=True),
+            patch("subprocess.Popen") as popen,
+            patch("time.sleep"),
+        ):
+            self.assertTrue(backend.start(wait=5))
+        self.assertIs(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
 
 
 class DubAnythingDependencyTests(unittest.TestCase):

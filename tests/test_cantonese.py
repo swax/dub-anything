@@ -12,7 +12,7 @@ class CantoneseLanguageTests(unittest.TestCase):
     def test_languages_are_two_or_three_letter_modules_only(self):
         modules = {p.stem for p in (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "languages").glob("*.py")}
         self.assertEqual(set(LANGUAGES), {m for m in modules if 2 <= len(m) <= 3 and m.isalpha()})
-        self.assertTrue({"kana", "latin"} <= modules - set(LANGUAGES))
+        self.assertTrue({"hanzi", "kana", "latin"} <= modules - set(LANGUAGES))
 
     def test_cantonese_metadata(self):
         self.assertIn("yue", LANGUAGES)

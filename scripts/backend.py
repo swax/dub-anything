@@ -159,8 +159,18 @@ def listening_pid():
             if len(f) >= 5 and f[3].upper() == "LISTENING" and f[1].endswith(f":{PORT}"):
                 return int(f[4])
         return None
-    out = subprocess.run(["lsof", "-ti", f"tcp:{PORT}", "-sTCP:LISTEN"], capture_output=True, text=True).stdout
-    return int(out.split()[0]) if out.split() else None
+    # Slim Linux images may lack lsof: fuser (psmisc), then ss (iproute2).
+    if shutil.which("lsof"):
+        out = subprocess.run(["lsof", "-ti", f"tcp:{PORT}", "-sTCP:LISTEN"], capture_output=True, text=True).stdout
+        return int(out.split()[0]) if out.split() else None
+    if shutil.which("fuser"):
+        out = subprocess.run(["fuser", f"{PORT}/tcp"], capture_output=True, text=True).stdout
+        return int(out.split()[0]) if out.split() else None
+    if shutil.which("ss"):
+        out = subprocess.run(["ss", "-tlnp", f"sport = :{PORT}"], capture_output=True, text=True).stdout
+        m = re.search(r"pid=(\d+)", out)
+        return int(m.group(1)) if m else None
+    return None
 
 
 def stop():
@@ -264,7 +274,17 @@ def start(wait=600):
     else:
         log.parent.mkdir(parents=True, exist_ok=True)
         with open(log, "ab") as f:
-            subprocess.Popen(cmd, cwd=VS_DIR, env=env, stdout=f, stderr=subprocess.STDOUT, start_new_session=True)
+            # No stdin from the asking shell: once it closes, the backend's workers
+            # fail with "bad file descriptor".
+            subprocess.Popen(
+                cmd,
+                cwd=VS_DIR,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=f,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
     print(f"backend: starting (log {log})", flush=True)
     t0 = time.time()
     while time.time() - t0 < wait:
