@@ -139,6 +139,15 @@ box behind it, over busy writing), and `ja` and `note` for the record. Signs
 render nothing and don't make a part render again; they change the delivery
 (see "Package").
 
+When subtitles would cover original graphics that stay in the picture, use
+`"subtitle_layout": [{"start": 10, "end": 18, "top": 0.19}]` at the top level.
+Times are within the part; `top` is a fraction of the picture's height, where
+the top-centre of the subtitle sits. Preview the actual frames to find clear
+space. Include the final cue's reading linger in the interval. An intersecting
+cue uses this placement for its whole display; the last matching entry wins,
+overriding automatic sign avoidance. This affects the styled translation track,
+leaves plain SRT files plain, and does not render the voices again.
+
 ## Workflow
 
 Use `scripts/dub_anything.py new ... --auto-text` when the picture's text styles
@@ -499,7 +508,9 @@ against it. Rebuilt from lines at his usual level, it pulled nothing.
   longer text matching the dialogue is dropped as a caption). A sign shows from
   cut to cut unless it appears mid-shot, but the cut detector misses a hard cut
   between two similar pictures (two pages on white), so check the times of
-  anything that changes in place. Diagrams come in stages: a label can appear
+  anything that changes in place. When text carries across a part boundary, put
+  its translation in both parts with the same placement, and check the frames
+  on each side of the splice. Diagrams come in stages: a label can appear
   seconds into its shot. `scripts/signs.py <part> --preview [N ...]` draws the
   part's signs and dialogue into their frames as delivered: check that each sits
   by its text, reads against the picture and covers nothing that matters. A line
@@ -762,9 +773,10 @@ the new file replaces the source, renamed `<name> (dubbed)`. Delivering again
 replaces the dub tracks a "(dubbed)" file already has. `dub_anything.py` does both
 steps when every part is done.
 
-When any part has `signs`, `assemble.py` also writes the English track styled
-(`.en.ass`: the dialogue, with each sign placed by its text, `ass.py`) and the
-signs alone (`.signs.ass`), and `deliver.py` delivers Matroska,
+When any part has `signs` or `subtitle_layout`, `assemble.py` also writes the
+English track styled (`.en.ass`: the dialogue, with each sign placed by its
+text, `ass.py`) and the signs alone (`.signs.ass`, only when signs exist).
+`deliver.py` delivers Matroska,
 `<name> (dubbed).mkv`, in place of the source: MP4's subtitles can't be placed.
 The English tracks are then the styled ones, and the signs-only track follows
 them, marked forced, for watching the dub with subtitles off. A player has to

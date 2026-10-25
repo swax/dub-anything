@@ -1,11 +1,12 @@
 """Styled subtitles (ASS): the dialogue at the bottom, and the translations of
 on-screen text (a part's "signs") placed by the text they translate.
 
-assemble.py writes, when any part has signs, <out>.en.ass (dialogue and signs,
-the English track; .ja.ass for a dub into Japanese) and <out>.signs.ass (signs
-alone, for watching the dub without dialogue subtitles). deliver.py then
-delivers Matroska: MP4's subtitles can't be placed. Each language is set in a
-font that has its letters (FONT in languages/<code>.py), and full-width
+assemble.py writes, when any part has signs or subtitle_layout, <out>.en.ass
+(dialogue and signs, the English track; .ja.ass for a dub into Japanese).
+With signs, <out>.signs.ass holds them alone, for watching the dub without
+dialogue subtitles. deliver.py then delivers Matroska: MP4's subtitles can't
+be placed. Each language uses a font that has its letters (FONT in
+languages/<code>.py), and full-width
 characters (kana, kanji) are measured as such.
 
 A sign, in the part's "signs" (times in the part, like its lines):
@@ -23,7 +24,8 @@ optionally
            the picture's), for a long text over a page or a panel
   "boxed": true puts the text on a dark box, for text over busy writing
 A line of dialogue that would cover a sign shown with it moves to the top,
-if the top is clear.
+if the top is clear. Explicit subtitle_layout entries {start, end, top} override
+that choice: top is the top-centre anchor as a fraction of the picture's height.
 """
 
 import re
@@ -180,10 +182,12 @@ def sign_event(sign, w, h):
     return f"Dialogue: 1,{ass_time(sign['start'])},{ass_time(sign['end'])},{style},,{ml},{mr},0,,{{{tags}}}{text}"
 
 
-def write(path, w, h, dialogue=(), signs=(), lang="en"):
+def write(path, w, h, dialogue=(), signs=(), lang="en", subtitle_layout=()):
     """dialogue: [(start, end, text)]; signs: sign dicts in the file's time; lang:
     the language they're in. A line of dialogue that would cover a sign shown with
-    it moves to the top, if the top is clear."""
+    it moves to the top, if the top is clear. Timed subtitle_layout entries
+    override that placement for intersecting cues; the last matching entry wins.
+    Apply these to the cues after their reading time has been extended."""
     rects = [(s["start"], s["end"], sign_rects(s, w, h)) for s in signs]
     events = []
     for a, b, t in dialogue:
@@ -191,9 +195,11 @@ def write(path, w, h, dialogue=(), signs=(), lang="en"):
         up = any(meets(dialogue_rect(t, w, h), r) for r in near) and not any(
             meets(dialogue_rect(t, w, h, top=True), r) for r in near
         )
-        events.append(
-            f"Dialogue: 0,{ass_time(a)},{ass_time(b)},Dialogue,,0,0,0,," + ("{\\an8}" if up else "") + escape(t)
-        )
+        tags = "{\\an8}" if up else ""
+        explicit = next((s for s in reversed(subtitle_layout) if min(b, s["end"]) > max(a, s["start"])), None)
+        if explicit is not None:
+            tags = f"{{\\an8\\pos({w / 2:.0f},{h * explicit['top']:.0f})}}"
+        events.append(f"Dialogue: 0,{ass_time(a)},{ass_time(b)},Dialogue,,0,0,0,," + tags + escape(t))
     events += [sign_event(s, w, h) for s in sorted(signs, key=lambda s: s["start"])]
     with open(path, "w", encoding="utf-8-sig", newline="\n") as f:
         f.write(header(w, h, lang) + "\n".join(events) + "\n")

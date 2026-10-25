@@ -794,11 +794,18 @@ def ready_problems(script, voices=None, american=False):
     """
     if not isinstance(script, dict):
         return ["script must be an object"]
+
+    def finite(value):
+        try:
+            return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+        except OverflowError:
+            return False
+
     problems = []
     if "render" in script and not isinstance(script["render"], dict):
         problems.append("render must be an object")
-    for field in ("lines", "captions"):
-        if field not in script and field == "captions":
+    for field in ("lines", "captions", "subtitle_layout"):
+        if field not in script and field != "lines":
             continue
         entries = script.get(field)
         if not isinstance(entries, list):
@@ -812,15 +819,16 @@ def ready_problems(script, voices=None, american=False):
             times = []
             for key in ("start", "end"):
                 value = line.get(key)
-                try:
-                    valid = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-                except OverflowError:
-                    valid = False
+                valid = finite(value)
                 if not valid:
                     problems.append(f"{label}.{key} must be a finite number")
                 times.append(valid)
             if all(times) and (line["start"] < 0 or line["end"] <= line["start"]):
                 problems.append(f"{label} needs 0 <= start < end")
+            if field == "subtitle_layout":
+                if not finite(line.get("top")) or not 0 <= line["top"] <= 1:
+                    problems.append(f"{label}.top must be a finite picture-height fraction from 0 to 1")
+                continue
             if not isinstance(line.get("text"), str):
                 problems.append(f"{label}.text must be text")
             elif field == "lines" and not line["text"].strip():

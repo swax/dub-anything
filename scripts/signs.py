@@ -302,7 +302,7 @@ def preview(work, video, w, h, which=None):
     ]
     out = work / "signs"
     out.mkdir(exist_ok=True)
-    ass.write(out / "preview.ass", w, h, dialogue, signs, lang=tgt)
+    ass.write(out / "preview.ass", w, h, dialogue, signs, lang=tgt, subtitle_layout=script.get("subtitle_layout", []))
     tiles = []
     for k, s in pick:
         t = (s["start"] + s["end"]) / 2

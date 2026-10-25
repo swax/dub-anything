@@ -12,11 +12,11 @@ renders (work/<part>.us, see core.voice_part). The result has:
     any text subtitle tracks already in the source, and any --sub files
     (timed to the source video)
 plus sidecar .srt files named for their language (.en.srt, .ja.srt), and when
-any part has "signs" (translations of text in the picture) the styled track of
-the dub's language with them (.en.ass, or .ja.ass), and the signs alone,
-.signs.ass (see ass.py). The languages are the parts' (core.langs), and the
-track names theirs (TITLES in languages/<code>.py). Output
-defaults to the parts' `dubbed` folder.
+any part has "signs" (translations of text in the picture) or "subtitle_layout",
+the styled track of the dub's language (.en.ass, or .ja.ass). With signs, it
+also writes the signs alone, .signs.ass (see ass.py). The languages are the
+parts' (core.langs), and the track names theirs (TITLES in languages/<code>.py).
+Output defaults to the parts' `dubbed` folder.
 
 Every subtitle track is timed for reading (subtitles.timed): a cue stays up
 long enough to read and closes small gaps to the next, so text doesn't flash,
@@ -26,7 +26,8 @@ but never past the end of the video.
 audio is mixed and no video written, only the subtitle files beside
 <stem>.subtitled.mkv (the name deliver.py is given): the .en.srt (the
 translation, with the signs at the top of the picture, {\\an8}, for players that
-read SRT alone), the transcript's .srt and, with signs, the styled .en.ass.
+read SRT alone), the transcript's .srt and, with signs or layout, the styled
+.en.ass.
 """
 
 import argparse
@@ -109,7 +110,7 @@ def main():
     t0, t1 = parts[0]["start"], parts[-1]["end"]
     src, tgt = next((langs(p["name"]) for p in parts if (WORK / p["name"] / "segments.json").exists()), PAIR)
 
-    dubs, dubbed, original, signs = [], [], [], []
+    dubs, dubbed, original, signs, subtitle_layout = [], [], [], [], []
     for p in parts:
         # A part left as it is needs no prep: its own file stands in for the job's.
         doc = load_json(WORK / p["name"] / "segments.json") or {"video": p.get("file", source)}
@@ -134,6 +135,9 @@ def main():
             if said(line, src):
                 original.append((line["start"] + off, line["end"] + off, LANGUAGES[src].subtitle(said(line, src))))
         signs += [{**s, "start": s["start"] + off, "end": s["end"] + off} for s in script.get("signs", [])]
+        subtitle_layout += [
+            {**s, "start": s["start"] + off, "end": s["end"] + off} for s in script.get("subtitle_layout", [])
+        ]
 
     dubbed, original = subtitles.timed(dubbed, tgt, t1 - t0), subtitles.timed(original, src, t1 - t0)
     first_doc = load_json(WORK / parts[0]["name"] / "segments.json") or {"video": parts[0].get("file", source)}
@@ -158,16 +162,16 @@ def main():
             write_srt(srt, cues)
             subs.append((srt, ISO3[lang], LANGUAGES[lang].NATIVE, 0.0))
     styled = [out.with_suffix(f".{tgt}.ass"), out.with_suffix(".signs.ass")]
-    if signs:
+    if signs or subtitle_layout:
         video = next(s for s in probe(source)["streams"] if s["codec_type"] == "video")
-        ass.write(styled[0], video["width"], video["height"], dubbed, signs, lang=tgt)
-        if args.subtitles:  # the signs alone are for watching a dub with subtitles off
-            styled[1].unlink(missing_ok=True)
-        else:
+        ass.write(styled[0], video["width"], video["height"], dubbed, signs, lang=tgt, subtitle_layout=subtitle_layout)
+        if signs and not args.subtitles:  # the signs alone are for watching a dub with subtitles off
             ass.write(styled[1], video["width"], video["height"], (), signs, lang=tgt)
-        print(f"  {len(signs)} signs: {', '.join(p.name for p in styled if p.exists())}")
+        else:
+            styled[1].unlink(missing_ok=True)
+        print(f"  styled subtitles: {', '.join(p.name for p in styled if p.exists())}")
     else:
-        for path in styled:  # left from an earlier assembly: they would deliver signs no part has now
+        for path in styled:  # left from an earlier assembly whose signs/layout were removed
             path.unlink(missing_ok=True)
     if args.subtitles:
         for path, *_ in subs:

@@ -127,6 +127,26 @@ class ReadyPreflightTests(unittest.TestCase):
             "text_us must be nonblank text", "\n".join(runner.ready_problems(script, {"speaker_a": {}}, american=True))
         )
 
+    def test_timed_subtitle_layout_requires_finite_bounds_and_picture_fraction(self):
+        entry = {"start": 1, "end": 3, "top": 0.19}
+        for value, error in (
+            ({}, "subtitle_layout must be a list"),
+            ([None], "subtitle_layout[0] must be an object"),
+            ([{**entry, "start": -1}], "0 <= start < end"),
+            ([{**entry, "end": 1}], "0 <= start < end"),
+            ([{**entry, "end": float("inf")}], "end must be a finite number"),
+            ([{**entry, "start": True}], "start must be a finite number"),
+            ([{**entry, "top": float("nan")}], ".top must be a finite picture-height fraction"),
+            ([{**entry, "top": 10**400}], ".top must be a finite picture-height fraction"),
+            ([{**entry, "top": True}], ".top must be a finite picture-height fraction"),
+            ([{**entry, "top": -0.1}], ".top must be a finite picture-height fraction"),
+            ([{**entry, "top": 1.1}], ".top must be a finite picture-height fraction"),
+        ):
+            with self.subTest(value=value):
+                self.assertIn(error, "\n".join(runner.ready_problems({"lines": [], "subtitle_layout": value})))
+        for top in (0, 0.19, 1):
+            self.assertEqual(runner.ready_problems({"lines": [], "subtitle_layout": [{**entry, "top": top}]}), [])
+
     def test_ready_batch_does_not_write_until_every_script_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)

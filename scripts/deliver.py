@@ -7,9 +7,10 @@ Each <assembled.mp4> is assemble.py's output for one voice ("actor" or
 "american"), with its subtitles beside it, named for their languages (.en.srt
 and .ja.srt for a dub between Japanese and English, .en.srt and .ko.srt from
 Korean), and its
-.en.ass (.ja.ass, dubbing into Japanese) and .signs.ass when the parts
-translate text in the picture. The result keeps every stream of the source
-as it is (video, audio, its own subtitles) and adds, in this order:
+.en.ass (.ja.ass, dubbing into Japanese) when the parts need styled placement,
+and .signs.ass when they translate text in the picture. The result keeps every
+stream of the source as it is (video, audio, its own subtitles) and adds, in
+this order:
   - audio: one dub per voice, the default voice's first and marked
     default (some players ignore the flag and play the first track), then the
     source's own audio (its first track, which split.py cut the parts from,
@@ -17,10 +18,10 @@ as it is (video, audio, its own subtitles) and adds, in this order:
   - subtitles: the dub's per voice (the default voice's first and on by
     default), the corrected transcript of the source, then the source's own.
 Track names are in each track's language (TITLES in languages/<code>.py).
-With signs, the dub's tracks are the styled ones (signs placed by the text
-they translate), a signs-only track follows them, marked forced for players
-that show forced subtitles when subtitles are off, and the file becomes
-Matroska ("<name> (dubbed).mkv"): MP4's subtitles can't be placed.
+When a variant has styled subtitles, delivery uses that ASS track and Matroska
+("<name> (dubbed).mkv"): MP4's subtitles can't be placed. With signs, a
+signs-only track follows, marked forced for players that show forced subtitles
+when subtitles are off.
 Nothing is re-encoded; the new subtitles are written in the container's format.
 Every copied stream is checked against its input (MD5) before the new file
 replaces the source; the source's name gets " (dubbed)" (once). Delivering
@@ -119,9 +120,9 @@ def deliver(source, dubs, default, pair=PAIR, quicktime_audio=False):
     vids = [s for s in keep if s["codec_type"] == "video"]
     auds = [s for s in keep if s["codec_type"] == "audio"]
     subs = [s for s in keep if s["codec_type"] == "subtitle"]
-    signs = dubs[voices[0]].with_suffix(".signs.ass")
-    signs = signs if signs.exists() else None
-    out = delivered_name(source, mkv=bool(signs))
+    signs = next((p for v in voices if (p := dubs[v].with_suffix(".signs.ass")).exists()), None)
+    styled = {v: dubs[v].with_suffix(f".{tgt}.ass") for v in voices}
+    out = delivered_name(source, mkv=bool(signs) or any(p.exists() for p in styled.values()))
     tmp = out.with_name(out.stem + ".delivering" + out.suffix)
     mkv = out.suffix == ".mkv"
 
@@ -129,7 +130,8 @@ def deliver(source, dubs, default, pair=PAIR, quicktime_audio=False):
     for v in voices:
         cmd += ["-i", str(dubs[v])]
     srts = [
-        (dubs[v].with_suffix(f".{tgt}.ass" if signs else f".{tgt}.srt"), ISO3[tgt], titles["subs"][v]) for v in voices
+        (styled[v] if styled[v].exists() else dubs[v].with_suffix(f".{tgt}.srt"), ISO3[tgt], titles["subs"][v])
+        for v in voices
     ]
     if signs:
         srts.append((signs, ISO3[tgt], titles["signs"]))
