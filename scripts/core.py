@@ -625,11 +625,13 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
         ]
         base = {key: (voice_wav(key), voices[key].get("ref_text", "")) for key in {lines[k]["voice"] for k in todo}}
         if todo and mode.get("line_ref", not rendered and PAIRS[pair]["line_ref"]):
+            # Generation checks the full cast, including lines with cached takes.
+            # Keep those rivals and their cached source checks after a rewording.
             own = line_refs(
                 work,
                 job,
-                [lines[k] for k in todo],
-                [ids[k] for k in todo],
+                lines,
+                ids,
                 dips=mode.get("dips", not rendered),
                 cast_lines=mode.get("cast_lines", not rendered),
             )
