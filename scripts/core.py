@@ -316,8 +316,9 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
     reference, as do lines whose window isn't clean (unclean_windows; with `dips`,
     a window whose speech runs on into a near-silent dip is clean, and its
     original is cut at the dip) and lines too long to fit OmniVoice's limit with
-    the clips. Returns {id: (path, transcript)}; the path's name ends with the
-    window (and the cut), which dub.py records as how the take was made."""
+    the clips. Returns {id: (path, transcript)}; the path records the window,
+    cut and voice-audio fingerprint, which dub.py saves with the take. Rebuilding
+    a voice must not reuse a cached reference containing its old audio."""
     import numpy as np
     import soundfile as sf
 
@@ -343,7 +344,10 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
             if verbose:
                 print(f"  line ref skipped at {line['start']}: over {LINE_REF_MAX:.0f} s with the voice's clips")
             continue
-        path = work / "refs" / f"{i}_{line['start']:.2f}-{line['end']:.2f}{f'_{cut:.2f}' if cut else ''}.wav"
+        base_sig = hashlib.sha1(base.tobytes()).hexdigest()[:12]
+        path = (
+            work / "refs" / f"{i}_{line['start']:.2f}-{line['end']:.2f}{f'_{cut:.2f}' if cut else ''}_v{base_sig}.wav"
+        )
         if not path.exists():
             gap = np.zeros((int(0.3 * sr),) + own.shape[1:], dtype="float32")
             sf.write(path, np.concatenate([base, gap, own]), sr)

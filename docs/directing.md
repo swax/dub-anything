@@ -715,7 +715,10 @@ How these were chosen, and what else was tried, is in
   back to the original audio, with a caption if it says anything. A take that
   starts with the line's own Japanese (QA's "leading extra" in Japanese, the
   same on every take) is the per-line reference leaking: give the line
-  `"line_ref": false`. When the American voice's conversion keeps garbling a
+  `"line_ref": false`. A leaked ending can also look like an English syllable
+  in the recogniser's output. Compare repeated extras with the reference's
+  last words, then verify the new take's prefix with the checked character
+  reference. When the American voice's conversion keeps garbling a
   line that IndexTTS said right, other words in `text_us` usually clear it.
 - Listen. Machines can't judge acting.
 
@@ -842,7 +845,10 @@ language there.
   straight from Whisper timestamps are cut off because those run early. Snap
   clips to real speech boundaries, keep neighbours out, then check the joined
   reference with `scripts/asr_words.py work\voices\<key>.wav`. Every phrase must be
-  complete, and `ref_text` must match what is actually said.
+  complete, and `ref_text` must match what is actually said. Per-line references
+  must contain the rebuilt voice too: `core.line_refs` fingerprints its audio
+  in the cached filename, so an old joined WAV cannot survive a voice correction
+  under the new reference transcript.
 - **Keep screams out of voice clips.** Speech detection doesn't count a scream
   or a wail as speech, so a clip can look like a short word with silence around
   it while it holds seconds of screaming. That blurs the voice's speaker

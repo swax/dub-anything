@@ -593,7 +593,7 @@ def cmd_generate(args):
         for seg, i in zip(segments, ids):
             if i in refs:
                 seg["ref_audio"], seg["ref_text"] = refs[i]
-                # The window, and where its original is cut when that isn't its end.
+                # The window, optional cut, and fingerprint of the voice audio.
                 settings[i]["line_ref"] = pathlib.Path(refs[i][0]).stem.split("_", 1)[1]
         if mode["fill"]:
             # Re-time takes that stop well short of the actor or run past them:
