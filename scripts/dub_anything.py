@@ -48,6 +48,7 @@ import argparse
 import filecmp
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -784,14 +785,75 @@ def cmd_new(args):
     )
 
 
+def ready_problems(script, voices=None, american=False):
+    """Clear structural failures before a ready mark can queue a render.
+
+    None for voices means subtitles only. Overlap, cue order and repeated takes
+    are directing choices, so this does not reject them or inspect the media.
+    """
+    if not isinstance(script, dict):
+        return ["script must be an object"]
+    problems = []
+    if "render" in script and not isinstance(script["render"], dict):
+        problems.append("render must be an object")
+    for field in ("lines", "captions"):
+        if field not in script and field == "captions":
+            continue
+        entries = script.get(field)
+        if not isinstance(entries, list):
+            problems.append(f"{field} must be a list")
+            continue
+        for i, line in enumerate(entries):
+            label = f"{field}[{i}]"
+            if not isinstance(line, dict):
+                problems.append(f"{label} must be an object")
+                continue
+            times = []
+            for key in ("start", "end"):
+                value = line.get(key)
+                try:
+                    valid = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+                except OverflowError:
+                    valid = False
+                if not valid:
+                    problems.append(f"{label}.{key} must be a finite number")
+                times.append(valid)
+            if all(times) and (line["start"] < 0 or line["end"] <= line["start"]):
+                problems.append(f"{label} needs 0 <= start < end")
+            if not isinstance(line.get("text"), str):
+                problems.append(f"{label}.text must be text")
+            elif field == "lines" and not line["text"].strip():
+                problems.append(f"{label}.text must be nonblank text")
+            if field == "lines" and voices is not None:
+                voice = line.get("voice")
+                if not isinstance(voice, str) or voice not in voices:
+                    problems.append(f"{label}.voice must name a key in voices.json")
+                if american and "text_us" in line:
+                    if not isinstance(line["text_us"], str) or not line["text_us"].strip():
+                        problems.append(f"{label}.text_us must be nonblank text")
+    return problems
+
+
 def cmd_ready(args):
     job = load_job(args.slug)
     names = {p["name"][-2:]: p["name"] for p in parts(job)}
+    voices = None if subtitles_only(job) else load_json(WORK / "voices.json", {})
+    if voices is not None and not isinstance(voices, dict):
+        raise SystemExit("voices.json must be an object keyed by voice name")
+    pending = []
     for nn in args.parts:
         name = names.get(f"{int(nn):02d}")
-        script = load_json(WORK / name / "script.json") if name else None
-        if not script:
+        try:
+            script = load_json(WORK / name / "script.json") if name else None
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"part {nn}: invalid script.json: {exc}") from exc
+        if script is None:
             raise SystemExit(f"part {nn}: no script.json yet")
+        problems = ready_problems(script, voices, american="american" in job["voices"])
+        if problems:
+            raise SystemExit(f"{name}: cannot mark ready:\n  " + "\n  ".join(problems))
+        pending.append((name, script))
+    for name, script in pending:
         script["ready"] = True
         write_json(WORK / name / "script.json", script)
         print(f"{name}: ready")

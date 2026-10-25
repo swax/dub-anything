@@ -79,6 +79,102 @@ class PauseCheckpointTests(unittest.TestCase):
             runner.pause_checkpoint()
 
 
+class ReadyPreflightTests(unittest.TestCase):
+    def line(self, **changes):
+        return {"start": 0, "end": 1.2, "voice": "speaker_a", "text": "Good morning.", **changes}
+
+    def test_invalid_structure_times_text_and_voice_are_reported(self):
+        for script, error in (
+            ([], "script must be an object"),
+            ({}, "lines must be a list"),
+            ({"lines": {}}, "lines must be a list"),
+            ({"lines": [None]}, "lines[0] must be an object"),
+            ({"lines": [self.line(start=-1)]}, "0 <= start < end"),
+            ({"lines": [self.line(end=0)]}, "0 <= start < end"),
+            ({"lines": [self.line(end=float("nan"))]}, "end must be a finite number"),
+            ({"lines": [self.line(start=float("inf"))]}, "start must be a finite number"),
+            ({"lines": [self.line(start=True)]}, "start must be a finite number"),
+            ({"lines": [self.line(end="2")]}, "end must be a finite number"),
+            ({"lines": [self.line(end=10**400)]}, "end must be a finite number"),
+            ({"lines": [self.line(text=" \n")]}, "text must be nonblank text"),
+            ({"lines": [self.line(text=None)]}, "text must be text"),
+            ({"lines": [self.line(voice="unknown")]}, "voice must name a key"),
+            ({"lines": [self.line(voice=[])]}, "voice must name a key"),
+            ({"lines": [], "captions": ["bad"]}, "captions[0] must be an object"),
+            ({"lines": [], "captions": [{"start": 0, "end": 1}]}, "captions[0].text must be text"),
+            ({"lines": [], "captions": [{"start": 0, "end": 1, "text": None}]}, "captions[0].text must be text"),
+            ({"lines": [], "render": []}, "render must be an object"),
+        ):
+            with self.subTest(script=script):
+                self.assertIn(error, "\n".join(runner.ready_problems(script, {"speaker_a": {}})))
+
+    def test_valid_original_subtitle_overlap_and_shared_take_scripts(self):
+        self.assertEqual(runner.ready_problems({"lines": []}, {}), [])
+        # Subtitle jobs do not need a cast. Captions may overlap spoken lines,
+        # and deliberate repetitions may share an existing cached take.
+        line = {"start": 0, "end": 2, "text": "Good morning."}
+        script = {"lines": [line], "captions": [{**line, "start": 1}]}
+        self.assertEqual(runner.ready_problems(script), [])
+        # A source-only caption can deliberately omit its translated cue.
+        script["captions"][0]["text"] = ""
+        self.assertEqual(runner.ready_problems(script), [])
+        self.assertEqual(runner.ready_problems({"lines": [self.line(), self.line()]}, {"speaker_a": {}}), [])
+
+    def test_american_override_is_checked_when_it_will_be_spoken(self):
+        script = {"lines": [self.line(text_us=" ")]}
+        self.assertEqual(runner.ready_problems(script, {"speaker_a": {}}), [])
+        self.assertIn(
+            "text_us must be nonblank text", "\n".join(runner.ready_problems(script, {"speaker_a": {}}, american=True))
+        )
+
+    def test_ready_batch_does_not_write_until_every_script_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            scripts = [{"lines": [self.line()]}, {"lines": [self.line(end=0)]}]
+            parts = [{"name": "sample-01"}, {"name": "sample-02"}]
+            for part, script in zip(parts, scripts):
+                folder = root / part["name"]
+                folder.mkdir()
+                (folder / "script.json").write_text(json.dumps(script), encoding="utf-8")
+            (root / "voices.json").write_text('{"speaker_a": {}}', encoding="utf-8")
+            with (
+                patch.object(runner, "WORK", root),
+                patch.object(runner, "load_job", return_value={"voices": ["actor"]}),
+                patch.object(runner, "parts", return_value=parts),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                args = types.SimpleNamespace(slug="sample", parts=[1, 2])
+                with self.assertRaisesRegex(SystemExit, "sample-02: cannot mark ready"):
+                    runner.cmd_ready(args)
+                self.assertNotIn("ready", json.loads((root / "sample-01/script.json").read_text(encoding="utf-8")))
+                scripts[1]["lines"][0]["end"] = 1.2
+                (root / "sample-02/script.json").write_text(json.dumps(scripts[1]), encoding="utf-8")
+                runner.cmd_ready(args)
+            for part in parts:
+                self.assertTrue(json.loads((root / part["name"] / "script.json").read_text(encoding="utf-8"))["ready"])
+
+    def test_subtitle_job_needs_no_registry_and_bad_json_is_actionable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            folder = root / "sample-01"
+            folder.mkdir()
+            path = folder / "script.json"
+            path.write_text('{"lines": [', encoding="utf-8")
+            with (
+                patch.object(runner, "WORK", root),
+                patch.object(runner, "load_job", return_value={"voices": []}),
+                patch.object(runner, "parts", return_value=[{"name": "sample-01"}]),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                args = types.SimpleNamespace(slug="sample", parts=[1])
+                with self.assertRaisesRegex(SystemExit, "part 1: invalid script.json"):
+                    runner.cmd_ready(args)
+                script = {"lines": [{"start": 0, "end": 2, "text": "Good morning."}]}
+                path.write_text(json.dumps(script), encoding="utf-8")
+                runner.cmd_ready(args)
+            self.assertTrue(json.loads(path.read_text(encoding="utf-8"))["ready"])
+
+
 class WatchBlockTests(unittest.TestCase):
     def run_changed_block(self, before, after, known=False):
         with tempfile.TemporaryDirectory() as tmp:
