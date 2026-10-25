@@ -531,6 +531,20 @@ overflow budget. Fix them all in one pass. `fit.py` prints the same table
 anytime. `generate` also warns about lines ending in "…", which tend to swallow
 their last word.
 
+The following gap is measured against the next dubbed line. When retained
+original speech starts sooner (including a `captions` entry), check the actual
+take's end against that start; the allowed overflow does not prove that the
+reply stays clear. These lengths include trimmed edge silence. For a small
+nominal crossing, inspect the generated speech end and the next original
+voice's actual onset before rewriting; put any remaining uncertain handoff
+on the listen list.
+
+Check the next generated English voice's onset too. A take can fit the overflow
+budget yet collide with the next English line. Compare both speech boundaries
+with the original exchange: shorten the outgoing line if the dub turns a
+source pause into overlapping speech. A source interruption can be kept as a
+directing choice.
+
 Only new, changed or re-rolled lines are synthesized, so fixing an overflow
 costs just the lines you touched, and timing or level changes are a re-mix of
 about 5 s. (Unpatched VoiceStudio ignores partial re-renders until a job's
@@ -881,7 +895,11 @@ language there.
   closes plays a clipped tail of the original after the English. `edges.py`
   moves the end past short tails (same rule, so up to 400 ms into silence) and notes the rest for manual review.
   Where two windows touch, it moves their shared boundary onto the dip between
-  the voices when there is one (see `dips` under "Render"). In a noisy room (a
+  the voices when there is one (see `dips` under "Render"). Caption windows
+  protect speech kept original: automatic moves stop before crossing them,
+  including captions with empty English text. Review existing overlaps yourself;
+  a genuine interruption may need both voices, while an overlong window can
+  cut off a short original reply. In a noisy room (a
   bar, a crowd) the separated vocals keep some background chatter: long `skip`s
   with a voice at or above the line's level there are the room, not the actor.
 - **Match reverberation to the source.** `scripts/tails.py <clip>` compares the

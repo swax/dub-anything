@@ -29,6 +29,10 @@ for speech detection to call it a pause. When that dip (core.end_dip) isn't at t
 boundary, both windows move to it: it's where one line really ends and the next
 begins, and a per-line reference cut there ends cleanly.
 
+Captions mark speech kept in the original audio. New moves cannot cross those
+windows, even when their English text is empty. Existing overlaps are left for
+the director to judge.
+
 --apply writes the moves to script.json. It's timing only: the next
 `dub.py generate` re-mixes without re-synthesizing. An earlier start also
 starts the take a little earlier, closer to the actor's mouth.
@@ -131,6 +135,7 @@ def check(name, apply=False, min_shift=0.015):
     path = WORK / name / "script.json"
     script = load_json(path)
     lines = script["lines"]
+    captions = script.get("captions", [])
     audio = decode_audio(
         str(JOBS / load_json(WORK / name / "segments.json")["job_id"] / "vocals.wav"), sampling_rate=SR
     )
@@ -139,6 +144,9 @@ def check(name, apply=False, min_shift=0.015):
     for i, line in enumerate(lines):
         level = line_level(db, line["start"], line["end"])
         prev_end = lines[i - 1]["end"] if i else 0.0
+        for caption in captions:
+            if caption["start"] < line["start"]:
+                prev_end = max(prev_end, min(caption["end"], line["start"]))
         onset, from_silence = voiced_onset(db, line["start"], max(prev_end, line["start"] - SEARCH), level) or (
             None,
             False,
@@ -159,12 +167,18 @@ def check(name, apply=False, min_shift=0.015):
                 and abs(dip - line["end"]) >= min_shift
                 and dip < lines[i + 1]["end"] - 0.3
                 and level_at(db, line["end"]) - level_at(db, dip) > DIP_SETTLED_DB
+                and not any(c["start"] < max(dip, line["end"]) and c["end"] > min(dip, line["end"]) for c in captions)
             ):
                 joins.append((i, line["end"], round(dip, 2), line["text"]))
                 if apply:
                     line["end"] = lines[i + 1]["start"] = round(dip, 2)
             continue
         ceil = nxt - 0.05
+        for caption in captions:
+            if caption["end"] > line["end"]:
+                ceil = min(ceil, max(caption["start"], line["end"]))
+        if ceil <= line["end"]:
+            continue
         release, to_silence = voiced_release(db, line["end"], min(ceil, line["end"] + SEARCH), level) or (None, False)
         if release is not None:
             k = int(line["end"] * SR / HOP)
