@@ -191,6 +191,12 @@ the middle of 4–6 s "pauses" each landed on a line's first syllable.
 `prep` separates the voices and prints Whisper's rough transcript. It also
 switches VoiceStudio to pyannote when it's installed.
 
+In a sandbox, FFmpeg may be unable to write to Python's temporary directory even
+when Python can create it. If frame extraction reports a permission error, set
+`TEMP` and `TMP` to an existing, writable folder inside `work/` before running
+the tools. This keeps temporary frames in the workspace; the extraction error
+is different from a timestamp past the video's end.
+
 For cleaner references, try `scripts/separate.py episode-01` (its own environment;
 see AGENTS.md). Residual music in the vocals can affect clones, transcripts,
 register measurements and level matching. Compare the vocals and background
@@ -286,6 +292,10 @@ others. Decide each line's speaker from:
    separate cluster, so check the nearest-cast hint. Name the clusters once,
    build their voices, then run `scripts/draft.py --recast` on those parts: it
    keeps their transcripts and only suggests the speakers again.
+  In a workspace with many other shows, `scripts/cast.py ... --cast key,key,...`
+  limits the nearest-cast comparisons to the selected voices, saving the cost of
+  embedding unrelated references. Every supplied part's lines still take part
+  in the clustering.
 2. **Video frames** at the line's time: who is in close-up with their mouth open.
    On-screen names and role captions can help identify a speaker. Burned-in
    closed captions (`subs.py`) often give each main character a colour of
@@ -298,6 +308,12 @@ others. Decide each line's speaker from:
    200–450 Hz. Actors go outside their range when playful or shouting, so a
    theatrical male lead can hit 400 Hz. Never cast on pitch alone.
 4. The dialogue itself: who would say it, and who answers.
+
+Credits identify performers, but do not map every brief appearance to a role.
+A credited character seen later does not prove that a similar-looking speaker
+in an earlier scene is the same person. Build a reference from the uncertain
+speaker's own clean speech and keep a separate key until frames and voice
+comparisons support joining it to an existing character.
 
 For a new character, build a voice from 5–15 s of **clean, single-speaker**
 speech (see the reference-leakage gotcha below). 3–4 s works for a bit part.

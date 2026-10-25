@@ -1,6 +1,6 @@
 """Group the lines of one or more clips by voice, to cast consistently across parts.
 
-Usage: scripts/cast.py <name> [<name> ...] [--min 0.9] [--threshold 0.38]   (after draft.py)
+Usage: scripts/cast.py <name> [<name> ...] [--min 0.9] [--threshold 0.38] [--cast key,key,...]   (after draft.py)
 
 Every draft line of at least --min seconds gets a speaker embedding (WeSpeaker,
 as in draft.py). Average-linkage clustering by cosine similarity then puts one
@@ -41,12 +41,13 @@ def main():
     ap.add_argument("names", nargs="+")
     ap.add_argument("--min", type=float, default=0.9, help="shortest line to embed (s)")
     ap.add_argument("--threshold", type=float, default=0.38, help="merge clusters above this similarity")
+    ap.add_argument("--cast", help="comma-separated voice keys for nearest-cast hints (default: all)")
     args = ap.parse_args()
 
     embed = draft.embedder()
     if embed is None:
         raise SystemExit("needs the pyannote models (docs/setup.md, step 5)")
-    cast = draft.cast_centroids(embed, None)
+    cast = draft.cast_centroids(embed, set(args.cast.split(",")) if args.cast else None)
     items = []
     for name in args.names:
         job = load_json(WORK / name / "segments.json")["job_id"]

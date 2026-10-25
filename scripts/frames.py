@@ -66,6 +66,8 @@ def main():
     ap.add_argument("--cols", type=int, default=5)
     ap.add_argument("--width", type=int, default=400)
     args = ap.parse_args()
+    if args.cols < 1:
+        ap.error("--cols must be at least 1")
 
     drawtext_ok = has_drawtext()
     tmp = pathlib.Path(tempfile.mkdtemp())
@@ -80,13 +82,16 @@ def main():
                 f"drawtext={'fontfile=' + FONT + ':' if FONT else ''}text='{esc_text}':x=4:y=4:fontsize=17"
                 f":fontcolor=yellow:box=1:boxcolor=black"
             )
-            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", t, "-i", args.video, "-frames:v", "1",
-                            "-vf", f"scale={args.width}:-2,{draw}", str(f)], stderr=subprocess.DEVNULL)  # fmt: skip
+            filters = f"scale={args.width}:-2,{draw}"
         else:
-            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", t, "-i", args.video, "-frames:v", "1",
-                            "-vf", f"scale={args.width}:-2", str(f)], stderr=subprocess.DEVNULL)  # fmt: skip
-            if f.exists():
-                stamp_pil(f, display_text)
+            filters = f"scale={args.width}:-2"
+        result = subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", t, "-i", args.video, "-frames:v", "1",
+                                 "-vf", filters, str(f)], capture_output=True, text=True,
+                                encoding="utf-8", errors="replace")  # fmt: skip
+        if result.returncode:
+            raise SystemExit(f"ffmpeg failed extracting the frame at {float(t):.1f} s:\n{result.stderr.strip()}")
+        if not drawtext_ok and f.exists():
+            stamp_pil(f, display_text)
         if f.exists():
             frames.append(f)
         else:  # ffmpeg writes nothing for a time past the end of the video
@@ -107,8 +112,9 @@ def main():
         frames.append(f)
     layout = "|".join(f"{(i % args.cols) * args.width}_{(i // args.cols) * height}" for i in range(len(frames)))
     inputs = [a for f in frames for a in ("-i", str(f))]
-    subprocess.run(["ffmpeg", "-v", "error", "-y", *inputs, "-filter_complex",
-                    f"xstack=inputs={len(frames)}:layout={layout}", args.out], check=True)  # fmt: skip
+    grid_filter = ["-filter_complex", f"xstack=inputs={len(frames)}:layout={layout}"] if len(frames) > 1 else []
+    subprocess.run(["ffmpeg", "-v", "error", "-y", *inputs, *grid_filter,
+                    "-frames:v", "1", args.out], check=True)  # fmt: skip
     print(args.out)
 
 
