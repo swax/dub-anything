@@ -695,6 +695,12 @@ How these were chosen, and what else was tried, is in
   passages, so a word appearing in the neighbouring window is usually fine.
   Whisper also invents words on background noise; check `energy.py` before
   worrying.
+  A mix retaining source-language speech can make full-clip ASR omit whole
+  stretches that pass the per-line checks. Extract a short stretch of the
+  assembled MP4 and check it with `asr_words.py <wav> <offset> --lang en`
+  (or the target language), without VAD. Narrowing the context helps distinguish
+  a transcription miss from masked speech; check this before raising the gain
+  or replacing a good take.
 - **Check each rendered line on its own too:** `scripts/lineqa.py episode-01`. The
   full-mix QA hid these problems:
   - junk at the start of lines (reference leakage, below)
@@ -705,7 +711,12 @@ How these were chosen, and what else was tried, is in
   - lines that came out silent
 
   Numbers, units, contractions and "Dr." are normalized, so formatting doesn't
-  count as a failure. Triage each flag. A random glitch (a dropped word, a
+  count as a failure. Skim the cached per-line hearings even when no lines are
+  flagged: a high overall match can hide an omitted short name or clause.
+  If repeated takes lose a short setup clause, check it with a second recognizer.
+  When both omit it, try folding its meaning into the main sentence instead of
+  another separate lead, then check the whole line and its actual timing again.
+  Triage each flag. A random glitch (a dropped word, a
   mangled first word) usually clears with a fresh take:
   `scripts/lineqa.py episode-01 --reroll` queues the flagged lines, and the next
   `generate` re-rolls them.
@@ -982,6 +993,11 @@ language there.
   the restart cleared it each time. A program outside the dub using the GPU
   (another project's job) makes the retry fail too: two failures block the
   part, and the next `scripts/dub_anything.py run` retries it.
+  Long references can also fill VRAM within a single native synthesis batch.
+  If those batches crawl, try `OMNIVOICE_DUB_BATCH_WIDTH=2` in the backend's
+  startup environment to generate fewer lines together. Wait for your current
+  tools to finish before restarting the backend, and carry the setting in the
+  job runner's environment so automatic restarts keep it.
 - **After an NVIDIA driver update, restart the backend.** A backend that was
   running during the update keeps "CUDA out of memory" errors on an empty GPU
   and silently runs Whisper on the CPU.

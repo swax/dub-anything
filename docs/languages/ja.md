@@ -13,6 +13,11 @@ draft as kana, and `subs.py` reads burned-in Japanese captions. Into English
 there are both voices (the actor's and the American), and per-line references
 are on (research.md, findings 6 and 8).
 
+Reazon can return only the last phrase of a long focused range while SenseVoice
+recovers the whole stretch. For disputed words, split the range at pauses and
+check one short phrase at a time. Confirm the earlier phrases before relying
+on that output.
+
 ## As the target: English → Japanese
 
 - **The job.** `scripts/dub_anything.py new <video> --source en --target ja` (by
