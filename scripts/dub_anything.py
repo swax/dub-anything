@@ -704,7 +704,8 @@ def report(job, ps, quiet=False):
             within = sum(abs(x) <= 0.25 for x in d) / len(d)
             med = sorted(abs(x) for x in d)[len(d) // 2]
             md.append(
-                f"- {VOICE_LABEL[voice]}: {len(d)} lines; {within:.0%} end within 0.25 s of the actor "
+                f"- {VOICE_LABEL[voice]}: {len(d)} lines with measured actor endings; "
+                f"{within:.0%} end within 0.25 s of the actor "
                 f"(median {med:.2f} s); {len(flags[voice])} still flagged"
             )
     if original:
@@ -882,18 +883,22 @@ def cmd_status(args):
         else:
             direction = "ready" if script.get("ready") else "directing"
         cols = []
+        problems = []
         for voice in job["voices"]:
             st = load_json(WORK / voice_part(name, voice) / "state.json", {})
+            if st and script and script["lines"] and st.get("script") != script_sha(derived_script(script, voice)):
+                cols.append(f"{voice}: script changed; render pending")
+                continue
             left = len(load_json(WORK / voice_part(name, voice) / "reroll-left.json", []))
             s = ("BLOCKED" if st.get("problem") else st.get("stage", "-")) + (
                 f" r{st['round']}" if st.get("round") else ""
             )
             cols.append(f"{voice}: {s}" + (f" ({left} flagged)" if left else ""))
-        print(f"  {name}  {film_time(p['start'])}  {prep:8s} {sep:9s} {draft:7s} {direction:13s} " + "  ".join(cols))
-        for voice in job["voices"]:
-            st = load_json(WORK / voice_part(name, voice) / "state.json", {})
             if st.get("problem"):
-                print(f"      {voice}: {st['problem']}")
+                problems.append((voice, st["problem"]))
+        print(f"  {name}  {film_time(p['start'])}  {prep:8s} {sep:9s} {draft:7s} {direction:13s} " + "  ".join(cols))
+        for voice, message in problems:
+            print(f"      {voice}: {message}")
     for t in job.get("problems", []):
         print(f"  problem: {t}")
 

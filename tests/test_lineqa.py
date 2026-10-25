@@ -15,7 +15,7 @@ import lineqa
 
 
 class KeptTakeTests(unittest.TestCase):
-    def check_kept(self, want, current, earlier, stale_notes, stale_ratio):
+    def check_kept(self, want, current, earlier, stale_notes, stale_ratio, *, lang="yue", reroll=False):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             work = root / "clip"
@@ -41,16 +41,20 @@ class KeptTakeTests(unittest.TestCase):
                 ]
             }
             (work / "takes" / "kept.json").write_text(json.dumps(kept), encoding="utf-8")
+            output = io.StringIO()
             with (
                 patch.object(lineqa, "WORK", root),
-                patch.object(lineqa, "langs", return_value=("en", "yue")),
+                patch.object(lineqa, "langs", return_value=("en", lang)),
                 patch.object(lineqa, "line_id", return_value="line"),
                 patch.object(lineqa, "take_wav", return_value=wav),
                 patch.object(lineqa.sf, "info", return_value=types.SimpleNamespace(duration=1.0)),
-                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stdout(output),
             ):
                 # check() hears each new take through the ear it is given (lineqa.Ear).
-                lineqa.check("clip", lambda wav, lang: current, False, False)
+                lineqa.check("clip", lambda wav, lang: current, False, reroll)
+            self.last_output = output.getvalue()
+            reroll_path = work / "reroll.json"
+            self.last_reroll = json.loads(reroll_path.read_text(encoding="utf-8")) if reroll_path.exists() else []
             return wav.read_bytes()
 
     def test_recognized_written_variant_can_restore_an_earlier_take(self):
@@ -60,6 +64,24 @@ class KeptTakeTests(unittest.TestCase):
     def test_stale_passing_score_cannot_restore_a_wrong_number(self):
         result = self.check_kept("我哋有三本書。", "我哋有三本新書。", "我哋有四本書。", [], 1.0)
         self.assertEqual(result, b"current")
+
+    def test_restoration_message_and_reroll_describe_the_restored_take(self):
+        earlier = "Please deliver four small boxes to this door."
+        current = "Take two big crates somewhere else."
+        result = self.check_kept(
+            "Please deliver three small boxes to this door.",
+            current,
+            earlier,
+            [],
+            1.0,
+            lang="en",
+            reroll=True,
+        )
+        self.assertEqual(result, b"earlier")
+        message = next(line for line in self.last_output.splitlines() if "put back an earlier take" in line)
+        self.assertIn(repr(earlier), message)
+        self.assertNotIn(repr(current), message)
+        self.assertEqual(self.last_reroll[0]["got"], earlier)
 
 
 class EarTests(unittest.TestCase):

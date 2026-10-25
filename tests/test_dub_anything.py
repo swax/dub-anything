@@ -175,6 +175,45 @@ class ReadyPreflightTests(unittest.TestCase):
             self.assertTrue(json.loads(path.read_text(encoding="utf-8"))["ready"])
 
 
+class StatusTests(unittest.TestCase):
+    def test_changed_script_does_not_report_an_old_final_or_its_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            part = {"name": "sample-01", "start": 0}
+            work = root / part["name"]
+            work.mkdir()
+            script = {"lines": [{"start": 0, "end": 2, "text": "Good morning."}], "ready": True}
+            state = {"script": runner.script_sha(script), "stage": "final", "round": 1}
+            (work / "state.json").write_text(json.dumps(state), encoding="utf-8")
+            (work / "reroll-left.json").write_text('[{"id": "old"}]', encoding="utf-8")
+
+            def status():
+                (work / "script.json").write_text(json.dumps(script), encoding="utf-8")
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    runner.cmd_status(types.SimpleNamespace(slug="sample"))
+                return output.getvalue()
+
+            with (
+                patch.object(runner, "WORK", root),
+                patch.object(runner, "parts", return_value=[part]),
+                patch.object(runner, "job_dir_of", return_value=None),
+                patch.object(
+                    runner,
+                    "load_job",
+                    return_value={"slug": "sample", "source": "sample.mp4", "langs": ["ja", "en"], "voices": ["actor"]},
+                ),
+            ):
+                self.assertIn("actor: final r1 (1 flagged)", status())
+                script["signs"] = [{"start": 0, "end": 2, "text": "Station"}]
+                self.assertIn("actor: final r1 (1 flagged)", status())
+                script["lines"][0]["text"] = "Good morning, everyone."
+                changed = status()
+                self.assertIn("actor: script changed; render pending", changed)
+                self.assertNotIn("final", changed)
+                self.assertNotIn("flagged", changed)
+
+
 class WatchBlockTests(unittest.TestCase):
     def run_changed_block(self, before, after, known=False):
         with tempfile.TemporaryDirectory() as tmp:

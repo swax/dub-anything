@@ -154,7 +154,7 @@ def check(name, ear, show_all, reroll):
             restored.append(lid)
             print(
                 f"L{i:02d} {line['start']:7.2f} put back an earlier take (match {best['ratio']:.2f} "
-                f"over {take['ratio']:.2f}: {got!r})"
+                f"over {take['ratio']:.2f}: {best['got']!r})"
             )
             take, notes, got = best, best["notes"], best["got"]
         if notes:
