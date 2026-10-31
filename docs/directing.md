@@ -87,6 +87,11 @@ differs.
   say a word in it.
 - `line_ref` (optional): `false` keeps the character's reference for this line
   instead of its own original (see "Render").
+- `actor_end` (optional): the checked time of the source actor's last sound,
+  in seconds within the part, inside this line's window. Use only after inspecting
+  the source when speech detection misses a shout or filtered announcement.
+  It overrides the detected endpoint for `fit.py`, fill and timing reports;
+  it does not move the window or prove that a reference is clean.
 - `text_us` (optional): the English for the American voice when it needs to
   differ, usually fuller text for a line `scripts/fit.py --voice american` calls
   `SHORT?`. `dub_anything.py` renders that voice from a copy of the script in

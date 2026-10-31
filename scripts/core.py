@@ -362,7 +362,7 @@ FILL_SPEED = (0.8, 1.25)  # OmniVoice speeds allowed when re-timing a take (judg
 def actor_spans(job_id, lines):
     """Seconds from each window's start to the actor's first and last sound in it
     (Silero VAD on the separated vocals, as draft.py uses), or None where it hears
-    nothing."""
+    nothing. A director's checked actor_end overrides the detected endpoint."""
     from faster_whisper.audio import decode_audio
     from faster_whisper.vad import VadOptions, get_speech_timestamps
 
@@ -374,9 +374,16 @@ def actor_spans(job_id, lines):
         inside = [
             (max(a, line["start"]), min(b, line["end"])) for a, b in spans if b > line["start"] and a < line["end"]
         ]
-        out.append(
+        span = (
             (min(a for a, _ in inside) - line["start"], max(b for _, b in inside) - line["start"]) if inside else None
         )
+        if "actor_end" in line:
+            end = line["actor_end"]
+            if isinstance(end, bool) or not isinstance(end, (int, float)) or not line["start"] < end <= line["end"]:
+                raise ValueError("actor_end must be a finite time inside the line's window")
+            first = span[0] if span and span[0] < end - line["start"] else 0.0
+            span = first, end - line["start"]
+        out.append(span)
     return out
 
 

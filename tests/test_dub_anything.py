@@ -83,6 +83,13 @@ class ReadyPreflightTests(unittest.TestCase):
     def line(self, **changes):
         return {"start": 0, "end": 1.2, "voice": "speaker_a", "text": "Good morning.", **changes}
 
+    def test_checked_actor_endpoint_is_validated_before_queueing(self):
+        for value in (-1, 0, 1.3, float("nan"), float("inf"), "1", True):
+            with self.subTest(value=value):
+                problems = runner.ready_problems({"lines": [self.line(actor_end=value)]}, {"speaker_a": {}})
+                self.assertIn("actor_end", "\n".join(problems))
+        self.assertEqual(runner.ready_problems({"lines": [self.line(actor_end=1.1)]}, {"speaker_a": {}}), [])
+
     def test_invalid_structure_times_text_and_voice_are_reported(self):
         for script, error in (
             ([], "script must be an object"),

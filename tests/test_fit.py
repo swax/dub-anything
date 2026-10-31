@@ -85,5 +85,40 @@ class FitReferenceCastTests(unittest.TestCase):
                 self.assertEqual((work / "refs" / "clean.json").read_bytes(), cache)
 
 
+class ActorEndpointTests(unittest.TestCase):
+    def spans(self, lines, detected):
+        audio = types.SimpleNamespace(decode_audio=lambda *args, **kwargs: np.zeros(32000))
+        vad = types.SimpleNamespace(
+            VadOptions=lambda **kwargs: kwargs,
+            get_speech_timestamps=lambda *args: detected,
+        )
+        with patch.dict(sys.modules, {"faster_whisper.audio": audio, "faster_whisper.vad": vad}):
+            return core.actor_spans("sample", lines)
+
+    def test_checked_endpoint_recovers_missed_announcement_and_timing_report(self):
+        lines = [{"start": 0.5, "end": 2.0, "actor_end": 1.8}]
+        self.assertEqual(self.spans(lines, []), [(0.0, 1.3)])
+        with patch.object(core, "actor_spans", return_value=[(0.0, 1.3)]):
+            self.assertEqual(core.actor_ends("sample", lines), [1.3])
+
+    def test_override_preserves_detected_onset_and_other_lines(self):
+        lines = [{"start": 0.0, "end": 1.0, "actor_end": 0.8}, {"start": 1.0, "end": 2.0}]
+        np.testing.assert_allclose(
+            self.spans(lines, [{"start": 3200, "end": 9600}, {"start": 19200, "end": 28800}]),
+            [(0.2, 0.8), (0.2, 0.8)],
+        )
+
+    def test_invalid_director_endpoint_is_rejected(self):
+        for end in (0.5, 2.1, float("nan"), float("inf"), "1.8", True):
+            with self.subTest(end=end), self.assertRaises(ValueError):
+                self.spans([{"start": 0.5, "end": 2.0, "actor_end": end}], [])
+
+    def test_later_background_detection_cannot_create_a_zero_length_span(self):
+        self.assertEqual(
+            self.spans([{"start": 0.0, "end": 2.0, "actor_end": 0.8}], [{"start": 16000, "end": 24000}]),
+            [(0.0, 0.8)],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
