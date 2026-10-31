@@ -257,7 +257,7 @@ def start(wait=600):
         launcher.parent.mkdir(exist_ok=True)
         lines = ["@echo off"] + [
             f'set "{k}={env[k].replace("%", "%%")}"'
-            for k in ("PATH", "OMNIVOICE_DATA_DIR", "OMNIVOICE_CACHE_DIR", *ROCM_ENV)
+            for k in ("PATH", "OMNIVOICE_DATA_DIR", "OMNIVOICE_CACHE_DIR", "OMNIVOICE_DUB_BATCH_WIDTH", *ROCM_ENV)
             if env.get(k)
         ]
         lines += [f'cd /d "{VS_DIR}"', subprocess.list2cmdline(cmd) + f' > "{log}" 2>&1']

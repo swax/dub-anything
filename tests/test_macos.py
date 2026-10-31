@@ -239,6 +239,25 @@ class BackendPlatformTests(FixedHomeTests):
         self.assertIs(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
 
+    def test_windows_start_preserves_native_batch_width_after_detaching(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            with (
+                patch("sys.platform", "win32"),
+                patch.object(backend, "ROOT", root),
+                patch.object(backend, "healthy", side_effect=[False, True]),
+                patch.object(backend, "listening_pid", return_value=None),
+                patch.object(backend, "full_env", return_value={"OMNIVOICE_DUB_BATCH_WIDTH": "2"}),
+                patch.object(backend, "log_path", return_value=root / "backend.log"),
+                patch.object(backend, "launch_cmd", return_value=["uvicorn"]),
+                patch.object(pathlib.Path, "is_dir", return_value=True),
+                patch("subprocess.run", return_value=MagicMock(returncode=0)) as run,
+            ):
+                self.assertTrue(backend.start(wait=5))
+            launcher = root / "work/backend-start.cmd"
+            self.assertIn('set "OMNIVOICE_DUB_BATCH_WIDTH=2"', launcher.read_text(encoding="utf-8"))
+            self.assertIn(str(launcher), run.call_args.args[0][3])
+
 
 class DubAnythingDependencyTests(unittest.TestCase):
     def commands(self, platform, rocm=None):
