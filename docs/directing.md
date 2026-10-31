@@ -315,6 +315,10 @@ others. Decide each line's speaker from:
    closed captions (`subs.py`) often give each main character a colour of
    their own and put a name in brackets when the speaker isn't obvious;
    `draft.py` prints them under each phrase.
+   An open mouth in a wide group shot can be a reaction or laughter while
+   someone else speaks off-screen. Compare several frames and complete clauses
+   against checked references. A voice key named for clothing in an earlier
+   scene does not establish who wears that item in a later scene.
    ```powershell
    & $py frames.py grid.jpg videos\episode-parts\episode-02.mp4 84:announce 121.5:interjection 147.5
    ```
@@ -435,6 +439,14 @@ against it. Rebuilt from lines at his usual level, it pulled nothing.
   move. Write each piece so it stands on its own. A take whose text starts
   mid-sentence ("goes well with the rice") can come out with a subject added
   ("It goes well...").
+- **Compare changes to delivery by ear.** For adjacent clauses from one speaker,
+  a grouped take is worth comparing with separate takes when no other voice
+  intrudes. Preserve deliberate calls and long pauses as distinct beats unless
+  listening supports joining them. Grouping changes reference use and fill speed
+  as well as phrasing; record those settings with the comparison. A brief source
+  clip passing its reference check does not establish that it sounds better than
+  the character's reference. One fresh take per condition establishes a preference
+  for those takes, without isolating which setting caused it.
 - **End each window in a pause, with nobody else inside it.** A line whose
   window is clean gets the actor's own delivery (see "Render"). One where the
   next speaker starts before the window ends, or the actor is cut mid-sound,
@@ -722,6 +734,11 @@ How these were chosen, and what else was tried, is in
   Numbers, units, contractions and "Dr." are normalized, so formatting doesn't
   count as a failure. Skim the cached per-line hearings even when no lines are
   flagged: a high overall match can hide an omitted short name or clause.
+  Check disputed words in the actual mixed movie too: an isolated take can
+  transcribe correctly while music or effects reduce its clarity. Compare
+  narrow and contextual crops without prompting the expected words, and use a
+  second recognizer. Conflicting readings that focused checks recover remain
+  listening questions; repeated unwanted profanity readings need rewording.
   If repeated takes lose a short setup clause, check it with a second recognizer.
   When both omit it, try folding its meaning into the main sentence instead of
   another separate lead, then check the whole line and its actual timing again.

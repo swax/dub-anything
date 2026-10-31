@@ -6,8 +6,8 @@ language's notes ([en.md](en.md)). The code is `scripts/languages/ja.py`.
 
 ## As the source
 
-[directing.md](../directing.md) was written from Japanese → English dubs, so a
-Japanese source needs nothing beyond it: a line keeps its original in `ja`,
+The workflow in [directing.md](../directing.md) was developed with Japanese →
+English dubs. A line keeps its original in `ja`,
 `second.py` runs ReazonSpeech k2 v2 and SenseVoice and compares them with the
 draft as kana, and `subs.py` reads burned-in Japanese captions. Into English
 there are both voices (the actor's and the American), and per-line references
@@ -17,6 +17,16 @@ Reazon can return only the last phrase of a long focused range while SenseVoice
 recovers the whole stretch. For disputed words, split the range at pauses and
 check one short phrase at a time. Confirm the earlier phrases before relying
 on that output.
+
+A Japanese ASR segment can merge an English announcement with a later Japanese
+reply. If a simple translation needs substantial padding, or small wording
+changes alternate between long and short takes, check the source words and
+their actual onsets before changing more English. Decode the earlier stretch
+in English as well as Japanese. Preserve speech already in English and give
+the presenter only their own utterance window; VAD alone cannot separate
+those speakers.
+Check retained speech in the rendered video's soundtrack. A dub-only stem
+contains silence in those original-speech ranges.
 
 ## As the target: English → Japanese
 
