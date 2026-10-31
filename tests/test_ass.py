@@ -38,5 +38,35 @@ class DialogueLayoutTests(unittest.TestCase):
         self.assertTrue(after.endswith("{\\an8}After."))
 
 
+class SignMotionTests(unittest.TestCase):
+    def sign(self, end_box, **extra):
+        return {
+            "start": 10,
+            "end": 15,
+            "text": "Room",
+            "box": [0.3, 0.2, 0.35, 0.25],
+            "box_end": end_box,
+            **extra,
+        }
+
+    def test_small_pans_follow_pixel_positions_on_both_axes(self):
+        for box, destination in [
+            ([0.305, 0.2, 0.355, 0.25], "634,243"),
+            ([0.3, 0.205, 0.35, 0.255], "624,248"),
+        ]:
+            with self.subTest(box=box):
+                event = ass.sign_event(self.sign(box), 1920, 1080)
+                self.assertIn(f"\\move(624,243,{destination})", event)
+
+    def test_subpixel_motion_with_identical_rounded_anchors_stays_static(self):
+        event = ass.sign_event(self.sign([0.30001, 0.2, 0.35001, 0.25]), 1920, 1080)
+        self.assertIn("\\pos(624,243)", event)
+        self.assertNotIn("\\move", event)
+
+    def test_small_pan_keeps_explicit_motion_interval(self):
+        event = ass.sign_event(self.sign([0.305, 0.2, 0.355, 0.25], seen=[11, 14]), 1920, 1080)
+        self.assertIn("\\move(624,243,634,243,1000,4000)", event)
+
+
 if __name__ == "__main__":
     unittest.main()

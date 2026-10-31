@@ -515,7 +515,11 @@ against it. Rebuilt from lines at his usual level, it pulled nothing.
   between two similar pictures (two pages on white), so check the times of
   anything that changes in place. When text carries across a part boundary, put
   its translation in both parts with the same placement, and check the frames
-  on each side of the splice. Diagrams come in stages: a label can appear
+  on each side of the splice. For camera reversals, use adjacent sign entries
+  with measured start/end boxes; one move across the whole shot cannot follow
+  them. Check the first frame after a sign's shot too: ASS rounds to
+  centiseconds, so an end rounded past the cut can leave the label on the new
+  shot. End it just before the cut when needed. Diagrams come in stages: a label can appear
   seconds into its shot. `scripts/signs.py <part> --preview [N ...]` draws the
   part's signs and dialogue into their frames as delivered: check that each sits
   by its text, reads against the picture and covers nothing that matters. A line

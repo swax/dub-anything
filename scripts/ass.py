@@ -166,8 +166,10 @@ def sign_event(sign, w, h):
     size, text, lines, an, x, y = layout(sign, w, h)
     tags = f"\\an{an}"
     end_box = sign.get("box_end")
-    if end_box and max(abs(a - b) for a, b in zip(end_box, sign["box"])) > 0.01:
+    x2, y2 = x, y
+    if end_box:
         _, x2, y2 = anchor(end_box, sign.get("place", "over"), size, lines, w, h, room(sign, w))
+    if (round(x), round(y)) != (round(x2), round(y2)):
         when = ""
         if sign.get("seen"):
             t1, t2 = (max(0, round((t - sign["start"]) * 1000)) for t in sign["seen"])
