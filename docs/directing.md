@@ -474,7 +474,13 @@ against it. Rebuilt from lines at his usual level, it pulled nothing.
   passed ("Oh. She hung up.", "What is it, <name>?"), whose takes came out
   30–60% longer than estimated. Give such lines a third of slack, or keep a
   one-word reply original with a caption.
-  For `SHORT?`: write fuller English, closer to everything the actor says.
+  For `SHORT?`: first check the separated vocals and source speech spans. The
+  actor's first-to-last speech span can include a long internal silence. A VAD
+  gap can also hide murmured words: confirm the source before splitting it. If it
+  separates utterances, give them separate windows and preserve the pause;
+  keep a brief original call with a caption when a clone cannot fit it. Re-run
+  `fit.py` on those windows before adding words. For continuous speech, write
+  fuller English, closer to everything the actor says.
   Don't count on fill to slow a short line down (see "Render"). In the
   `"american"` voice, `fit.py` estimates IndexTTS's length instead, from the
   English syllables and how long the actor speaks in the window (IndexTTS
@@ -739,8 +745,10 @@ How these were chosen, and what else was tried, is in
   Check disputed words in the actual mixed movie too: an isolated take can
   transcribe correctly while music or effects reduce its clarity. Compare
   narrow and contextual crops without prompting the expected words, and use a
-  second recognizer. Conflicting readings that focused checks recover remain
-  listening questions; repeated unwanted profanity readings need rewording.
+  second recognizer. Context can recover words that isolated transcriptions
+  missed; record both readings before judging a substitution. When these checks
+  recover the intended words, record any remaining clarity question for the
+  listener. Repeated unwanted profanity readings need rewording.
   If repeated takes lose a short setup clause, check it with a second recognizer.
   When both omit it, try folding its meaning into the main sentence instead of
   another separate lead, then check the whole line and its actual timing again.
@@ -969,6 +977,10 @@ language there.
   your material. Extend the speech window over the original tail without
   covering the next speaker. Effects lengthen the take, which `fit.py` does
   not predict; leave room and check the rendered duration.
+- **Compare retained audio from matching samples.** Decode both streams from
+  the same starting point and crop the PCM afterward, or align them before
+  comparing. Independent fast seeks can shift the starting samples or resampling
+  phase, lowering correlation even when the retained audio is intact.
 - **Timing strategy.** Use `concise`, dub.py's default: natural pace, placed at the
   window start, and it fails loudly on overflow. `strict_slot` (the VoiceStudio UI
   default) stretches every line to fill its window, which gives slowed or rushed
