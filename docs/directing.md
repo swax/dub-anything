@@ -819,6 +819,14 @@ The English tracks are then the styled ones, and the signs-only track follows
 them, marked forced, for watching the dub with subtitles off. A player has to
 render ASS subtitles to place them (mpv and VLC do, with libass).
 
+Subtitle presence and a correct extracted ASS file do not prove playback works.
+Long overlapping signs can hold back later packets during packaging; a player
+then receives dialogue after its display time, although offline extraction and
+preview rendering still recover it. Delivery disables early interleave flushing
+(`-max_interleave_delta 0`) and checks the new tracks' packet positions against
+the video before replacement. Check the packaged track, including dialogue
+under a persistent label, rather than relying only on per-part previews.
+
 Every subtitle track, a dub's included, is timed for reading as it's assembled
 (`subtitles.py`, below), and a line longer than about 42 letters is broken in
 two near its middle.

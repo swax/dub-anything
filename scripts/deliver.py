@@ -96,6 +96,38 @@ def md5(path, index):
     ).stdout.strip()
 
 
+def verify_subtitle_packets(path, video_indices, subtitle_indices):
+    """Reject new subtitle packets stored after their video playback time.
+
+    Extracting a complete track cannot detect this: offline readers can recover
+    late packets that a streaming player has already missed.
+    """
+    cmd = ["ffprobe", "-v", "error", "-show_packets", "-show_entries",
+           "packet=stream_index,pts_time,dts_time", "-of", "compact=p=0", str(path)]  # fmt: skip
+    latest_video, worst = float("-inf"), None
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8") as proc:
+        for line in proc.stdout:
+            fields = dict(part.split("=", 1) for part in line.strip().split("|") if "=" in part)
+            index = int(fields.get("stream_index", -1))
+            timestamp = fields.get("pts_time")
+            if index in video_indices:
+                timestamp = fields.get("dts_time", timestamp)
+                if timestamp not in (None, "N/A"):
+                    latest_video = max(latest_video, float(timestamp))
+            elif index in subtitle_indices and timestamp not in (None, "N/A"):
+                delay = latest_video - float(timestamp)
+                if delay > 1 and (worst is None or delay > worst[0]):
+                    worst = delay, index, float(timestamp)
+        error = proc.stderr.read()
+        if proc.wait():
+            raise subprocess.CalledProcessError(proc.returncode, cmd, stderr=error)
+    if worst:
+        delay, index, timestamp = worst
+        raise SystemExit(
+            f"subtitle stream {index} at {timestamp:.3f}s arrives {delay:.3f}s after its video; the source is untouched"
+        )
+
+
 def delivered_name(source, mkv=False, suffix=SUFFIX):
     stem = source.stem[: -len(suffix)] if source.stem.endswith(suffix) else source.stem
     ext = source.suffix.lower() if source.suffix.lower() in (".mp4", ".m4v", ".mov", ".mkv") and not mkv else ".mkv"
@@ -152,7 +184,9 @@ def deliver(source, dubs, default, pair=PAIR, quicktime_audio=False):
         cmd += ["-map", f"{1 + len(voices) + k}:0"]
     for s in subs:
         cmd += ["-map", f"0:{s['index']}"]
-    cmd += ["-c", "copy"]
+    # Long, overlapping subtitle events can hold back later packets. Do not
+    # flush video ahead of subtitles that the input scheduler has not read yet.
+    cmd += ["-c", "copy", "-max_interleave_delta", "0"]
     for k, (path, _, _) in enumerate(srts):  # ours are .srt and .ass files
         cmd += [f"-c:s:{k}", "ass" if path.suffix == ".ass" else "srt" if mkv else "mov_text"]
     for k, s in enumerate(subs, len(srts)):  # the source's own stay as they are, unless Matroska can't hold them
@@ -210,6 +244,9 @@ def deliver(source, dubs, default, pair=PAIR, quicktime_audio=False):
     if len(by_type["subtitle"]) != len(srts) + len(subs):
         tmp.unlink(missing_ok=True)
         raise SystemExit("subtitle tracks went missing; the source is untouched")
+    verify_subtitle_packets(
+        tmp, {s["index"] for s in by_type["video"]}, {s["index"] for s in by_type["subtitle"][: len(srts)]}
+    )
     tmp.replace(out)
     if out != source:
         source.unlink()
@@ -252,7 +289,7 @@ def deliver_subtitles(source, base, pair=PAIR):
         cmd += ["-map", f"{1 + k}:0"]
     for s in subs:
         cmd += ["-map", f"0:{s['index']}"]
-    cmd += ["-c", "copy"]
+    cmd += ["-c", "copy", "-max_interleave_delta", "0"]
     for k, (path, _, _) in enumerate(tracks):
         cmd += [f"-c:s:{k}", "ass" if path.suffix == ".ass" else "srt"]
     for k, s in enumerate(subs, len(tracks)):
@@ -289,6 +326,9 @@ def deliver_subtitles(source, base, pair=PAIR):
     if len(by_type["subtitle"]) != len(tracks) + len(subs):
         tmp.unlink(missing_ok=True)
         raise SystemExit("subtitle tracks went missing; the source is untouched")
+    verify_subtitle_packets(
+        tmp, {s["index"] for s in by_type["video"]}, {s["index"] for s in by_type["subtitle"][: len(tracks)]}
+    )
     tmp.replace(out)
     if out != source:
         source.unlink()
