@@ -66,6 +66,14 @@ def write_srt(path, cues):
             f.write(f"{n}\n{srt_time(a)} --> {srt_time(b)}\n{text}\n\n")
 
 
+def offset_sign(sign, offset):
+    """Move the sign and its observed motion into the assembled timeline."""
+    shifted = {**sign, "start": sign["start"] + offset, "end": sign["end"] + offset}
+    if sign.get("seen"):
+        shifted["seen"] = [t + offset for t in sign["seen"]]
+    return shifted
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("stem")
@@ -134,7 +142,7 @@ def main():
             dubbed.append((line["start"] + off, line["end"] + off, LANGUAGES[tgt].subtitle(line["text"])))
             if said(line, src):
                 original.append((line["start"] + off, line["end"] + off, LANGUAGES[src].subtitle(said(line, src))))
-        signs += [{**s, "start": s["start"] + off, "end": s["end"] + off} for s in script.get("signs", [])]
+        signs += [offset_sign(s, off) for s in script.get("signs", [])]
         subtitle_layout += [
             {**s, "start": s["start"] + off, "end": s["end"] + off} for s in script.get("subtitle_layout", [])
         ]

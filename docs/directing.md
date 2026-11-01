@@ -527,7 +527,9 @@ against it. Rebuilt from lines at his usual level, it pulled nothing.
   between two similar pictures (two pages on white), so check the times of
   anything that changes in place. When text carries across a part boundary, put
   its translation in both parts with the same placement, and check the frames
-  on each side of the splice. For camera reversals, use adjacent sign entries
+  on each side of the splice. Assembly must offset a moving sign's `seen` times
+  with its start and end; otherwise a correct part preview can become a label
+  that jumps to its final position in the full video. For camera reversals, use adjacent sign entries
   with measured start/end boxes; one move across the whole shot cannot follow
   them. Check the first frame after a sign's shot too: ASS rounds to
   centiseconds, so an end rounded past the cut can leave the label on the new

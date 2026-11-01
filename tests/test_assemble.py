@@ -76,6 +76,23 @@ class AssemblyLayoutTests(unittest.TestCase):
                 self.assertFalse(forced.exists())
                 path = root / "work/sample-02/script.json"
                 script = json.loads(path.read_text(encoding="utf-8"))
+                script["signs"] = [
+                    {
+                        "start": 5,
+                        "end": 9,
+                        "seen": [5.2, 8.8],
+                        "text": "Station",
+                        "box": [0.1, 0.2, 0.3, 0.25],
+                        "box_end": [0.5, 0.2, 0.7, 0.25],
+                    }
+                ]
+                path.write_text(json.dumps(script), encoding="utf-8")
+                assemble.main()
+                text = styled.read_text(encoding="utf-8-sig")
+                self.assertIn("0:00:15.00,0:00:19.00,Sign", text)
+                self.assertIn("\\move(256,162,768,162,200,3800)", text)
+                self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["signs"][0]["seen"], [5.2, 8.8])
+                del script["signs"]
                 del script["subtitle_layout"]
                 path.write_text(json.dumps(script), encoding="utf-8")
                 assemble.main()
