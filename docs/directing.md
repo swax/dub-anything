@@ -741,7 +741,8 @@ How these were chosen, and what else was tried, is in
 
   Numbers, units, contractions and "Dr." are normalized, so formatting doesn't
   count as a failure. Skim the cached per-line hearings even when no lines are
-  flagged: a high overall match can hide an omitted short name or clause.
+  flagged: a high overall match can hide an omitted short name or clause, or
+  a pronoun substitution that changes whom the actor means.
   Check disputed words in the actual mixed movie too: an isolated take can
   transcribe correctly while music or effects reduce its clarity. Compare
   narrow and contextual crops without prompting the expected words, and use a
@@ -981,6 +982,11 @@ language there.
   the same starting point and crop the PCM afterward, or align them before
   comparing. Independent fast seeks can shift the starting samples or resampling
   phase, lowering correlation even when the retained audio is intact.
+  For near-silent windows, compare uncentered peaks and RMS over the same central
+  interval, excluding any lag-search padding. Check both stereo channels before
+  calling a mono window near-silent: phase cancellation can hide stereo energy.
+  Report verified near-silent intervals separately from measured correlation and
+  lag; neither measurement is meaningful without a signal.
 - **Timing strategy.** Use `concise`, dub.py's default: natural pace, placed at the
   window start, and it fails loudly on overflow. `strict_slot` (the VoiceStudio UI
   default) stretches every line to fill its window, which gives slowed or rushed
@@ -1035,7 +1041,11 @@ language there.
   separation stay cached, and the first render then fails with "out of memory",
   even in the flush itself. Only a restart (`scripts/backend.py restart`) frees
   that; `dub_anything.py` restarts the backend before the first render after a prep, and
-  when a render runs out of memory. With both voices, the backend keeps the
+  when a render runs out of memory. The prep-to-render restart flag is local to
+  the runner process: restarting the runner after prep loses it. In that case,
+  finish current GPU work, check the backend through this machine's approved
+  local access, and restart it before the first render; prepared parts and
+  existing takes are reused. With both voices, the backend keeps the
   American voice's engine loaded after its render, and the next part's actor
   render ran out of memory on a long per-line reference about one part in six;
   the restart cleared it each time. A program outside the dub using the GPU

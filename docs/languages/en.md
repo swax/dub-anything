@@ -39,3 +39,8 @@ spells them out, and `dub.py` drops a thousands comma ("150,000"), which would
 have kept them digits for the clone to read in its reference's language
 (`speakable` in `en.py`; [ko.md](ko.md)). From Spanish, see [es.md](es.md), "As
 the source"; from Korean, [ko.md](ko.md); from Chinese, [zh.md](zh.md).
+
+Connected speech can make a short proper name sound like a pronoun or a common
+phrase. When the scene supports it, a title before the name can make the boundary
+clear without changing the person being discussed. Check the replacement in the
+finished mix; leave recognizable names and spelling differences for the listener.
