@@ -32,6 +32,7 @@ import secrets
 import shutil
 import subprocess
 import time
+import uuid
 
 import numpy as np
 import requests
@@ -65,6 +66,174 @@ from gpulock import hold_gpu
 from languages import LANGUAGES, NAMES, PAIR, PAIRS
 
 API = os.environ.get("VOICESTUDIO_API", "http://127.0.0.1:3900")
+
+
+class BackendTaskError(RuntimeError):
+    """An explicit terminal backend event, unlike a lost HTTP/SSE connection."""
+
+    def __init__(self, task_id, event):
+        self.task_id, self.event = task_id, event
+        super().__init__(f"task {task_id} {event['type']}: {json.dumps(event, ensure_ascii=False)}")
+
+
+class UnknownTaskOutcome(RuntimeError):
+    pass
+
+
+def outcome_save(path, value):
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    with temporary.open("w", encoding="utf-8") as stream:
+        json.dump(value, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    # Windows scanners can briefly deny renaming an otherwise closed file.
+    # Retry only the same durable checkpoint, never a backend request.
+    for pause in (0.02, 0.05, 0.1, None):
+        try:
+            temporary.replace(path)
+            return
+        except PermissionError:
+            if pause is None:
+                raise
+            time.sleep(pause)
+
+
+def outcome_read(work, path, attempt=None):
+    """Only a complete child command can authorize a parent's cache mutation."""
+    try:
+        doc = load_json(pathlib.Path(path))
+        valid = (
+            doc["version"] == 1
+            and doc["work"] == str(pathlib.Path(work).resolve())
+            and (attempt is None or doc["attempt"] == attempt)
+            and isinstance(doc["attempt"], str)
+            and bool(doc["attempt"])
+            and doc["phase"] in {"launching", "running", "unknown", "finished"}
+            and isinstance(doc["requests"], list)
+            and all(isinstance(r, dict) for r in doc["requests"])
+        )
+        if not valid:
+            raise ValueError("outcome identity mismatch")
+        return doc
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise UnknownTaskOutcome(f"Unconfirmed generation outcome: {path}") from error
+
+
+def outcome_terminal(doc):
+    return doc.get("phase") == "finished" and all(
+        r.get("status") in {"done", "error", "cancelled"}
+        and isinstance(r.get("task_id"), str)
+        and bool(r["task_id"])
+        and isinstance(r.get("event"), dict)
+        and r["event"].get("type") == r["status"]
+        for r in doc.get("requests", [])
+    )
+
+
+def require_settled_generation(work):
+    pointer = pathlib.Path(work) / "shorttakes" / "active-generation.json"
+    if not pointer.exists():
+        return
+    try:
+        active = load_json(pointer)
+        doc = outcome_read(work, pathlib.Path(active["path"]), active["attempt"])
+        if outcome_terminal(doc):
+            return
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise UnknownTaskOutcome(f"Unconfirmed generation blocks this job: {pointer}") from error
+    raise UnknownTaskOutcome(f"Unconfirmed generation blocks this job: {active['path']}")
+
+
+class GenerationOutcome:
+    """One selected-only child receipt; no backend retries, polling or cancellation."""
+
+    @staticmethod
+    def prepare(work, path=None, baseline=None):
+        work = pathlib.Path(work).resolve()
+        require_settled_generation(work)
+        attempt = uuid.uuid4().hex
+        path = pathlib.Path(path or work / "shorttakes" / "generation" / attempt / "outcome.json").resolve()
+        if path.exists():
+            raise UnknownTaskOutcome(f"Keep existing generation evidence: {path}")
+        doc = dict(version=1, work=str(work), attempt=attempt, phase="launching", requests=[], baseline=baseline)
+        outcome_save(path, doc)
+        outcome_save(work / "shorttakes" / "active-generation.json", dict(path=str(path), attempt=attempt))
+        return dict(path=str(path), attempt=attempt)
+
+    def __init__(self, work, ticket):
+        self.work, self.path = pathlib.Path(work).resolve(), pathlib.Path(ticket["path"]).resolve()
+        active = load_json(self.work / "shorttakes" / "active-generation.json", {})
+        if active != dict(path=str(self.path), attempt=ticket["attempt"]):
+            raise UnknownTaskOutcome("Generation launch no longer owns the active receipt")
+        self.doc = outcome_read(self.work, self.path, ticket["attempt"])
+        if self.doc["phase"] != "launching":
+            raise UnknownTaskOutcome(f"Do not relaunch an existing child: {self.path}")
+        self.doc.update(phase="running", pid=os.getpid())
+        self.save()
+
+    def save(self):
+        outcome_save(self.path, self.doc)
+
+    def unknown(self):
+        return any(r["status"] == "unknown" for r in self.doc["requests"])
+
+    def preserve(self, paths):
+        if "before" in self.doc:
+            return
+        rows = []
+        for source in dict.fromkeys(pathlib.Path(p) for p in paths):
+            if not source.exists():
+                continue
+            data = source.read_bytes()
+            digest = hashlib.sha256(data).hexdigest()
+            target = self.path.parent / "before" / f"{len(rows):04}-{source.name}"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("xb") as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            if hashlib.sha256(target.read_bytes()).hexdigest() != digest or source.read_bytes() != data:
+                raise RuntimeError("Before-state changed during preservation")
+            rows.append(dict(source=str(source.resolve()), path=str(target.resolve()), sha256=digest))
+        self.doc["before"] = rows
+        self.save()
+
+    def start_request(self, body):
+        if self.unknown():
+            raise UnknownTaskOutcome("Do not submit after an unconfirmed task")
+        payload = json.dumps(body, sort_keys=True, ensure_ascii=False)
+        request = dict(
+            status="unknown",
+            task_id=None,
+            body=json.loads(payload),
+            body_sha256=hashlib.sha256(payload.encode()).hexdigest(),
+        )
+        self.doc["requests"].append(request)
+        self.save()  # Must be durable before the POST, including a lost POST response.
+        return request
+
+    def task(self, request, task_id):
+        if not isinstance(task_id, str) or not task_id:
+            raise UnknownTaskOutcome("POST returned no usable task ID")
+        request["task_id"] = task_id
+        self.save()
+
+    def terminal(self, request, event):
+        if not request["task_id"] or event.get("type") not in {"done", "error", "cancelled"}:
+            raise UnknownTaskOutcome("Missing explicit terminal task evidence")
+        request.update(status=event["type"], event=event)
+        self.save()
+
+    def finish(self, error=None):
+        self.doc.update(
+            phase="unknown" if self.unknown() else "finished",
+            success=error is None,
+            error=repr(error) if error is not None else None,
+        )
+        self.save()
 
 
 def flush_gpu():
@@ -113,7 +282,7 @@ def wait_task(task_id, terminal):
                 print(f"  [{time.time() - t0:5.0f}s] {kind}")
                 return d
             if kind in ("error", "cancelled"):
-                raise RuntimeError(f"task {task_id} {kind}: {json.dumps(d, ensure_ascii=False)}")
+                raise BackendTaskError(task_id, d)
             if kind == "progress":
                 print(f"  [{time.time() - t0:5.0f}s] {d.get('current')}/{d.get('total')} {d.get('text', '')[:60]}")
             elif kind in ("warning", "routing_notice"):
@@ -311,6 +480,83 @@ def ensure_voice(key):
     return pid
 
 
+def selected_indices(spec, count):
+    """Explicit zero-based line indices; absence keeps the normal full-part path."""
+    if spec is None:
+        return None
+    try:
+        selected = {int(value) for value in spec.split(",")}
+    except ValueError as error:
+        raise ValueError("--only needs comma-separated zero-based line indices") from error
+    if not selected or any(i < 0 or i >= count for i in selected):
+        raise ValueError("--only line index is outside this script")
+    return selected
+
+
+def seeded_voice(work, key, seed):
+    """Private clone profile: the dub API honors profile seeds for OmniVoice too.
+
+    Per-segment seeds are not honored by every engine. Never mutate an existing
+    profile to work around that: upload the identical reference with a stored seed.
+    Old profiles and their receipts remain available for restoring earlier takes.
+    """
+    spec = load_json(WORK / "voices.json", {})[key]
+    if "clips" not in spec:
+        raise ValueError("seeded candidates require an actor voice with explicit reference clips")
+    ref = voice_wav(key)
+    text = spec.get("ref_text", "")
+    if not text.strip():
+        raise ValueError("seeded clone needs an explicit reference transcript")
+    identity = {
+        "voice": voice_sig(key),
+        "audio_sha256": hashlib.sha256(ref.read_bytes()).hexdigest(),
+        "text": text,
+        "seed": seed,
+    }
+    sig = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    path = work / "shorttakes" / "profiles.json"
+    cache = load_json(path, {})
+    old = cache.get(sig)
+    if old:
+        response = requests.get(f"{API}/profiles/{old['id']}", timeout=30)
+        if response.ok and response.json().get("seed") == seed and response.json().get("ref_text") == text:
+            return old["id"]
+    with ref.open("rb") as stream:
+        response = requests.post(
+            f"{API}/profiles",
+            files={"ref_audio": (ref.name, stream, "audio/wav")},
+            data={"name": f"dub-candidate-{key}-{seed}", "ref_text": text, "seed": seed},
+            timeout=300,
+        )
+    response.raise_for_status()
+    profile = response.json()
+    if profile.get("seed") != seed or profile.get("ref_text") != text:
+        raise RuntimeError("backend did not persist the requested seed/reference transcript")
+    cache[sig] = {**identity, "id": profile["id"], "transport": "clone_profile_seed"}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
+    temp.replace(path)
+    return profile["id"]
+
+
+def incremental_baseline(work, job_id, lines, target):
+    """Fail closed before a backend can widen selected-only regen to every line."""
+    receipt = load_json(work / "generate-result.json", {}).get("client", {})
+    if receipt.get("job_id") != job_id or receipt.get("wav_kind") != "natural":
+        raise ValueError("--only needs a completed natural-rate baseline from the current dub.py client")
+    for line in lines:
+        wav = take_wav(job_id, line_id(line), target)
+        try:
+            info = sf.info(wav)
+            audio, _ = sf.read(wav, dtype="float32")
+            intact = info.frames > 0 and len(audio) == info.frames and np.isfinite(audio).all()
+        except (OSError, RuntimeError):
+            intact = False
+        if not intact:
+            raise ValueError(f"--only cannot repair an incomplete/corrupt baseline: {wav}")
+
+
 def speech_db(audio):
     """Active-speech level: RMS over 20 ms frames within 20 dB of the loudest frame."""
     mono = audio.mean(axis=1) if audio.ndim > 1 else audio
@@ -460,12 +706,64 @@ def render_mode(work, script, args, pair=PAIR):
 
 def cmd_generate(args):
     work = WORK / args.name
+    path = getattr(args, "task_outcome", None)
+    args._generation = None
+    if getattr(args, "only", None) is None:
+        require_settled_generation(work)
+        if path is not None:
+            raise ValueError("--task-outcome requires --only")
+        return _cmd_generate(args)
+    if path is None:
+        ticket = GenerationOutcome.prepare(work)
+    else:
+        active = load_json(work / "shorttakes" / "active-generation.json", {})
+        if active.get("path") != str(pathlib.Path(path).resolve()):
+            raise UnknownTaskOutcome("Selected child does not own the prepared outcome")
+        ticket = active
+    generation = args._generation = GenerationOutcome(work, ticket)
+    error = None
+    try:
+        return _cmd_generate(args)
+    except BaseException as exception:
+        error = exception
+        if generation.unknown():
+            raise UnknownTaskOutcome(
+                f"Backend task outcome unknown; retain evidence and reconcile: {generation.path}"
+            ) from exception
+        raise
+    finally:
+        generation.finish(error)
+
+
+def _cmd_generate(args):
+    work = WORK / args.name
     doc = json.loads((work / "segments.json").read_text(encoding="utf-8"))
     if doc.get("subtitles_only"):
         raise SystemExit(f"{args.name} was prepped for subtitles only: prep a dub job to render voices")
     job_id = doc["job_id"]
     tgt = langs(args.name)[1]
     script = load_json(work / "script.json")
+    only = selected_indices(getattr(args, "only", None), len(script["lines"]) if script else 0)
+    explicit_seed = getattr(args, "seed", None)
+    if explicit_seed is not None and (only is None or not 0 <= explicit_seed < 2**31):
+        raise ValueError("--seed requires --only and a seed from 0 through 2**31-1")
+    if only is not None:
+        if args.full:
+            raise ValueError("--only cannot be combined with --full")
+        if not script or not load_json(work / "rendered.json"):
+            raise ValueError("--only requires an already rendered full-part baseline")
+        incremental_baseline(work, job_id, script["lines"], tgt)
+        missing = [i for i, line in enumerate(script["lines"]) if not take_wav(job_id, line_id(line), tgt).exists()]
+        if missing:
+            raise ValueError(f"--only cannot synthesize an incomplete baseline; missing lines: {missing}")
+        ids = [line_id(line) for line in script["lines"]]
+        if any(ids.count(ids[i]) != 1 for i in only):
+            raise ValueError("--only needs unique line ids; distinguish repeated text with the line's take field")
+    protected = {
+        line_id(line): (take_wav(job_id, line_id(line), tgt), take_wav(job_id, line_id(line), tgt).read_bytes())
+        for index, line in enumerate(script["lines"] if script else [])
+        if only is not None and index not in only
+    }
     mode = (
         render_mode(work, script, args, langs(args.name))
         if script
@@ -474,6 +772,8 @@ def cmd_generate(args):
     american = mode["voice"] == "american"
     if args.engine is None:
         args.engine = "indextts2" if american else "omnivoice"
+    if explicit_seed is not None and (args.engine != "omnivoice" or american):
+        raise ValueError("--seed currently supports actor/OmniVoice only")
     if args.emo_alpha is None:
         args.emo_alpha = 0.9 if american and args.engine != "omnivoice" else 0.0
     # Takes whose seg_<target> file holds a voice-converted copy (id -> its hash); the
@@ -555,7 +855,7 @@ def cmd_generate(args):
             return segments, ids, settings, None
         # Hand-directed lines: own timing, speaker and text per line.
         voices = load_json(WORK / "voices.json", {})
-        for line in script["lines"]:
+        for line_index, line in enumerate(script["lines"]):
             # The take keeps its line's id (line_id), whatever text the engine gets.
             seg = {
                 "start": line["start"],
@@ -576,6 +876,16 @@ def cmd_generate(args):
             }
             if args.engine != "omnivoice":
                 settings[ids[-1]]["engine"] = args.engine
+            if args.engine == "omnivoice":
+                seed = (
+                    explicit_seed if only is not None and line_index in only else rendered.get(ids[-1], {}).get("seed")
+                )
+                if explicit_seed is None and first and ids[-1] in reroll and seed is not None:
+                    seed = secrets.randbelow(2**31)
+                if seed is not None:
+                    seg["profile_id"] = seeded_voice(work, line["voice"], seed)
+                    settings[ids[-1]]["seed"] = seed
+                    settings[ids[-1]]["seed_profile"] = seg["profile_id"]
         # Emotion references: each line's own original, for engines that take one.
         emo = emo_refs(work, job_id, script["lines"], ids, args.emo_alpha) if args.engine != "omnivoice" else {}
         for seg, i in zip(segments, ids):
@@ -654,6 +964,11 @@ def cmd_generate(args):
             or i in stuck
             or rendered.get(i, {"steps": 16, "effect": "broadcast", "instruct": ""}) != settings[i]
         ]
+        if only is not None:
+            permitted = {ids[i] for i in only}
+            regen = [i for i in regen if i in permitted]
+            if first and explicit_seed is not None:
+                regen = [i for i in ids if i in permitted]
         return segments, ids, settings, regen
 
     def request(segments, ids, regen):
@@ -679,14 +994,64 @@ def cmd_generate(args):
                 seg["gain"] = gain
 
     def run(body):
-        r = requests.post(f"{API}/dub/generate/{job_id}", json=body, timeout=120)
-        if r.status_code >= 400:
-            raise RuntimeError(f"generate {r.status_code}: {r.text}")
-        return wait_task(r.json()["task_id"], {"done"})
+        started = time.perf_counter()
+        generation = args._generation
+        request_outcome = None
+        if generation is not None:
+            generation.preserve(
+                [rendered_path, work / "script.json", work / "generate-result.json"]
+                + [take_wav(job_id, lid, tgt, kind) for lid in body["segment_ids"] for kind in ("seg", "src")]
+            )
+            request_outcome = generation.start_request(body)
+        try:
+            r = requests.post(f"{API}/dub/generate/{job_id}", json=body, timeout=120)
+            if r.status_code >= 400:
+                raise RuntimeError(f"generate {r.status_code}: {r.text}")
+            task_id = r.json()["task_id"]
+            if generation is not None:
+                generation.task(request_outcome, task_id)
+            try:
+                result = wait_task(task_id, {"done"})
+            except BackendTaskError as error:
+                if generation is not None:
+                    generation.terminal(request_outcome, error.event)
+                raise
+            if generation is not None:
+                generation.terminal(request_outcome, result)
+            return result
+        finally:
+            metrics = getattr(args, "_metrics", None)
+            if metrics is not None:
+                metrics["backend_tasks"].append(
+                    {
+                        "seconds": time.perf_counter() - started,
+                        "regenerated_ids": body.get("regen_only"),
+                        "speeds": {i: s.get("speed", 1.0) for i, s in zip(body["segment_ids"], body["segments"])},
+                    }
+                )
+            changed = []
+            safe = request_outcome is None or request_outcome["status"] != "unknown"
+            for lid, (wav, baseline) in protected.items() if safe else ():
+                if not wav.exists() or wav.read_bytes() != baseline:
+                    # Preserve unexpected output too, but never leave an unselected
+                    # take silently changed by the backend's full-regeneration guard.
+                    if wav.exists():
+                        folder = work / "shorttakes" / "unexpected"
+                        folder.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(wav, folder / f"{lid}-{file_sha(wav)}.wav")
+                    temp = wav.with_name(wav.name + ".restore.tmp")
+                    temp.write_bytes(baseline)
+                    temp.replace(wav)
+                    changed.append(lid)
+            if changed:
+                raise RuntimeError(f"backend changed unselected caches; originals restored: {changed}")
 
     prev_engine = use_tts_engine(args.engine)
     done, synthesized = None, False
     try:
+        if args._generation is not None:
+            args._generation.doc["previous_engine"] = prev_engine
+            args._generation.save()
         for n in range(1 + (FILL_PASSES if mode["fill"] else 0)):
             segments, ids, settings, regen = plan(first=n == 0)
             if n and not regen:
@@ -713,17 +1078,21 @@ def cmd_generate(args):
             try:
                 done = run(request(segments, ids, regen))
             except RuntimeError as e:
+                if args._generation is not None and args._generation.unknown():
+                    raise
                 if "dub_timing_overflow" not in str(e) or not script:
                     raise
                 done, stopped = None, re.search(r'"segment": (\d+)', str(e))
             finally:
                 # Record what each clip was made with, even when assembly fails after
                 # synthesis (e.g. dub_timing_overflow), so a retry doesn't redo them.
-                for i, s in settings.items():
+                for i, s in settings.items() if args._generation is None or not args._generation.unknown() else ():
+                    if only is not None and i not in {ids[k] for k in only}:
+                        continue
                     wav = take_wav(job_id, i, tgt)
                     if wav.exists() and (wav.stat().st_mtime >= t0 - 1 or (regen is not None and i not in regen)):
                         rendered[i] = s
-                if settings:
+                if settings and (args._generation is None or not args._generation.unknown()):
                     rendered_path.write_text(json.dumps(rendered, indent=1), encoding="utf-8")
             print(f"    ({time.time() - t0:.0f} s)")
             synthesized |= regen is None or bool(regen)
@@ -764,11 +1133,30 @@ def cmd_generate(args):
             done = run(request(segments, ids, []))
             print(f"    ({time.time() - t0:.0f} s)")
     finally:
-        if prev_engine and prev_engine != args.engine:
+        if prev_engine and prev_engine != args.engine and (args._generation is None or not args._generation.unknown()):
             use_tts_engine(prev_engine)
-    (work / "generate-result.json").write_text(json.dumps(done, ensure_ascii=False, indent=2), encoding="utf-8")
-    if script and queued:
+    receipt = {
+        **done,
+        "client": {
+            "job_id": job_id,
+            "timing": args.timing,
+            "wav_kind": "slotted" if args.timing == "strict_slot" else "natural",
+            "policy": {
+                "timing": args.timing,
+                "overflow": args.overflow,
+                "match_level": args.match_level,
+                "voice_match": args.voice_match,
+                "engine": args.engine,
+                "render_mode": mode,
+            },
+        },
+    }
+    (work / "generate-result.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
+    if script and queued and only is None:
         (work / "reroll.json").unlink(missing_ok=True)
+
+    if getattr(args, "no_export", False):
+        return
 
     out = out_dir(doc)
     out.mkdir(parents=True, exist_ok=True)
@@ -829,6 +1217,15 @@ def main():
     b.add_argument("--tag", default="")
     b.add_argument("--full", action="store_true", help="re-synthesize every line")
     b.add_argument(
+        "--only", help="synthesize only these zero-based comma-separated line indices; needs a full baseline"
+    )
+    b.add_argument(
+        "--seed", type=int, help="opt-in fixed seed for --only actor/OmniVoice lines, via private clone profiles"
+    )
+    b.add_argument("--no-export", action="store_true", help="keep takes and backend mix but skip MP4/SRT download")
+    b.add_argument("--metrics", type=pathlib.Path, help="optional JSON costs: lock wait, held wall time, backend tasks")
+    b.add_argument("--task-outcome", type=pathlib.Path, help="prepared selected-only child outcome receipt")
+    b.add_argument(
         "--match-level", action="store_true", help="set each line's gain to the original actor's speech level"
     )
     b.add_argument("--overflow", type=float, default=0.3, help="seconds a concise-mode line may run past its window")
@@ -881,14 +1278,32 @@ def main():
     args = p.parse_args()
     if args.fn is cmd_prep and args.subtitles_only:
         return cmd_prep(args)  # ffmpeg only: no model, so no GPU lock
+    started = time.perf_counter()
     hold_gpu()  # both ask the backend to run models: transcription, or synthesis
     if args.fn is not cmd_generate:
         return args.fn(args)
+    args._metrics = (
+        {
+            "gpu_lock_wait_s": time.perf_counter() - started,
+            "backend_tasks": [],
+            "active_gpu_s": None,
+            "scope": "Backend tasks include generation/fill/remix; active GPU compute is not isolated.",
+        }
+        if args.metrics
+        else None
+    )
+    held = time.perf_counter()
     flush_gpu()
     try:
         args.fn(args)
+        if args._metrics is not None:
+            args._metrics["completed"] = True
     finally:
         flush_gpu()
+        if args._metrics is not None:
+            args._metrics["held_wall_s"] = time.perf_counter() - held
+            args.metrics.parent.mkdir(parents=True, exist_ok=True)
+            args.metrics.write_text(json.dumps(args._metrics, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

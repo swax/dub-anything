@@ -717,6 +717,74 @@ render it as a separate job and compare by ear.
 How these were chosen, and what else was tried, is in
 [research.md](research.md).
 
+#### Optional short-line candidates
+
+`shorttakes.py` is an explicit actor/OmniVoice experiment; the normal runner
+does not invoke it. Choose zero-based line indices before looking at generated
+results. Eligibility is at most 1.5 seconds from the first to last detected
+source speech inside the directed window, not the window or WAV duration.
+The part must stay unready and have a complete normal concise render from the
+current client. Keep its wording, voices, reference bytes and render rules fixed.
+
+For a controlled comparison, archive the first render before normal QA repairs:
+
+```text
+python scripts/shorttakes.py example-01 --lines 1,3 --archive-baseline
+```
+
+Then complete normal isolated QA, its conditional fresh take and best-prior-take
+restoration. Capture that control with `--capture-control`; `--control-cost`
+accepts a JSON manifest of the generation and QA cost receipts. Restore the
+common first render with `--restore-baseline` before measuring the trial:
+
+```text
+python scripts/shorttakes.py example-01 --lines 1,3 --candidates 3
+```
+
+Three means the archived first take plus two extra seeded takes. Each extra uses
+a private clone profile with identical reference bytes/text and a persisted seed.
+Fixed seeds disable native multi-row batching. Generation, profiles, settings,
+hash-bound hearings and selection evidence stay under the part's `shorttakes/`;
+matching resumes reuse them. A changed source, wording, reference or policy
+invalidates that comparison. Repeated identical lines need distinct `take` fields.
+An initial render that cannot assemble counts as a producer failure. Preserve
+its takes, logs and costs; declare a repaired comparison context that records
+reused takes before continuing.
+
+Selected-only generation also saves a durable before-state and command/task
+outcome receipt. A lost POST response or event stream can leave the backend
+writing after the client exits. An unknown outcome stops the trial and blocks
+generation, capture, restore and apply for that part. Keep the active receipt
+and before-state; explicit reconciliation needs terminal backend evidence and
+verified audio/settings restoration. Process exit, elapsed time and successful
+metrics alone do not establish that the writer has stopped.
+
+The selector rejects transcription/meaning failures, missing speech, clipping,
+underfill and audio that reaches the next protected English or retained-original
+turn. Speech end determines endpoint quality; a reverb tail cannot fill missing
+words. Audible tails still count against the protected boundary. Validity comes
+first, then endpoint error; timing alone must improve by at least 100 ms to
+replace a valid baseline. Ties retain the baseline, then the lower ordinal.
+Correct transcription cannot establish acting or voice likeness.
+
+Measurement restores the baseline. `--apply` explicitly installs the measured
+choice and matching metadata; `--apply-control` restores the archived normal
+repair result. Exit 2 reports unresolved lines, with evidence retained. Rephrase
+or correct a checked window rather than generating candidates indefinitely.
+After installation, check actual fit, current-take transcription, handoffs and
+the finished mix as usual. If a later fill or repair changes a take, its archived
+selection is no longer proof of the current audio.
+
+For experiment costs, `dub.py generate` and `lineqa.py` accept `--metrics PATH`.
+Use distinct files per attempt, including failures. Report common first-render
+costs, control repairs, trial extras, QA, remixes and restoration separately;
+GPU reservation, backend-task and model timings overlap and must not be added
+as active GPU compute. Ordinary behavior remains the default pending evidence.
+Both commands also accept `--only` for zero-based indices. Generation requires
+every current line ID to have a complete natural-rate baseline; after changing
+wording, use ordinary incremental generation to create its new ID. Selected-only
+QA leaves the other lines' repair counters alone.
+
 ### 5. QA
 
 - `scripts/qa.py episode-01` transcribes the finished MP4 in English and lines
@@ -1125,6 +1193,7 @@ The loop, in the order it runs:
 | `scripts/fit.py <name> [--voice american] [--read]` | Each line's length against its window and the actor's speech, predicted before rendering with OmniVoice's own length rule (or IndexTTS's, for the `"american"` voice): `OVER?`, `risk`, `SHORT?`. A part to subtitle (or `--read`): each cue's reading speed, `FAST`, `LONG`, `SPLIT?` |
 | `scripts/dub.py generate <name> --match-level` | Render `script.json` in the chosen voice (per-line references and fill by default, or `"american"`), levelled against the original actors → MP4 + SRT |
 | `scripts/lineqa.py <name> ... [--reroll]` | Transcribe each rendered line alone (Japanese compared by its reading in kana, Spanish without accents); flag leaked, dropped or garbled words and flipped meanings; queue fresh takes |
+| `scripts/shorttakes.py <name> --lines 1,3 [--candidates 3]` | Opt-in actor/OmniVoice candidates on an unready, fully rendered part; retain audio/settings/evidence, measure actual timing and transcription, install only with explicit `--apply` |
 | `scripts/assemble.py <stem> [--voice american] [--parts 1-4] [--subtitles]` | Join parts: dub + original audio tracks, soft subtitles in both languages, sidecar SRTs (and styled ASS with the signs); a part without lines keeps its original audio. `--subtitles`: the subtitle files alone |
 | `scripts/deliver.py <source> actor=<mp4> [american=<mp4>] [--source en --target ja]` | Put the dubs and subtitles into the source file, verified, renamed `<name> (dubbed)` (Matroska when there are signs); `--subtitles <stem>.subtitled.mkv`: a subtitle job's tracks, `<name> (subtitled).mkv` and an SRT beside it |
 

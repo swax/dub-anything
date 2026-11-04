@@ -61,6 +61,11 @@ def better(a, b):
     return (not a["notes"], a["ratio"]) > (not b["notes"], b["ratio"])
 
 
+def comparable_settings(settings):
+    """A seeded private profile changes performance, not reference or render policy."""
+    return {**{k: v for k, v in settings.items() if k != "seed_profile"}, "speed": None, "seed": None}
+
+
 class Ear:
     """Whisper, loaded (and the GPU waited for) only when a take hasn't been heard before.
     On the CPU (an AMD GPU, a Mac) in int8: CTranslate2 would turn large-v3's float16
@@ -87,7 +92,7 @@ class Ear:
         return got
 
 
-def check(name, ear, show_all, reroll):
+def check(name, ear, show_all, reroll, only=None):
     work = WORK / name
     job = json.loads((work / "segments.json").read_text(encoding="utf-8"))["job_id"]
     tgt = langs(name)[1]
@@ -118,6 +123,8 @@ def check(name, ear, show_all, reroll):
     rolls = load_json(rolls_path, {})
     flagged, restored = [], []
     for i, line in enumerate(lines):
+        if only is not None and i not in only:
+            continue
         lid = line_id(line)
         wav, src = take_wav(job, lid, tgt), take_wav(job, lid, tgt, "src")
         if not wav.exists():
@@ -136,7 +143,7 @@ def check(name, ear, show_all, reroll):
         # Only takes made the same way count (a moved window re-renders the line anyway);
         # a seed only tells two rolls apart.
         def same(k, take=take):
-            return {**k["settings"], "speed": None, "seed": None} == {**take["settings"], "speed": None, "seed": None}
+            return comparable_settings(k["settings"]) == comparable_settings(take["settings"])
 
         earlier = [k for k in kept.get(lid, []) if same(k) and k["sha"] != take["sha"]]
         # Stored scores predate later language-normalization fixes. Compare all
@@ -201,7 +208,8 @@ def check(name, ear, show_all, reroll):
         else ""
     )
     print(
-        f"{len(flagged)} of {len(lines)} lines flagged ({len(new)} takes heard{timing}, the rest as in earlier checks)"
+        f"{len(flagged)} of {len(lines) if only is None else len(only)} lines flagged "
+        f"({len(new)} takes heard{timing}, the rest as in earlier checks)"
     )
     heard_path.write_text(json.dumps(heard, ensure_ascii=False, indent=1), encoding="utf-8")
     if kept:
@@ -213,9 +221,13 @@ def check(name, ear, show_all, reroll):
         if converted:
             (work / "converted.json").write_text(json.dumps(converted, indent=1), encoding="utf-8")
         print(f"put back {len(restored)} earlier takes: the next `scripts/dub.py generate {name}` re-mixes them")
-    if reroll and flagged:
+    if reroll and (flagged or only is not None):
+        queued = flagged
+        if only is not None:
+            selected_ids = {line_id(lines[i]) for i in only}
+            queued = [r for r in load_json(work / "reroll.json", []) if r["id"] not in selected_ids] + flagged
         # Settled lines are listed too (for the report) but get no fresh take.
-        (work / "reroll.json").write_text(json.dumps(flagged, ensure_ascii=False, indent=1), encoding="utf-8")
+        (work / "reroll.json").write_text(json.dumps(queued, ensure_ascii=False, indent=1), encoding="utf-8")
         again = sum(1 for f in flagged if f.get("reconvert"))
         settled = sum(1 for f in flagged if f.get("settled"))
         what = [
@@ -241,7 +253,7 @@ SETTLE_TAKES = 2
 
 def rolls_key(lid, settings):
     """A line and the way its takes are made (a seed or speed only tells two rolls apart)."""
-    sig = json.dumps({**settings, "speed": None, "seed": None}, sort_keys=True)
+    sig = json.dumps(comparable_settings(settings), sort_keys=True)
     return f"{lid}:{hashlib.sha1(sig.encode()).hexdigest()[:8]}"
 
 
@@ -255,12 +267,33 @@ def main():
     ap.add_argument("names", nargs="+", metavar="name", help="one or more rendered parts (Whisper loads once)")
     ap.add_argument("--all", action="store_true", help="print every line, not just flagged ones")
     ap.add_argument("--reroll", action="store_true", help="queue flagged lines for fresh takes")
+    ap.add_argument("--only", help="check only these zero-based comma-separated indices; preserve other queued lines")
+    ap.add_argument("--metrics", type=pathlib.Path, help="optional cost receipt (queue/model load and transcription)")
     args = ap.parse_args()
     ear = Ear()
+    started = time.perf_counter()
     for name in args.names:
         if len(args.names) > 1:
             print(f"=== {name}")
-        check(name, ear, args.all, args.reroll)
+        from dub import selected_indices
+
+        lines = load_json(WORK / name / "script.json")["lines"]
+        check(name, ear, args.all, args.reroll, selected_indices(args.only, len(lines)))
+    if args.metrics:
+        args.metrics.parent.mkdir(parents=True, exist_ok=True)
+        args.metrics.write_text(
+            json.dumps(
+                {
+                    "model_wait_load_s": ear.load_s,
+                    "transcription_s": ear.hear_s,
+                    "process_check_wall_s": time.perf_counter() - started,
+                    "parts": args.names,
+                    "only": args.only,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
 
 if __name__ == "__main__":

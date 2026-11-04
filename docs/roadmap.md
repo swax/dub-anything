@@ -15,9 +15,10 @@ language's notes in [languages/](languages/README.md)):
   IndexTTS converted to the actor's timbre. Either way, each take is re-timed
   to end where the actor stops (fill), and `fit.py` predicts each voice's
   lengths before the first render.
-- **Checks and packaging.** Every line is transcribed back and checked, with up
-  to three rounds of fresh takes for what fails. The dubs go into the source
-  file itself, renamed "(dubbed)": one dub track per voice, the original
+- **Checks and packaging.** Every take is transcribed back and cached. A flagged
+  line gets one fresh take, then stays with the director for rewording or
+  review. The dubs go into the source file itself, renamed "(dubbed)": one
+  dub track per voice, the original
   audio, and subtitles in both languages.
 - **Running it.** `dub_anything.py` runs a whole dub around the agent's directing:
   the machine steps in order, each part rendered as soon as its script is
@@ -34,9 +35,22 @@ How each piece was chosen, and the measurements behind it, are in
 1. **Steadier short lines.** Lines under about 1.5 s cause most overflows, fill
    re-renders and garbled takes; one-word lines and stutters are the worst,
    and conversion makes them worse still. A re-roll no longer loses a better
-   take (`lineqa.py --reroll` keeps each one and puts the best back). Next:
-   render two or three takes of a short line up front and keep the one that
-   fits and transcribes cleanly, instead of re-rolling round after round.
+   take (`lineqa.py --reroll` keeps each one and puts the best back).
+   An optional candidate workflow is now implemented in `shorttakes.py`: keep
+   the current natural baseline, generate fixed seeded alternatives, and compare
+   their actual safe speech timing and transcription without changing the
+   wording, voice, references or render rules. It archives audio, settings and
+   attempt costs, and resumes completed attempts without regenerating them.
+   See [directing.md](directing.md#optional-short-line-candidates) for its archive, measure and apply
+   steps.
+
+   A prospective trial found an occasional automatic validity gain and closer
+   endpoints, alongside lines that failed every candidate. Extra candidates
+   required substantially more generation work than the control's conditional
+   fresh takes. Routine renders keep the existing behavior. Next: review the
+   private blind comparisons before deciding where the extra cost is worthwhile;
+   listening preference, acting and likeness remain unmeasured. Detailed results
+   stay in ignored `work/` files (research.md, finding 23).
 2. **More lines on their own reference, and pauses inside lines.** In
    overlapping dialogue many lines fall back to the character's reference.
    Cutting a reference at the dip between two voices (`dips`) and snapping

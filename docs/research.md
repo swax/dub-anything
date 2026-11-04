@@ -372,6 +372,37 @@ originals per part.
     [languages/en.md](languages/en.md)). A filler "nah" heard as "now", on the
     other hand, is a real flip worth rewording.
 
+23. **Seeded short-line candidates help occasionally; keep them optional.** A
+    prospective actor-voice trial compared the normal full render and its
+    conditional fresh take against the same natural baseline plus fixed seeded
+    alternatives. Wording, voice, references and render rules stayed fixed
+    within each comparison. Actual speech timing, protected onsets, audible
+    tails and cached transcription determined eligibility; endpoint gains alone
+    could not excuse garbled words or an unsafe handoff.
+
+    Some alternatives improved automatic validity or ended closer to the source.
+    Others all failed, and ordinary production still needed rephrasing or source
+    boundary review. A correctly aligned spoken phrase can also have an effect
+    tail that prevents assembly. A baseline window repair is a separate protocol
+    amendment, not a candidate benefit; preserve its original failed attempt and
+    cost. Keep failed native requests in the trial rather than replacing them
+    with extra attempts.
+
+    Generating alternatives for every selected line required substantially more
+    generation work than the control's conditional fresh takes. `shorttakes.py`
+    therefore remains an explicit optional workflow; the normal runner does not
+    call it. It preserves immutable candidates and matching settings, reuses
+    hearing caches, and supports separate measurement and application. Current
+    production audio must still pass ordinary QA after later fill or remix.
+
+    Cost records distinguish action wall time from queue wait, held GPU
+    reservations, backend task time and recognizer work. These layers overlap;
+    reservation wall time is not active GPU compute. Source-specific counts,
+    measurements, failed attempts and protocol strata stay in ignored `work/`
+    files. Private blind comparisons are prepared; listener preference, acting
+    and voice likeness remain unmeasured. The next step is blind listening to
+    identify cases where an audible improvement justifies the added work.
+
 ## What the pipeline does now
 
 `dub.py generate` renders new parts with per-line references, fill and `dips` by
@@ -407,7 +438,9 @@ flagged line one fresh take before settling it for the director (finding 22).
 - **Steadier short takes.** Most fill passes, overflows and re-rolls come
   from lines under about 1.5 s, whose takes vary most from roll to roll (see
   finding 11). Rendering several takes of a short line and keeping the one
-  that fits might settle them in one pass.
+  that fits is now available as an optional measured workflow (finding 23).
+  It has not justified a default change; blind listening and cheaper selection
+  of worthwhile cases remain open.
 - **Pauses inside a line.** Fill aligns where a line ends. An actor who pauses
   mid-sentence still gets continuous English.
 - **Coverage of per-line references.** Snapping windows to pauses helps. Long
