@@ -152,10 +152,21 @@ work; you direct.
    copied stream was checked against
    its source before the file was replaced. Give the user the path and the
    listen list with film times, and send a notification if they may be away.
-7. **Clean up** only when the user is happy with it:
-   `scripts/dub_anything.py cleanup <slug>` moves the VoiceStudio jobs, parts and
-   takes to `videos/_to-delete/<slug>/` for the user to delete. The scripts,
-   notes and report stay, so a line can be fixed later.
+7. **Close out storage for every job.** After verified delivery, report the
+   retained working size and record cleanup as pending while the user listens.
+   Once the user accepts the dub or requests cleanup, carry out the authorized
+   cleanup without asking again: `scripts/dub_anything.py cleanup <slug>` moves
+   the VoiceStudio jobs (including all timestamped exports), split parts and
+   takes to `videos/_to-delete/<slug>/`. It also moves the workspace source
+   copy and logs: first identify the retained source, delivery, voice references
+   and any listening experiments that must survive. Keep scripts, states,
+   reports, notes and materialized shared voice references.
+   **Moving files on the same drive frees no space.** When the user authorizes
+   reclaiming space, verify the staged inventory and retained files, then
+   remove only the authorized disposable files. Otherwise give the holding
+   path and size for the user to delete. Record the result and measured free
+   space change in `work/NOTES.md`. See [storage cleanup](docs/directing.md#7-storage-cleanup)
+   for source preservation, old exports, idle dependency caches and unfinished jobs.
 
 **Subtitles only.** When the user wants a video subtitled rather than dubbed,
 make the job with `--voices none` (any two languages with a module in
@@ -219,9 +230,14 @@ sound wrong: `scripts/register.py report`, `build`, `route --apply`, `check`.
   both once a clone turns it on ([docs/setup.md](docs/setup.md)). A long ffmpeg
   command keeps its hand layout, flag beside value, with `# fmt: skip`. List any
   formatting-only commit in `.git-blame-ignore-revs`.
-- Never delete the user's files. Delivery replaces the source only after every
-  copied stream is verified; anything to throw away goes to a holding folder
-  (`videos/_to-delete/`) for the user to delete.
+- Preserve original sources, delivered videos, voice references and requested
+  review artifacts. Delivery replaces the source only after every copied stream
+  is verified. Stage disposable files in `videos/_to-delete/`; delete them only
+  within an explicit cleanup authorization, after checking the resolved paths,
+  staged inventory and retained files. A request to reclaim space authorizes
+  deleting the identified generated intermediates and regenerable caches in
+  that scope; avoid repeated confirmation. Preserve unfinished jobs unless the
+  user explicitly abandons them.
 - You can't listen, so verify with every tool you have: careful ASR, VAD,
   speaker embeddings, frames, `fit.py`, `qa.py`, and per-line transcription of
   the rendered clips. Then tell the user what to listen for.

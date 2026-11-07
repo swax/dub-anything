@@ -372,7 +372,7 @@ originals per part.
     [languages/en.md](languages/en.md)). A filler "nah" heard as "now", on the
     other hand, is a real flip worth rewording.
 
-23. **Seeded short-line candidates help occasionally; keep them optional.** A
+23. **Seeded short-line candidates can improve QA scores; keep them optional.** A
     prospective actor-voice trial compared the normal full render and its
     conditional fresh take against the same natural baseline plus fixed seeded
     alternatives. Wording, voice, references and render rules stayed fixed
@@ -399,9 +399,22 @@ originals per part.
     reservations, backend task time and recognizer work. These layers overlap;
     reservation wall time is not active GPU compute. Source-specific counts,
     measurements, failed attempts and protocol strata stay in ignored `work/`
-    files. Private blind comparisons are prepared; listener preference, acting
-    and voice likeness remain unmeasured. The next step is blind listening to
-    identify cases where an audible improvement justifies the added work.
+    files.
+
+    A small blind follow-up favored the normal control whenever the listener
+    expressed a preference. Identical pairs were judged ties. Improvements in
+    automated validity or endpoint alignment did not predict preference. This
+    does not prove a transcription alarm was false: overall preference and word
+    correctness are different judgments. Acting, clarity and voice likeness were
+    not rated separately, and the limited listener sample cannot establish a
+    general ranking.
+
+    Retain the usual pipeline. The next experiment is evidence-based QA triage:
+    record why a line is flagged, compare unprompted isolated and contextual
+    readings, and retain uncertainty when the evidence conflicts. Sample passing
+    lines too, so fewer flags cannot conceal missed defects. The
+    [QA pilot plan](plans/qa-triage-pilot.md) keeps the new checks observational
+    while measuring their decisions, costs and private listening outcomes.
 
 ## What the pipeline does now
 
@@ -439,8 +452,9 @@ flagged line one fresh take before settling it for the director (finding 22).
   from lines under about 1.5 s, whose takes vary most from roll to roll (see
   finding 11). Rendering several takes of a short line and keeping the one
   that fits is now available as an optional measured workflow (finding 23).
-  It has not justified a default change; blind listening and cheaper selection
-  of worthwhile cases remain open.
+  Blind follow-up has not justified a default change. Distinguishing real speech
+  failures from recognition disagreements, and preserving performances the
+  listener prefers, remain open.
 - **Pauses inside a line.** Fill aligns where a line ends. An actor who pauses
   mid-sentence still gets continuous English.
 - **Coverage of per-line references.** Snapping windows to pauses helps. Long

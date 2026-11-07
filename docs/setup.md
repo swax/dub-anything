@@ -115,6 +115,14 @@ scripts' folder (with `OMNIVOICE_CACHE_DIR` set, both are that folder).
 
 Dub Anything's scripts find VoiceStudio's jobs through `OMNIVOICE_DATA_DIR` (or system defaults), so set it in any shell that runs them if you use a custom path.
 
+These locations have different retention rules: data contains job media and
+voice profiles; models contains reusable downloads; uv's cache contains
+regenerable packages and tool environments, while its Python directory contains
+the interpreters those tools need. Follow
+[storage cleanup](directing.md#7-storage-cleanup) after each accepted job. Retire
+the job media, including timestamped backend exports, before considering model
+removal. On Windows, account for hard links rather than adding folder sizes.
+
 ## 3. VoiceStudio, pinned, with local fixes
 
 ### macOS
