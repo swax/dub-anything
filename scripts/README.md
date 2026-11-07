@@ -7,6 +7,7 @@ the tools produce evidence and render each part.
 
 | Task | Entry point |
 |---|---|
+| Initialize the pinned VoiceStudio fork and its Python environment | `scripts/setup.py` (`--init-only` for sources alone) |
 | Create, run, inspect, and finish a dub (or subtitles: `--voices none`) | `scripts/dub_anything.py` |
 | Start or inspect the voice backend | `scripts/backend.py` |
 | Cast voices and inspect speakers | `voices.py`, `cast.py`, `frames.py` |

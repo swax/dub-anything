@@ -1,0 +1,3 @@
+[submodule "vendor/VoiceStudio"]
+	path = vendor/VoiceStudio
+	url = https://github.com/swax/VoiceStudio.git

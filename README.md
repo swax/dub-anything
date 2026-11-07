@@ -37,8 +37,15 @@ An AI coding agent to direct the dub, and a plan to run it, one of:
 **Disk space:** about 40 GB, plus room to work (a long video in both voices
 used about 85 GB until it was cleaned up).
 
-Your agent installs [VoiceStudio](https://github.com/debpalash/VoiceStudio),
-the voice engine, and the other prerequisites as part of the first run.
+Your agent installs our [VoiceStudio fork](https://github.com/swax/VoiceStudio),
+pinned as `vendor/VoiceStudio`, and the other prerequisites as part of the first
+run. [Setup](docs/setup.md#3-voicestudio-pinned-fork) initializes the submodule
+automatically.
+
+The fork adds per-line voice and emotion references, reusable takes after timing
+failures, echo and PA effects, source-language and CPU fixes, and Windows ROCm
+support. Its [README](https://github.com/swax/VoiceStudio#voicestudio-for-dub-anything)
+summarizes the changes.
 
 ## Getting started
 
@@ -195,7 +202,7 @@ Jumpgate's `packages/jumpgate`.
 
 The scripts are plain Python, so you can drive a dub yourself and write the
 directed scripts by hand. With VoiceStudio's Python
-(`$py = "C:\git\VoiceStudio\.venv\Scripts\python.exe"`),
+(`$py = ".\vendor\VoiceStudio\.venv\Scripts\python.exe"`),
 `scripts/dub_anything.py` runs the machine work of a whole dub:
 
 ```powershell
@@ -302,9 +309,10 @@ Dub Anything is direction and glue around excellent open-source work:
 
 ## License
 
-Dub Anything is MIT-licensed ([LICENSE](LICENSE)). It talks to VoiceStudio over
-HTTP and doesn't include its code. VoiceStudio is AGPL-3.0, and so is
-`patches/voicestudio-local-fixes.patch`, a change to VoiceStudio's source. The
+Dub Anything's own code is MIT-licensed ([LICENSE](LICENSE)). It talks to
+VoiceStudio over HTTP. The pinned VoiceStudio fork in `vendor/VoiceStudio`
+retains its AGPL-3.0 license, including our backend changes; see its
+[license and notices](https://github.com/swax/VoiceStudio/blob/main/LICENSE-NOTICE.md). The
 models have their own licenses: pyannote is gated on Hugging Face, the
 Sortformer weights are CC-BY-NC, and Chatterbox is MIT. Check each one before
 any commercial use.

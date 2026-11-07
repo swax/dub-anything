@@ -6,8 +6,8 @@ it means in English, and exactly when it is spoken. This guide is the workflow
 that produced good results, plus the traps found along the way.
 
 Run everything from the repo folder with VoiceStudio's Python
-(`$py = "C:\git\VoiceStudio\.venv\Scripts\python.exe"` on Windows, or
-`~/Library/Application Support/VoiceStudio/runtime/project/.venv/bin/python` on macOS),
+(`$py = ".\vendor\VoiceStudio\.venv\Scripts\python.exe"` on Windows, or
+`vendor/VoiceStudio/.venv/bin/python` on macOS/Linux),
 with the backend up (see [setup.md](setup.md)).
 
 Whisper tools import `WhisperModel` from `scripts/whisper_safe.py`. Keep that
@@ -77,7 +77,7 @@ differs.
   whole render inside VoiceStudio. There is no emotion control.
 - `effect` (optional): VoiceStudio's voice processing for this line, overriding
   `--effect`. The options are `broadcast` (default), `raw`, `cinematic`, `warm`,
-  `bright`, `podcast`, and from the local patch `echo` for flashbacks and `pa`
+  `bright`, `podcast`, and from the pinned fork `echo` for flashbacks and `pa`
   for public-address announcements; see the gotchas below.
 - `take` (optional): a number that gives a line repeated word for word its own
   take. VoiceStudio keys takes by the line's voice and text, so two identical
@@ -597,7 +597,7 @@ Only new, changed or re-rolled lines are synthesized, so fixing an overflow
 costs just the lines you touched, and timing or level changes are a re-mix of
 about 5 s. (Unpatched VoiceStudio ignores partial re-renders until a job's
 first render succeeds, so every failed first attempt re-rolls every take;
-`patches/voicestudio-local-fixes.patch` fixes that.)
+the pinned VoiceStudio fork fixes that.)
 
 `--match-level` sets each line's gain from the original actor's level. The
 clip-wide offset is matched fully and each line's deviation by half, so
@@ -688,7 +688,7 @@ when the user requests it.
   are converted and the part re-mixed. Fill is exact here: speed reaches
   IndexTTS as its duration factor, which stretches a take without changing
   its pitch, and each take keeps its seed, so a re-timed take is the same
-  performance and one pass lands it on the actor (with the local patch). It
+  performance and one pass lands it on the actor (with the pinned fork). It
   is slower (about 5 s a line, plus conversion), and conversion re-generates
   some of the intonation, a little lower in pitch. Per-line references don't
   apply.
@@ -709,7 +709,7 @@ the actors.
 OmniVoice, without the conversion. Each line gets the actor's own line from the separated
 vocals as an emotion reference, and the voice still comes from `voices.json`.
 The engine is VoiceStudio's global setting: `dub.py` switches it for the render
-and switches back afterwards. It needs the local patch, which adds the
+and switches back afterwards. It needs the pinned fork, which adds the
 per-line reference, and it's slow, about 8 s a line against OmniVoice's 1 s.
 The reference carries the actor's pacing as well as their delivery: without
 it, IndexTTS runs well past the actor and overflows many windows. On a scene
@@ -1240,7 +1240,7 @@ language there.
   split one speaker. Confirm casting with multiple signals. Sortformer can't
   handle clips over 120 s or more than 4 speakers, ignores
   count hints, and has CC-BY-NC weights.
-- **VoiceStudio bugs (fixed by `patches/voicestudio-local-fixes.patch`).** Dubbing
+- **VoiceStudio bugs (fixed by the pinned fork in `vendor/VoiceStudio`).** Dubbing
   transcription ignored the source-language hint, so short Japanese clips were
   heard as English (`backend/api/routers/dub_core.py`). OmniVoice loaded in
   float16 on CPU, where it is about 7× slower (`backend/services/model_manager.py`).

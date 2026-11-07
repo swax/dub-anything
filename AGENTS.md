@@ -46,13 +46,17 @@ cloned or shared are final.
   VoiceStudio and models. Reuse working installations and fix routine setup
   issues yourself. Ask the user only for choices or steps that need them, such
   as signing in, accepting a model license or granting required permissions.
+  `python scripts/setup.py` (`python3` on macOS/Linux) initializes the pinned
+  `vendor/VoiceStudio` submodule and installs its Python environment. Use
+  `--init-only` to update sources while keeping an existing GPU environment.
 - `work/NOTES.md` (git-ignored, may not exist) has this machine's paths and
   per-show notes: story, cast, word choices. Read it, and add to it when you
   learn something about a show.
 - The scripts are in `scripts/`. Run them from the repo root with VoiceStudio's
-  Python (on Windows: `C:\git\VoiceStudio\.venv\Scripts\python.exe scripts/fit.py <part>`;
-  on Linux: `~/git/VoiceStudio/.venv/bin/python scripts/fit.py <part>`;
-  on macOS: `python3 scripts/fit.py <part>` or with VoiceStudio's virtualenv python).
+  Python (on Windows: `vendor\VoiceStudio\.venv\Scripts\python.exe scripts/fit.py <part>`;
+  on Linux: `vendor/VoiceStudio/.venv/bin/python scripts/fit.py <part>`;
+  on macOS: `vendor/VoiceStudio/.venv/bin/python scripts/fit.py <part>`).
+  With `VOICESTUDIO_DIR` set, use that checkout's virtualenv instead.
   A script named alone in these docs (`fit.py`) is one of them.
   Make sure `OMNIVOICE_DATA_DIR` / `OMNIVOICE_CACHE_DIR` are set in the shell if using
   custom paths (on macOS, standard defaults in `~/Library/Application Support/OmniVoice`

@@ -23,5 +23,6 @@ __pycache__/
 *.pyc
 .venv/
 
-# Third-party code fetched at setup (vc.py: Chatterbox).
-vendor/
+# Third-party downloads; VoiceStudio is tracked as a pinned submodule.
+vendor/*
+!vendor/VoiceStudio/

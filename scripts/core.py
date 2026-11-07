@@ -573,7 +573,7 @@ def syllables(text):
 def indextts_length(text, actor, speed=1.0):
     """How long an IndexTTS take of `text` will be, in seconds of trimmed speech,
     when the actor speaks for `actor` seconds in the window. Its duration factor
-    (VoiceStudio's speed, with the local patch) scales a take exactly."""
+    (VoiceStudio's speed, with the pinned fork) scales a take exactly."""
     base, per_syllable, per_actor = IDX_LENGTH
     return (base + per_syllable * syllables(text) + per_actor * actor) / speed
 

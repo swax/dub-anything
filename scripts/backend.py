@@ -6,9 +6,10 @@ start launches the backend detached from the shell that asks (on Windows through
 the process service, so it outlives an agent's session), with OMNIVOICE_DATA_DIR,
 OMNIVOICE_CACHE_DIR and the full PATH set, and waits until /health says ok. The
 log goes to backend.log beside the data folder (or $VOICESTUDIO_LOG). The
-checkout is $VOICESTUDIO_DIR, else (macOS) the desktop app's runtime, else
-VoiceStudio beside this repo. dub_anything.py calls
-ensure() before GPU work and restarts a backend that stopped answering.
+checkout is $VOICESTUDIO_DIR, else the pinned vendor/VoiceStudio submodule,
+else (macOS) the desktop app's runtime, else VoiceStudio beside this repo.
+dub_anything.py calls ensure() before GPU work and restarts a backend that
+stopped answering.
 """
 
 import argparse
@@ -30,7 +31,8 @@ PORT = int(re.search(r":(\d+)", API.split("//", 1)[-1]).group(1)) if re.search(r
 def find_vs_dir():
     if os.environ.get("VOICESTUDIO_DIR"):
         return pathlib.Path(os.environ["VOICESTUDIO_DIR"])
-    candidates = []
+    bundled = ROOT / "vendor" / "VoiceStudio"
+    candidates = [bundled]
     if sys.platform == "darwin":
         candidates.append(
             pathlib.Path.home() / "Library" / "Application Support" / "VoiceStudio" / "runtime" / "project"
@@ -40,7 +42,7 @@ def find_vs_dir():
     for c in candidates:
         if (c / "backend").is_dir():
             return c
-    return ROOT.parent / "VoiceStudio"
+    return bundled
 
 
 VS_DIR = find_vs_dir()
@@ -249,7 +251,9 @@ def start(wait=600):
     log = log_path(env)
     cmd = launch_cmd(env)
     if not (VS_DIR / "backend").is_dir():
-        raise SystemExit(f"backend: no VoiceStudio checkout at {VS_DIR} (set VOICESTUDIO_DIR)")
+        raise SystemExit(
+            f"backend: no VoiceStudio checkout at {VS_DIR} (run python scripts/setup.py or set VOICESTUDIO_DIR)"
+        )
     if sys.platform == "win32":
         # A child of this shell dies with an agent's session; one started by the
         # process service (WMI) doesn't. A batch file carries the environment.

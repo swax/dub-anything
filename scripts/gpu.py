@@ -16,9 +16,8 @@ for the tools it starts, core.py for the scripts themselves):
 And a process about to run a model takes rocm_settings(torch): PyTorch's own
 convolutions instead of MIOpen's. MIOpen searches and compiles kernels for
 every new input shape, which can take minutes, and each clip has a new length.
-DUB_ANYTHING_MIOPEN=1 keeps it. VoiceStudio's backend does the same
-(patches/voicestudio-local-fixes.patch). Standard library only, so other
-environments can import it.
+DUB_ANYTHING_MIOPEN=1 keeps it. The pinned VoiceStudio fork does the same.
+Standard library only, so other environments can import it.
 """
 
 import os

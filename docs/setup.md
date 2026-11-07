@@ -8,8 +8,9 @@ starting the dub. Reuse working installations and handle routine setup issues
 yourself. Ask the user when a step needs their sign-in, license acceptance or
 permissions you don't have.
 
-Dub Anything needs a running [VoiceStudio](https://github.com/debpalash/VoiceStudio)
-backend, its models, and ffmpeg.
+Dub Anything needs a running [VoiceStudio fork](https://github.com/swax/VoiceStudio)
+backend, its models, and ffmpeg. The fork is pinned as the `vendor/VoiceStudio`
+Git submodule; setup initializes it automatically.
 
 ## 1. Tools
 
@@ -123,57 +124,52 @@ the interpreters those tools need. Follow
 the job media, including timestamped backend exports, before considering model
 removal. On Windows, account for hard links rather than adding folder sizes.
 
-## 3. VoiceStudio, pinned, with local fixes
+## 3. VoiceStudio, pinned fork
 
-### macOS
-VoiceStudio can be installed either via the official desktop application or by checking out the source:
-
-#### Option A: Official VoiceStudio Desktop App (Recommended)
-1. Download and install `VoiceStudio-Electron-*-mac-arm64.dmg` from the VoiceStudio releases.
-2. Launch VoiceStudio once so it initializes its runtime at `~/Library/Application Support/VoiceStudio/runtime/project`.
-Dub Anything automatically detects this installation, its runtime backend, and its bundled virtualenv.
-
-#### Option B: From Source
-```bash
-git clone https://github.com/debpalash/VoiceStudio.git ~/python/VoiceStudio
-git -C ~/python/VoiceStudio checkout -b local-fixes c52618af
-git -C ~/python/VoiceStudio apply <path-to-dub-anything>/patches/voicestudio-local-fixes.patch
-cd ~/python/VoiceStudio && uv sync
-uv run python backend/main.py --diagnose
-```
-The scripts find a source checkout only beside this repo (or the desktop app's
-runtime). For one elsewhere, like this one, add to your `~/.zshrc`:
-```bash
-export VOICESTUDIO_DIR="$HOME/python/VoiceStudio"
-```
-*(On macOS, PyTorch on Apple Silicon uses Metal / MPS acceleration; `scripts/setup.py` cuDNN 8 installation is for CUDA on Windows and Linux).*
+From the Dub Anything repository root, with Git, uv and a standard Python 3.11+
+installed, run:
 
 ### Windows
 ```powershell
-git clone https://github.com/debpalash/VoiceStudio.git C:\git\VoiceStudio
-git -C C:\git\VoiceStudio checkout -b local-fixes c52618af
-git -C C:\git\VoiceStudio apply <path-to-dub-anything>\patches\voicestudio-local-fixes.patch
-cd C:\git\VoiceStudio; uv sync; uv run --no-sync python scripts/setup.py
-uv run --no-sync python -c "import torch; print(torch.cuda.is_available())"   # True
+python scripts/setup.py
+& .\vendor\VoiceStudio\.venv\Scripts\python.exe -c "import torch; print(torch.cuda.is_available())"   # True on NVIDIA
 ```
 
-### Linux
+### macOS and Linux
 ```bash
-git clone https://github.com/debpalash/VoiceStudio.git ~/git/VoiceStudio
-git -C ~/git/VoiceStudio checkout -b local-fixes c52618af
-git -C ~/git/VoiceStudio apply ~/git/dub-anything/patches/voicestudio-local-fixes.patch
-cd ~/git/VoiceStudio && uv sync && uv run --no-sync python scripts/setup.py
-uv run --no-sync python -c "import torch; print(torch.cuda.is_available())"   # True
+python3 scripts/setup.py
+vendor/VoiceStudio/.venv/bin/python -c "import torch; print(torch.cuda.is_available())"   # True on NVIDIA
 ```
-Clone it beside this repo (here both in `~/git`), or set `VOICESTUDIO_DIR`.
 
-`uv sync` installs the CUDA 12.8 PyTorch build on Windows and Linux. `scripts/setup.py`
-adds the cuDNN 8 libraries that faster-whisper needs next to PyTorch's cuDNN 9.
-The scripts load them before Whisper runs (`core.whisper_setup`); on Linux
-without them, Whisper on the GPU fails with "Could not load library
-libcudnn_ops_infer.so.8".
+Setup runs `git submodule update --init --recursive` for `vendor/VoiceStudio`,
+then `uv sync --locked` and VoiceStudio's own prerequisite setup in that checkout.
+It checks out the exact commit recorded by Dub Anything, including nested
+submodules. A normal Git clone is enough; `git clone --recurse-submodules` also
+works. Use a Git clone rather than GitHub's source ZIP, which omits submodules
+and Git metadata. Setup installs Python dependencies, not model weights.
 
-The patch fixes three bugs. The dubbing transcriber ignored the source-language
+For source initialization alone, run `python scripts/setup.py --init-only`
+(`python3` on macOS/Linux). This also updates an existing submodule to the pin
+after pulling Dub Anything. It does not use `--remote` or force local changes.
+Use this option when keeping a customized GPU environment: a full setup's
+`uv sync` restores the default torch packages.
+
+The backend checks `VOICESTUDIO_DIR` first, then the bundled fork, then a macOS
+desktop runtime, then a sibling `VoiceStudio` checkout. Existing installations
+still work as fallbacks. To deliberately keep using one after initializing the
+submodule, set `VOICESTUDIO_DIR` to its path; full setup also installs dependencies
+there. The bundled fork is the default and includes the changes this pipeline
+needs; an unmodified desktop release may lack them. Data and model directories
+stay in the locations from section 2, so they can be shared with an existing
+installation.
+
+On macOS, PyTorch on Apple Silicon uses Metal / MPS acceleration. On Windows and
+Linux, `uv sync` installs CUDA 12.8 PyTorch. VoiceStudio's `scripts/setup.py` adds
+the cuDNN 8 libraries that faster-whisper needs next to PyTorch's cuDNN 9. The
+scripts load them before Whisper runs (`core.whisper_setup`); on Linux without
+them, Whisper on the GPU fails with "Could not load library libcudnn_ops_infer.so.8".
+
+The fork fixes three bugs. The dubbing transcriber ignored the source-language
 hint. OmniVoice ran in float16 on CPU (about 7× slower). And a render that
 stopped at a timing overflow threw its takes away: the next attempt
 re-synthesized every line instead of only the changed ones. It also adds two
@@ -197,10 +193,10 @@ ROCm build for your GPU's architecture (`gfx1150` for a Radeon 890M or 880M,
 `gfx1200`/`gfx1201` for an RX 9060/9070):
 
 ```powershell
-$py = "C:\git\VoiceStudio\.venv\Scripts\python.exe"; $gfx = "gfx1150"
+$py = ".\vendor\VoiceStudio\.venv\Scripts\python.exe"; $gfx = "gfx1150"
 uv pip install --python $py --index-url https://repo.amd.com/rocm/whl-multi-arch/ --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match "torch[device-$gfx]==2.9.1+rocm7.13.0" "torchvision[device-$gfx]==0.24.0+rocm7.13.0"
 uv pip install --python $py --no-deps --reinstall-package torchaudio "torchaudio==2.8.0" --index-url https://pypi.org/simple
-$lib = "C:\git\VoiceStudio\.venv\Lib\site-packages\torchaudio\lib"
+$lib = ".\vendor\VoiceStudio\.venv\Lib\site-packages\torchaudio\lib"
 foreach ($f in "_torchaudio.pyd", "libtorchaudio.pyd") { Rename-Item "$lib\$f" "$f.disabled-for-rocm" }
 & $py -c "import torch, torchaudio, pyannote.audio; print(torch.version.hip, torch.cuda.get_device_name(0))"
 ```
@@ -214,7 +210,7 @@ the CUDA build back; the backend runs with `uv run --no-sync`.
 
 `scripts/gpu.py` reads the build from the venv: `separate.py`'s environment
 installs the same one, and every process gets three settings ROCm on Windows
-needs (the patch makes the first two in the backend). AOTriton attention
+needs (the fork sets the first two in the backend). AOTriton attention
 (`TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`): PyTorch calls it experimental
 on consumer Radeons and otherwise uses its math attention, which made
 OmniVoice twice as slow on a Radeon 890M. PyTorch's own convolutions instead
@@ -245,7 +241,7 @@ The backend log should then say `IndexTTS venv resolved from
 OMNIVOICE_INDEXTTS_DIR`. When its import probe of that venv fails, the backend
 quietly builds a CUDA venv of its own in `backend\engines\indextts\.venv`,
 which runs on the CPU (IndexTTS logs "CPU mode", about a minute a line). The
-patch makes the probe and the sidecar fit this torch, which has no distributed
+fork makes the probe and the sidecar fit this torch, which has no distributed
 backend: transformers 4.52 imports `torch.distributed.tensor` unguarded, and
 audiotools names `dist.ReduceOp` as a default argument. It also turns
 TorchScript's fuser off, whose bf16 kernels corrupt the heap (the process ends
@@ -269,14 +265,14 @@ python3 scripts/backend.py start
 ```
 Or directly from VoiceStudio:
 ```bash
-cd ~/python/VoiceStudio && uv run --no-sync uvicorn main:app --app-dir backend --host 127.0.0.1 --port 3900
+cd vendor/VoiceStudio && uv run --no-sync uvicorn main:app --app-dir backend --host 127.0.0.1 --port 3900
 ```
 
 ### Windows
 From this repo, with VoiceStudio's Python:
 
 ```powershell
-& C:\git\VoiceStudio\.venv\Scripts\python.exe scripts\backend.py start
+& .\vendor\VoiceStudio\.venv\Scripts\python.exe scripts\backend.py start
 ```
 
 It starts the backend detached (it keeps running after the terminal or the
@@ -287,7 +283,7 @@ waits until `http://127.0.0.1:3900/health` returns
 Or run it yourself in a terminal you leave open:
 
 ```powershell
-cd C:\git\VoiceStudio; uv run --no-sync uvicorn main:app --app-dir backend --host 127.0.0.1 --port 3900
+cd .\vendor\VoiceStudio; uv run --no-sync uvicorn main:app --app-dir backend --host 127.0.0.1 --port 3900
 ```
 
 Restart it after an NVIDIA driver update. A backend that was running across the
@@ -296,7 +292,7 @@ while `/health` still says `cuda`.
 
 ### Linux
 ```bash
-~/git/VoiceStudio/.venv/bin/python scripts/backend.py start
+vendor/VoiceStudio/.venv/bin/python scripts/backend.py start
 ```
 As on Windows it starts detached, in its own session with no terminal input,
 and waits for `/health`. With `OMNIVOICE_DATA_DIR` set the log is `backend.log`
@@ -339,14 +335,14 @@ install it:
 
 #### macOS and Linux
 ```bash
-hf auth login   # or hf login; on Linux ~/git/VoiceStudio/.venv/bin/hf
+hf auth login   # or hf login; on Linux vendor/VoiceStudio/.venv/bin/hf
 curl -s -X POST "http://127.0.0.1:3900/models/install" -H "Content-Type: application/json" -d '{"repo_id":"pyannote/speaker-diarization-3.1"}'
 curl -s -X POST "http://127.0.0.1:3900/engines/diarisation/select" -H "Content-Type: application/json" -d '{"engine_id":"pyannote"}'
 ```
 
 #### Windows
 ```powershell
-C:\git\VoiceStudio\.venv\Scripts\hf.exe auth login
+.\vendor\VoiceStudio\.venv\Scripts\hf.exe auth login
 Invoke-RestMethod -Method Post "$api/models/install" -ContentType application/json -Body '{"repo_id":"pyannote/speaker-diarization-3.1"}'
 Invoke-RestMethod -Method Post "$api/engines/diarisation/select" -ContentType application/json -Body '{"engine_id":"pyannote"}'
 ```
@@ -382,20 +378,20 @@ For manual assembly and delivery, pass `--quicktime-audio` to both
 
 ### macOS
 ```bash
-python3 scripts/dub.py prep <some short clip>.mp4      # prints a Japanese transcript
+vendor/VoiceStudio/.venv/bin/python scripts/dub.py prep <some short clip>.mp4      # prints a Japanese transcript
 ```
 
 ### Windows
 ```powershell
 cd <path-to-dub-anything>
-$py = "C:\git\VoiceStudio\.venv\Scripts\python.exe"
+$py = ".\vendor\VoiceStudio\.venv\Scripts\python.exe"
 & $py scripts\dub.py prep <some short clip>.mp4      # prints a Japanese transcript
 ```
 
 ### Linux
 ```bash
 cd <path-to-dub-anything>
-~/git/VoiceStudio/.venv/bin/python scripts/dub.py prep <some short clip>.mp4   # prints a Japanese transcript
+vendor/VoiceStudio/.venv/bin/python scripts/dub.py prep <some short clip>.mp4   # prints a Japanese transcript
 ```
 
 Five tools run in their own throwaway uv environments, so they can't disturb
