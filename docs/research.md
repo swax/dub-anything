@@ -77,6 +77,18 @@ originals per part.
    hearing something else, the voice nearer another character) now excludes
    those. In overlapping dialogue it excludes many lines, which then keep the
    character's reference.
+
+   **What this comparison did not establish:** the conditions were the shared
+   character reference alone versus that reference plus the current line. There
+   was no current-line-only condition, so the experiment did not isolate a
+   benefit from retaining the shared prefix. Its identity-stabilizing role was
+   a design assumption. A later listening comparison on clean Japanese source
+   speech favored using each original line alone; detailed evidence stays in
+   ignored `work/` notes. Very short but clean lines remain candidates for a
+   controlled prefix comparison. Crosstalk, clipped words and unusable source
+   audio justify a clean fallback reference, not appending a prefix to unsafe
+   audio. These observations do not establish one policy for every source
+   language or reference quality.
 7. **Filling the actor's time is what the listener heard most.** Re-rendering
    takes at 0.8–1.25× so each ends where the actor stops cut the dead air
    substantially, and cut the overruns too. The listener preferred the

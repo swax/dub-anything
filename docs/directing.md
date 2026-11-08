@@ -629,8 +629,12 @@ delivery of its line and ends where the actor stops:
 - **Per-line references** (`line_ref`). Each line's reference is the voice's
   clips from `voices.json`, a pause, then the actor's original of this very
   line, with its `ja` after the voice's transcript. OmniVoice copies its
-  reference's delivery and accent, so the take follows the actor on that line
-  and keeps their accent, while the clips hold the voice steady. This replaces
+  reference's delivery and accent. The shared clips are intended to stabilize
+  identity while the current line supplies delivery, but the engine receives
+  one combined reference without separate roles. The prefix can compete with
+  the line's performance. The original trials established the benefit of adding
+  per-line speech, not of retaining the prefix versus using the line alone (see
+  [research finding 6](research.md#findings)). The per-line approach replaces
   sorting lines into calm and raised: the delivery comes from the line itself.
   Dubbing into Japanese it's off by default (see [languages/ja.md](languages/ja.md)).
   A line keeps the character's reference when it has `"line_ref": false`, a
