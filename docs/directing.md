@@ -87,6 +87,10 @@ differs.
   say a word in it.
 - `line_ref` (optional): `false` keeps the character's reference for this line
   instead of its own original (see "Render").
+- `ref_prefix` (optional): `false` uses only this line's original audio and
+  transcript when its reference passes the source checks. It overrides the
+  render block's choice; `true` adds the character's clips before the original.
+  Rejected references still fall back to the character's clean reference.
 - `actor_end` (optional): the checked time of the source actor's last sound,
   in seconds within the part, inside this line's window. Use only after inspecting
   the source when speech detection misses a shout or filtered announcement.
@@ -636,6 +640,12 @@ delivery of its line and ends where the actor stops:
   per-line speech, not of retaining the prefix versus using the line alone (see
   [research finding 6](research.md#findings)). The per-line approach replaces
   sorting lines into calm and raised: the delivery comes from the line itself.
+  Set `"render": {"ref_prefix": false, ...}` for a source-only comparison;
+  existing scripts keep the shared prefix by default. A line's own
+  `"ref_prefix": true` can opt back into a combined reference. Generation and
+  timing prediction use the same choice, and source-only cache identities
+  include the original audio and transcript. This changes conditioning, so
+  compare on an isolated job before changing an approved dub.
   Dubbing into Japanese it's off by default (see [languages/ja.md](languages/ja.md)).
   A line keeps the character's reference when it has `"line_ref": false`, a
   room effect (`echo`, `pa`; the original's room would be cloned), a window too

@@ -306,7 +306,7 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
     return [(None, cache[k]["cut"]) if isinstance(cache[k], dict) else (cache[k], None) for k in keys]
 
 
-def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=False):
+def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=False, prefix=True):
     """Per-line references: the voice's own clips (work/voices/<key>.wav), a 0.3 s
     pause, then this line's original from the job's separated vocals, with the
     line's original words (`ja`, or the field of the part's source language) after
@@ -318,7 +318,9 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
     original is cut at the dip) and lines too long to fit OmniVoice's limit with
     the clips. Returns {id: (path, transcript)}; the path records the window,
     cut and voice-audio fingerprint, which dub.py saves with the take. Rebuilding
-    a voice must not reuse a cached reference containing its old audio."""
+    a voice must not reuse a cached reference containing its old audio.
+    With prefix=False (or a line's ref_prefix=False), use only that line's
+    original audio/transcript. Source cleanliness checks still apply."""
     import numpy as np
     import soundfile as sf
 
@@ -334,24 +336,38 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
             if verbose:
                 print(f"  line ref skipped at {line['start']}: {why}")
             continue
-        base_path = WORK / "voices" / f"{line['voice']}.wav"
-        base, base_sr = sf.read(base_path, dtype="float32")
         own = vocals[int(line["start"] * sr) : int((cut or line["end"]) * sr)]
-        if base_sr != sr or base.shape[1:] != own.shape[1:]:
-            print(f"  line ref skipped at {line['start']}: {base_path.name} isn't in the vocals' format")
-            continue
-        if (len(base) + len(own)) / sr + 0.3 > LINE_REF_MAX:
+        with_prefix = line.get("ref_prefix", prefix)
+        if not isinstance(with_prefix, bool):
+            raise ValueError("ref_prefix must be true or false")
+        transcript = said(line, src)
+        if with_prefix:
+            base_path = WORK / "voices" / f"{line['voice']}.wav"
+            base, base_sr = sf.read(base_path, dtype="float32")
+            if base_sr != sr or base.shape[1:] != own.shape[1:]:
+                print(f"  line ref skipped at {line['start']}: {base_path.name} isn't in the vocals' format")
+                continue
+            duration = (len(base) + len(own)) / sr + 0.3
+            reference_sig = "v" + hashlib.sha1(base.tobytes()).hexdigest()[:12]
+            gap = np.zeros((int(0.3 * sr),) + own.shape[1:], dtype="float32")
+            audio = np.concatenate([base, gap, own])
+            transcript = f"{voices[line['voice']]['ref_text']} {transcript}"
+        else:
+            duration = len(own) / sr
+            reference_sig = "own" + hashlib.sha1(own.tobytes() + transcript.encode()).hexdigest()[:12]
+            audio = own
+        if duration > LINE_REF_MAX:
             if verbose:
-                print(f"  line ref skipped at {line['start']}: over {LINE_REF_MAX:.0f} s with the voice's clips")
+                print(f"  line ref skipped at {line['start']}: over {LINE_REF_MAX:.0f} s")
             continue
-        base_sig = hashlib.sha1(base.tobytes()).hexdigest()[:12]
         path = (
-            work / "refs" / f"{i}_{line['start']:.2f}-{line['end']:.2f}{f'_{cut:.2f}' if cut else ''}_v{base_sig}.wav"
+            work
+            / "refs"
+            / f"{i}_{line['start']:.2f}-{line['end']:.2f}{f'_{cut:.2f}' if cut else ''}_{reference_sig}.wav"
         )
         if not path.exists():
-            gap = np.zeros((int(0.3 * sr),) + own.shape[1:], dtype="float32")
-            sf.write(path, np.concatenate([base, gap, own]), sr)
-        refs[i] = (str(path), f"{voices[line['voice']]['ref_text']} {said(line, src)}")
+            sf.write(path, audio, sr)
+        refs[i] = (str(path), transcript)
     return refs
 
 
@@ -650,6 +666,7 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
                 ids,
                 dips=mode.get("dips", not rendered),
                 cast_lines=mode.get("cast_lines", not rendered),
+                prefix=mode.get("ref_prefix", True),
             )
     spans = actor_spans(job, lines) if short or (predict and american) else [None] * len(lines)
     rows = []

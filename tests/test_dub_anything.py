@@ -80,6 +80,17 @@ class PauseCheckpointTests(unittest.TestCase):
 
 
 class ReadyPreflightTests(unittest.TestCase):
+    def test_reference_prefix_choices_must_be_boolean(self):
+        for value in ("false", 0, None):
+            with self.subTest(value=value):
+                problems = runner.ready_problems({"lines": [], "render": {"ref_prefix": value}})
+                self.assertIn("render.ref_prefix must be true or false", problems)
+                problems = runner.ready_problems({"lines": [self.line(ref_prefix=value)]})
+                self.assertIn("lines[0].ref_prefix must be true or false", problems)
+        self.assertEqual(
+            runner.ready_problems({"lines": [self.line(ref_prefix=True)], "render": {"ref_prefix": False}}), []
+        )
+
     def line(self, **changes):
         return {"start": 0, "end": 1.2, "voice": "speaker_a", "text": "Good morning.", **changes}
 

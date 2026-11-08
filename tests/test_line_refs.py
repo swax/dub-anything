@@ -37,14 +37,14 @@ class LineReferenceCacheTests(unittest.TestCase):
     def write_voice(self, key, level):
         sf.write(self.root / "voices" / f"{key}.wav", np.full(self.sr // 2, level), self.sr)
 
-    def reference(self):
+    def reference(self, **options):
         with (
             patch.object(core, "WORK", self.root),
             patch.object(core, "JOBS", self.jobs),
             patch.object(core, "langs", return_value=("ja", "en")),
             patch.object(core, "unclean_windows", return_value=[(None, None)]),
         ):
-            path, text = core.line_refs(self.work, "sample", [self.line], ["L00"])["L00"]
+            path, text = core.line_refs(self.work, "sample", [self.line], ["L00"], **options)["L00"]
         return pathlib.Path(path), text
 
     def test_rebuilt_voice_changes_reference_audio_and_cache_identity(self):
@@ -72,6 +72,70 @@ class LineReferenceCacheTests(unittest.TestCase):
         new, _ = self.reference()
         self.assertEqual(old, new)
         self.assertEqual(new.stat().st_mtime, 1234567890)
+
+    def test_source_only_contains_no_shared_audio_or_transcript(self):
+        prefixed, _ = self.reference()
+        own, text = self.reference(prefix=False)
+        self.assertNotEqual(prefixed, own)
+        audio, rate = sf.read(own)
+        self.assertEqual(rate, self.sr)
+        self.assertEqual(len(audio), self.sr // 2)
+        self.assertAlmostEqual(float(audio.mean()), 0.2, places=4)
+        self.assertEqual(text, "Example source.")
+
+    def test_source_only_does_not_need_a_shared_voice_file(self):
+        (self.root / "voices" / "speaker1.wav").unlink()
+        own, text = self.reference(prefix=False)
+        self.assertTrue(own.is_file())
+        self.assertEqual(text, "Example source.")
+
+    def test_line_can_opt_back_into_prefix_for_a_comparison(self):
+        self.line["ref_prefix"] = True
+        own, text = self.reference(prefix=False)
+        audio, _ = sf.read(own)
+        self.assertAlmostEqual(float(audio[: self.sr // 2].mean()), 0.1, places=4)
+        self.assertEqual(text, "Hello. Example source.")
+
+    def test_source_transcript_changes_invalidate_source_only_reference(self):
+        old, _ = self.reference(prefix=False)
+        self.line["ja"] = "Corrected source."
+        new, text = self.reference(prefix=False)
+        self.assertNotEqual(old, new)
+        self.assertEqual(text, "Corrected source.")
+
+    def test_source_only_still_rejects_crosstalk(self):
+        with (
+            patch.object(core, "WORK", self.root),
+            patch.object(core, "JOBS", self.jobs),
+            patch.object(core, "langs", return_value=("ja", "en")),
+            patch.object(core, "unclean_windows", return_value=[("another speaker", None)]),
+        ):
+            self.assertEqual(core.line_refs(self.work, "sample", [self.line], ["L00"], prefix=False), {})
+
+    def test_fit_predicts_with_the_same_source_only_reference_as_generation(self):
+        voices = json.loads((self.root / "voices.json").read_text(encoding="utf-8"))
+        voices["speaker1"].update({"from": "sample", "clips": [[0, 0.5]]})
+        (self.root / "voices.json").write_text(json.dumps(voices), encoding="utf-8")
+        (self.work / "segments.json").write_text('{"job_id": "sample"}', encoding="utf-8")
+        line = {**self.line, "text": "A synthetic sentence."}
+        script = {"lines": [line], "render": {"line_ref": True, "ref_prefix": False}}
+        (self.work / "script.json").write_text(json.dumps(script), encoding="utf-8")
+        with (
+            patch.object(core, "WORK", self.root),
+            patch.object(core, "JOBS", self.jobs),
+            patch.object(core, "langs", return_value=("ja", "en")),
+            patch.object(core, "voice_wav", return_value=self.root / "voices/speaker1.wav"),
+            patch.object(core, "unclean_windows", return_value=[(None, None)]),
+            patch.object(core, "take_length", return_value=0.4) as estimate,
+        ):
+            rows = core.fit_rows("sample", predict=True)
+        reference, transcript, text = estimate.call_args.args
+        audio, _ = sf.read(reference)
+        self.assertEqual(len(audio), self.sr // 2)
+        self.assertAlmostEqual(float(audio.mean()), 0.2, places=4)
+        self.assertEqual(transcript, "Example source.")
+        self.assertEqual(text, line["text"])
+        self.assertEqual(rows[0]["est"], 0.4)
 
 
 if __name__ == "__main__":

@@ -933,7 +933,14 @@ def _cmd_generate(args):
         # Per-line references: the voice's clips plus the line's own original.
         refs = (
             line_refs(
-                work, job_id, script["lines"], ids, verbose=first, dips=mode["dips"], cast_lines=mode["cast_lines"]
+                work,
+                job_id,
+                script["lines"],
+                ids,
+                verbose=first,
+                dips=mode["dips"],
+                cast_lines=mode["cast_lines"],
+                prefix=mode.get("ref_prefix", True),
             )
             if mode["line_ref"]
             else {}
