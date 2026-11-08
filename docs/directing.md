@@ -1201,6 +1201,14 @@ language there.
   5. `check` verifies that the takes deliver the intended register;
      `drop <voice>` retires a reference that fails this check.
 
+  Check voice continuity across adjacent takes as well as each take's words.
+  One correctly cast speaker can sound like different people when successive
+  sentence references pull the clone into different deliveries. On a copy,
+  compare an unchanged clean character reference across the passage with the
+  sentence references, holding the seed and other controls fixed. Speaker
+  embeddings can support the comparison; the listener decides whether the
+  voice stays consistent. Recheck timing and handoffs before adopting a trial.
+
   Loudness in the mix is not the same as vocal effort. Review both the
   source and the takes; these tools do not provide emotion control.
 - **VoiceStudio reuses separated stems by video content.** `prep` copies the
