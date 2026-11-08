@@ -169,20 +169,19 @@ the cuDNN 8 libraries that faster-whisper needs next to PyTorch's cuDNN 9. The
 scripts load them before Whisper runs (`core.whisper_setup`); on Linux without
 them, Whisper on the GPU fails with "Could not load library libcudnn_ops_infer.so.8".
 
-The fork fixes three bugs. The dubbing transcriber ignored the source-language
-hint. OmniVoice ran in float16 on CPU (about 7× slower). And a render that
-stopped at a timing overflow threw its takes away: the next attempt
-re-synthesized every line instead of only the changed ones. It also adds two
-general-purpose voice presets, `echo` for flashbacks and `pa` for
-announcements over a public-address system, and lets reverb ring out instead of
-stopping dead where the dry take ends. And it lets each dub line carry its own
-voice reference (`scripts/dub.py generate --line-ref`), and its own emotion
-reference for engines that take one (IndexTTS 2,
-`--engine indextts2 --emo-alpha`). For IndexTTS 2.5 it passes a line's speed on as the
-engine's duration factor (it was dropped before), and it gives each line a seed,
-so the `"american"` voice's fill re-times the same take. With ROCm's PyTorch
-on Windows (an AMD GPU, below) it turns MIOpen off and AOTriton attention on,
-in the backend and in IndexTTS's sidecar, and fits IndexTTS to that torch. See
+The fork forwards the source-language hint during dubbing transcription and
+adds per-line voice references (`scripts/dub.py generate --line-ref`), emotion
+references for engines that support them, and IndexTTS seeds. These controls
+also participate in take fingerprints. Its `echo` and `pa` effects preserve
+their reverb tails. CPU float32 selection and IndexTTS duration/speed control
+are now supplied by upstream.
+
+The integration retains upstream's atomic take publication. A successful
+render publishes reusable takes; failed or cancelled attempts cannot replace
+them. The old patch's reuse of newly made takes after a failed first render
+was retired, so resolve predicted overflows before rendering. Windows AMD
+adjustments apply only to the verified legacy `2.9.1+rocm7.13.x` Torch build;
+other builds retain upstream's dispatch and precision policy. See
 [directing.md](directing.md#gotchas).
 
 #### AMD Radeon: ROCm PyTorch
@@ -350,6 +349,15 @@ Invoke-RestMethod -Method Post "$api/engines/diarisation/select" -ContentType ap
 Installing the audio.cpp bundle can switch the active diarisation engine to
 Sortformer, so select pyannote again afterwards. Sortformer is limited to 120 s
 clips and 4 speakers.
+
+The backend also reapplies its saved performance profile at startup. Set the
+ASR and diarisation families to Quality when you need large-v3 and pyannote
+to remain selected across restarts. Check the resulting selections before prep.
+
+Some installed models require a local acknowledgment of their model terms
+before first use. Present the backend's disclosure and linked terms to the user,
+then record acceptance only after their explicit answer. Existing Hugging Face
+access and downloaded weights do not replace that acknowledgment.
 
 If the audio.cpp runtime install fails with `PermissionError ... Access is denied`
 on the final rename, Defender was scanning the new DLLs. Post the install again.

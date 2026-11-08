@@ -61,6 +61,7 @@ import backend
 import gpu
 import subtitles
 from core import (
+    FILL_SPEED,
     JOBS,
     ROOT,
     VOICE_LABEL,
@@ -830,6 +831,9 @@ def ready_problems(script, voices=None, american=False):
                     all(times) and not line["start"] < line["actor_end"] <= line["end"]
                 ):
                     problems.append(f"{label}.actor_end must be a finite time inside the line's window")
+            if field == "lines" and "speed" in line:
+                if not finite(line["speed"]) or not FILL_SPEED[0] <= line["speed"] <= FILL_SPEED[1]:
+                    problems.append(f"{label}.speed must be finite and between {FILL_SPEED[0]} and {FILL_SPEED[1]}")
             if field == "subtitle_layout":
                 if not finite(line.get("top")) or not 0 <= line["top"] <= 1:
                     problems.append(f"{label}.top must be a finite picture-height fraction from 0 to 1")

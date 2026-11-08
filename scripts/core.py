@@ -491,22 +491,31 @@ def at_speed(natural, speed, exponent=SPEED_EXPONENT):
     return natural / speed**exponent
 
 
+def _voicestudio_normalizer(backend):
+    """Load the checkout's normalizer without replacing this module's globals."""
+    import importlib.util
+
+    # VoiceStudio's normalizer imports helpers such as core.language_variants.
+    # Keep our core.py as the parent, with its backend's helper search path.
+    sys.modules[__name__].__path__ = [str(pathlib.Path(backend) / "core")]
+    path = pathlib.Path(backend) / "services" / "text_normalization.py"
+    spec = importlib.util.spec_from_file_location("voicestudio_text_normalization", path)
+    norm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(norm)
+    return norm.normalize_text
+
+
 @functools.lru_cache(maxsize=1)
 def _omnivoice():
     """OmniVoice's length rule and reference helpers, and VoiceStudio's text
     normalization, from the VoiceStudio checkout this Python runs from."""
-    import importlib.util
-
     import omnivoice
     from omnivoice.utils.audio import remove_silence_safe
     from omnivoice.utils.duration import RuleDurationEstimator
     from omnivoice.utils.text import add_punctuation
 
-    path = pathlib.Path(omnivoice.__file__).parents[1] / "backend" / "services" / "text_normalization.py"
-    spec = importlib.util.spec_from_file_location("voicestudio_text_normalization", path)
-    norm = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(norm)
-    return RuleDurationEstimator(), add_punctuation, remove_silence_safe, norm.normalize_text
+    backend = pathlib.Path(omnivoice.__file__).parents[1] / "backend"
+    return RuleDurationEstimator(), add_punctuation, remove_silence_safe, _voicestudio_normalizer(backend)
 
 
 @functools.lru_cache(maxsize=512)
@@ -645,6 +654,8 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
     spans = actor_spans(job, lines) if short or (predict and american) else [None] * len(lines)
     rows = []
     for i, (line, sid, span) in enumerate(zip(lines, ids, spans)):
+        line_fastest = line.get("speed", fastest)
+        line_slowest = line.get("speed", slowest)
         wav = take_wav(job, sid, tgt)
         if other:
             wav = JOBS / job / "none"
@@ -671,13 +682,15 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
             elif ref:
                 length = row["est"] = take_length(*ref, line["text"], lang=tgt)
             if length:
+                if "speed" in line:
+                    row["est"] = at_speed(length, line["speed"], exponent)
                 row["flag"] = (
                     "OVER?"
-                    if at_speed(length, fastest, exponent) > row["room"]
-                    else ("risk" if at_speed(length, fastest, exponent) > row["room"] - 0.3 else "")
+                    if at_speed(length, line_fastest, exponent) > row["room"]
+                    else ("risk" if at_speed(length, line_fastest, exponent) > row["room"] - 0.3 else "")
                 )
         # A take as rendered; an estimate as slow as fill can make it (American: exact).
-        ends_at = at_speed(length, slowest, exponent) if length and row["speech"] is None else length
+        ends_at = at_speed(length, line_slowest, exponent) if length and row["speech"] is None else length
         if short and end and length and not row["flag"] and ends_at < end - SHORT_BY:
             row["flag"] = "SHORT" if row["speech"] is not None else "SHORT?"
         rows.append(row)

@@ -92,6 +92,11 @@ differs.
   the source when speech detection misses a shout or filtered announcement.
   It overrides the detected endpoint for `fit.py`, fill and timing reports;
   it does not move the window or prove that a reference is clean.
+- `speed` (optional): a directed pace from 0.8 to 1.25, overriding automatic
+  fill for this line. Use the recorded pace of a published take after checking
+  its actual fit and handoffs when further automatic slowing overshoots. `1.0`
+  keeps natural pace. Changed text or references still need fresh take QA;
+  with both voices, check the override in each voice.
 - `text_us` (optional): the English for the American voice when it needs to
   differ, usually fuller text for a line `scripts/fit.py --voice american` calls
   `SHORT?`. `dub_anything.py` renders that voice from a copy of the script in
@@ -106,12 +111,15 @@ A top-level `"render": {"line_ref": true, "fill": true, "dips": true, "cast_line
 records how the part is rendered (see "Render"). `scripts/dub.py generate`
 writes it on the first run: all on for a part never rendered, off for a part
 rendered before they became the default, so its approved takes don't change.
+For a new part with tight windows, also set `"predict_speed": true` so its first
+pass uses the estimated pace; failed first passes cannot supply takes to fill.
 
 With `concise` timing (the default), each line starts at the window start. With
 `fill` on, its pace is then adjusted so it ends where the actor stops (see
 "Render"); otherwise it's spoken at its natural pace. It may run up to 0.3 s past
-the end (`--overflow`), but not into the next window. Outside all windows the
-original soundtrack plays.
+the end (`--overflow`). That allowance can reach a neighboring reply, so check
+actual generated handoffs against the source. Outside all windows the original
+soundtrack plays.
 
 A part with no lines at all (a commercial break recorded with the show, the
 closing credits) gets a `script.json` with an empty `"lines"` list, and
@@ -593,11 +601,16 @@ with the original exchange: shorten the outgoing line if the dub turns a
 source pause into overlapping speech. A source interruption can be kept as a
 directing choice.
 
-Only new, changed or re-rolled lines are synthesized, so fixing an overflow
-costs just the lines you touched, and timing or level changes are a re-mix of
-about 5 s. (Unpatched VoiceStudio ignores partial re-renders until a job's
-first render succeeds, so every failed first attempt re-rolls every take;
-the pinned VoiceStudio fork fixes that.)
+After a successful render, unchanged published takes are reused; changing timing
+or level alone is a quick re-mix. New takes from a failed or cancelled render
+are not published. The integrated fork keeps upstream's atomic publication
+safeguard, so the former patch's reuse of a failed first render's new takes is
+retired. Resolve predicted overflows before starting the first render.
+
+A clone can take longer than a very brief source reaction even for two words.
+Group adjacent fragments by the same speaker when they form one turn and no
+other voice is inside the combined window. This gives the performance room
+without widening it across somebody else's reply.
 
 `--match-level` sets each line's gain from the original actor's level. The
 clip-wide offset is matched fully and each line's deviation by half, so
@@ -646,28 +659,36 @@ delivery of its line and ends where the actor stops:
   as gibberish on every take until this check excluded it, so don't force
   one. Snap its window instead (see "Translate and time"). A take's reference
   depends on its window, so moving a window re-synthesizes that line.
-- **Fill** (`fill`). After the natural-pace render, `generate` finds each actor's
+- **Fill** (`fill`). After a successful baseline render, `generate` finds each actor's
   last sound in the window (Silero VAD on the vocals). It then re-renders every
   take ending more than 0.25 s away from it, at the OmniVoice speed that lands it
   there, within 0.8–1.25. OmniVoice sets the take's length from the speed;
-  nothing is time-stretched. Two passes converge, and a line that overflows at
-  its natural pace gets sped up instead of stopping the render. Fill only
-  aligns where a line ends, not pauses inside it. Lines stuck at 0.8 have
+  nothing is time-stretched. With published takes to measure, two passes usually
+  converge. Fill only aligns where a line ends, not pauses inside it. Lines stuck at 0.8 have
   English much shorter than the actor's speech (`fit.py` flags them `SHORT`):
   give them fuller text, and listen to slowed lines for drawl. A take asked
   for at 0.8 often isn't slower at all: OmniVoice says the words at its own
   pace and leaves the extra time silent, and the silence is trimmed. Only
-  fuller text fills those lines. Fill also absorbs most natural-pace
+  fuller text fills those lines. With a published baseline, fill also absorbs most natural-pace
   overflows, which otherwise stop the render and each need a reword or a wider
   window. A take that still overflows at 1.25 gets a fresh take on the next
   pass, since takes of one line differ by a few tenths of a second. If it
   overflows after the last pass, `generate` stops and lists it. In the
-  `"american"` voice a slowed take really is slower (see "Voice"), so there
+  integrated backend, an unsuccessful pass leaves the last published takes
+  intact. `fit.py` can therefore show those older takes fitting even when the
+  rejected pass overflowed. Use the backend's reported line number to shorten
+  that line or widen its checked window before retrying.
+  In the `"american"` voice a slowed take really is slower (see "Voice"), so there
   fill can make up for English somewhat short of the actor.
   `"predict_speed": true` in the `render` block (or `--predict-speed`) renders
   each new line at the speed `fit.py`'s prediction asks for instead of at
-  natural pace first. That halves the re-renders but gave the same timing
-  (see [research.md](research.md)), so it is off by default.
+  natural pace first. A prediction can speed up a new take, but slowing waits
+  until a published take supplies its measured length. Use it for a new part when its natural-rate takes may
+  overflow: atomic publication leaves no new takes for fill to measure after
+  a failed first pass. With no published baseline, fill stops at that failure
+  instead of repeating the same whole-part synthesis without a measurement.
+  The earlier comparison halved re-renders with similar
+  timing (see [research.md](research.md)); it remains an explicit render option.
 
 `--no-line-ref` and `--no-fill` (or `--line-ref`, `--fill`, `--predict-speed`)
 override the script for one run, e.g. for an A/B job. Both change takes, so try them on a copy of an
@@ -1213,6 +1234,12 @@ language there.
   startup environment to generate fewer lines together. Wait for your current
   tools to finish before restarting the backend, and carry the setting in the
   job runner's environment so automatic restarts keep it.
+  The GPU lock schedules active tools, but idle backend models still occupy
+  VRAM. After prep, if standalone transcription or window checks slow down,
+  finish backend tasks and unload its idle models or restart it before those
+  checks. Run broad test suites with GPU access disabled while a dub is active.
+  In PowerShell, use `$env:CUDA_VISIBLE_DEVICES='-1'`; assigning an empty string
+  can remove the variable and leave the GPU available.
 - **After an NVIDIA driver update, restart the backend.** A backend that was
   running during the update keeps "CUDA out of memory" errors on an empty GPU
   and silently runs Whisper on the CPU.
@@ -1240,21 +1267,13 @@ language there.
   split one speaker. Confirm casting with multiple signals. Sortformer can't
   handle clips over 120 s or more than 4 speakers, ignores
   count hints, and has CC-BY-NC weights.
-- **VoiceStudio bugs (fixed by the pinned fork in `vendor/VoiceStudio`).** Dubbing
-  transcription ignored the source-language hint, so short Japanese clips were
-  heard as English (`backend/api/routers/dub_core.py`). OmniVoice loaded in
-  float16 on CPU, where it is about 7× slower (`backend/services/model_manager.py`).
-  A render that stopped at a timing overflow didn't record its takes as
-  reusable, so the next one re-synthesized everything
-  (`backend/api/routers/dub_generate.py`). Reverb presets stopped dead where
-  the dry take ended, cutting their own tail (`backend/services/audio_dsp.py`,
-  which also gains the `echo` preset). With ROCm's PyTorch on Windows, MIOpen
-  tuned every new convolution shape for minutes and attention took PyTorch's
-  slow math path (`backend/services/model_manager.py`; see
-  [setup.md](setup.md#amd-radeon-rocm-pytorch)). IndexTTS's venv probe
-  rejected a ROCm venv and the backend fell back to a CUDA venv on the CPU,
-  and s2mel ran in fp32, 4-5x slower than bf16 on a Radeon
-  (`backend/engines/indextts/`). All are worth reporting upstream.
+- **VoiceStudio integration (`vendor/VoiceStudio`).** The fork forwards the
+  source-language hint, supports per-line voice/emotion/seed conditioning with
+  matching cache fingerprints, and preserves echo/PA reverb tails. Its Windows
+  AMD compatibility shims cover the verified legacy `2.9.1+rocm7.13.x` build
+  only. Current upstream supplies CPU float32 and IndexTTS speed control, and
+  its atomic publication rules keep failed or cancelled renders from replacing
+  published takes. See the fork's maintenance notes before changing that policy.
 - **On an AMD GPU, check that IndexTTS is on it.** "CPU mode" in `backend.log`
   after the sidecar spawns means it is not (setup.md); a line then takes about
   a minute.

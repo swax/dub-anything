@@ -25,6 +25,7 @@ generate <name>               reads work/<name>/script.json (hand-directed lines
 import argparse
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -645,6 +646,43 @@ FILL_PASSES = 2  # re-timing passes after the natural-pace render; a third chang
 VOICES = ("actor", "american")
 
 
+def _fill_speed(length, end, previous=None, *, power=1.0, measured=True):
+    """Choose the next pace from measured speech or a first-take estimate."""
+    # A short prediction can still produce long speech. Publish a natural-rate
+    # baseline before slowing it; failed first passes expose no measured takes.
+    slowest = FILL_SPEED[0] if measured else 1.0
+    return min(max((previous or 1.0) * (length / end) ** power, slowest), FILL_SPEED[1])
+
+
+def _override_speed(segment, settings, speed):
+    """Apply a directed pace instead of fill, preserving natural-rate cache keys."""
+    if (
+        isinstance(speed, bool)
+        or not isinstance(speed, (int, float))
+        or not math.isfinite(speed)
+        or not FILL_SPEED[0] <= speed <= FILL_SPEED[1]
+    ):
+        raise ValueError(f"line speed must be finite and between {FILL_SPEED[0]} and {FILL_SPEED[1]}")
+    speed = round(speed, 2)
+    for spec in (segment, settings):
+        if speed == 1.0:
+            spec.pop("speed", None)
+        else:
+            spec["speed"] = speed
+
+
+def _record_published_settings(rendered, settings, job, target, started, regen, *, published, selected=None):
+    """Associate settings with takes the backend successfully published."""
+    if not published:
+        return
+    for lid, spec in settings.items():
+        if selected is not None and lid not in selected:
+            continue
+        wav = take_wav(job, lid, target)
+        if wav.exists() and (wav.stat().st_mtime >= started - 1 or (regen is not None and lid not in regen)):
+            rendered[lid] = spec
+
+
 def file_sha(path):
     return hashlib.sha1(pathlib.Path(path).read_bytes()).hexdigest()[:16]
 
@@ -917,6 +955,7 @@ def _cmd_generate(args):
                 prev = rendered.get(i, {}).get("speed")
                 speed, wav = prev, engine_take(i)
                 length = speech_length(wav) if wav.exists() else None
+                measured = length is not None
                 if length is None and end and mode["predict_speed"] and american:
                     length, prev, speed = indextts_length(line["text"], span[1] - span[0]), None, None
                 elif (
@@ -926,9 +965,12 @@ def _cmd_generate(args):
                     # The prediction is at natural pace, whatever speed a lost take had.
                     length, prev, speed = take_length(*ref, line["text"], lang=tgt), None, None
                 if end and length and abs(length - end) > FILL_TOL:
-                    speed = min(max((prev or 1.0) * (length / end) ** power, FILL_SPEED[0]), FILL_SPEED[1])
+                    speed = _fill_speed(length, end, prev, power=power, measured=measured)
                 if speed and abs(speed - 1) >= 0.01:
                     seg["speed"] = settings[i]["speed"] = round(speed, 2)
+        for seg, lid, line in zip(segments, ids, script["lines"]):
+            if "speed" in line:
+                _override_speed(seg, settings[lid], line["speed"])
         # A take that overflows its room at fill's fastest speed can't be re-timed:
         # give it a fresh take instead (takes of one line differ by a few tenths).
         stuck = set()
@@ -937,6 +979,7 @@ def _cmd_generate(args):
                 ids[row["i"]]
                 for row in fit_rows(args.name, args.overflow)
                 if row["flag"] == "OVER"
+                and "speed" not in script["lines"][row["i"]]
                 and rendered.get(ids[row["i"]], {}).get("speed")
                 == settings[ids[row["i"]]].get("speed")
                 == FILL_SPEED[1]
@@ -1075,8 +1118,10 @@ def _cmd_generate(args):
                 + (f", {sum('speed' in s for s in segments)} lines re-timed to the actor" if mode["fill"] else "")
             )
             t0 = time.time()
+            published = False
             try:
                 done = run(request(segments, ids, regen))
+                published = True
             except RuntimeError as e:
                 if args._generation is not None and args._generation.unknown():
                     raise
@@ -1084,20 +1129,27 @@ def _cmd_generate(args):
                     raise
                 done, stopped = None, re.search(r'"segment": (\d+)', str(e))
             finally:
-                # Record what each clip was made with, even when assembly fails after
-                # synthesis (e.g. dub_timing_overflow), so a retry doesn't redo them.
-                for i, s in settings.items() if args._generation is None or not args._generation.unknown() else ():
-                    if only is not None and i not in {ids[k] for k in only}:
-                        continue
-                    wav = take_wav(job_id, i, tgt)
-                    if wav.exists() and (wav.stat().st_mtime >= t0 - 1 or (regen is not None and i not in regen)):
-                        rendered[i] = s
+                # Failed/cancelled attempts leave the last publication intact.
+                if args._generation is None or not args._generation.unknown():
+                    _record_published_settings(
+                        rendered,
+                        settings,
+                        job_id,
+                        tgt,
+                        t0,
+                        regen,
+                        published=published,
+                        selected={ids[k] for k in only} if only is not None else None,
+                    )
                 if settings and (args._generation is None or not args._generation.unknown()):
                     rendered_path.write_text(json.dumps(rendered, indent=1), encoding="utf-8")
             print(f"    ({time.time() - t0:.0f} s)")
             synthesized |= regen is None or bool(regen)
             if done is None:
                 if not mode["fill"] or n == FILL_PASSES:
+                    break
+                if not any(take_wav(job_id, lid, tgt).exists() for lid in ids):
+                    print("  no published takes to measure; revise the reported line before retrying")
                     break
                 print(
                     "  a line overflows its room; the next fill pass re-times it, or re-rolls it at the fastest speed"

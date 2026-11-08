@@ -42,9 +42,11 @@ pinned as `vendor/VoiceStudio`, and the other prerequisites as part of the first
 run. [Setup](docs/setup.md#3-voicestudio-pinned-fork) initializes the submodule
 automatically.
 
-The fork adds per-line voice and emotion references, reusable takes after timing
-failures, echo and PA effects, source-language and CPU fixes, and Windows ROCm
-support. Its [README](https://github.com/swax/VoiceStudio#voicestudio-for-dub-anything)
+The fork tracks current upstream and adds per-line voice, emotion and seed
+controls, echo and PA effects, source-language forwarding, and compatibility
+for a verified legacy Windows ROCm build. It preserves upstream's atomic take
+publication; CPU precision and IndexTTS speed control now come from upstream.
+Its [README](https://github.com/swax/VoiceStudio#voicestudio-for-dub-anything)
 summarizes the changes.
 
 ## Getting started
@@ -107,7 +109,8 @@ voices. Adding an optional American English audio track brings the total to
 about seven hours. The agent directs while the renders run, and on a long
 video it can split the directing across helper agents.
 
-A 16 GB NVIDIA card runs everything at once. Apple Silicon uses Metal (MPS)
+A 16 GB NVIDIA card can run every stage locally; GPU tools take turns.
+Apple Silicon uses Metal (MPS)
 acceleration. AMD runs through AMD's ROCm build of PyTorch and is slower: on a
 laptop's integrated Radeon 890M, 15 minutes of video took about three hours of
 machine time, and the American English track about 2.7 hours more, a third of
