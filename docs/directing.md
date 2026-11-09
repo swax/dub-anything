@@ -715,6 +715,17 @@ ask the listener to judge delivery and voice likeness separately. Keep these
 trials distinct from the preview's fitted takes; different timing or wording
 would confound a reference-only comparison.
 
+Record a listener's declared overall preference as one vote per pair, with
+delivery and likeness unspecified. Selecting the same take in two controls
+does not establish two independent judgments when the listener used both for
+overall sound. Preserve the original feedback and annotate its interpretation.
+
+Equal active-speech RMS can still leave perceptual loudness differences. Check
+loudness and peaks separately when a listener reports jarring variants, and
+keep their report of harsh or projected delivery in the evidence. Preserve the
+reviewed audio; any revised playback copies need a separate version so saved
+votes remain tied to what the listener heard.
+
 Check a very short original reference with an actual take before choosing its
 fallback from duration alone: verify the words, complete source boundaries and
 generated handoffs. When the original contains overlapping speakers, use a
