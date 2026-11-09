@@ -350,8 +350,12 @@ in an earlier scene is the same person. Build a reference from the uncertain
 speaker's own clean speech and keep a separate key until frames and voice
 comparisons support joining it to an existing character.
 
-For a new character, build a voice from 5–15 s of **clean, single-speaker**
-speech (see the reference-leakage gotcha below). 3–4 s works for a bit part.
+For a new character, build an identity sample from 5–15 s of **clean,
+single-speaker** speech (see the reference-leakage gotcha below). 3–4 s works
+for a bit part. In a Japanese → English actor dub, give recurring characters a
+separate complete three-to-five-second conversational fallback (see "Render").
+The longer identity sample can help casting without being prepended to every
+line or setting the delivery of unsafe lines.
 Pick only clips bounded by real pauses. `scripts/voices.py spans <clip> a-b ...`
 shows the VAD's speech spans around each candidate (CPU, instant): if one runs
 across the boundary into another speaker's line, skip that clip.
@@ -411,12 +415,12 @@ other girl; the per-line references would have carried her voice into every
 fallback line of the first.
 
 Pick reference lines in the character's usual register. Each line's own
-original normally sets its delivery (see "Render"). The character's reference
-holds the voice steady, and it alone sets the delivery of lines that can't use
-their own original (see "The reference sets the register").
+original normally sets its delivery (see "Render"). The identity reference
+supports casting; the selected fallback supplies the voice and delivery when
+a line can't use its own original (see "The reference sets the register").
 
-Keep a main character's reference near 8–10 s, not the full 15. A per-line
-reference is the clips, a 0.3 s pause and the line's window, and must fit
+With a shared prefix enabled, keep its reference near 8–10 s, not the full 15.
+The combined reference is the clips, a 0.3 s pause and the line's window, and must fit
 OmniVoice's 20 s: a 15-s reference (16.7 s joined) left room only for windows
 under 3 s, and `fit.py` reported the rest as "over 20 s with the voice's clips".
 
@@ -471,6 +475,11 @@ against it. Rebuilt from lines at his usual level, it pulled nothing.
   window's end back to the actor's last pause is often enough. Where two lines
   run straight into each other, the voice usually still dips for a moment
   between them; `scripts/edges.py --apply` moves the shared boundary onto that dip.
+  A quiet dip after someone else's short reply does not make the preceding
+  reference single-speaker. Word alignment can also attach a brief response to
+  a later sentence across a long quiet gap. When one word appears to span that
+  gap, inspect source energy and focused hearings on both sides before placing
+  the boundary or assigning the response.
 - **Size the text:** each clone follows its actor's pace, from about 8 to 16
   letters per second. Short lines cost more than their length suggests: even
   "Really?" takes 0.8–1.2 s. `scripts/fit.py <clip>` computes the length
@@ -635,26 +644,26 @@ re-synthesizes exactly the affected lines.
 By default (the script's `render` block) each take follows the actor's own
 delivery of its line and ends where the actor stops:
 
-- **Per-line references** (`line_ref`). Each line's reference is the voice's
-  clips from `voices.json`, a pause, then the actor's original of this very
-  line, with its `ja` after the voice's transcript. OmniVoice copies its
-  reference's delivery and accent. The shared clips are intended to stabilize
-  identity while the current line supplies delivery, but the engine receives
-  one combined reference without separate roles. The prefix can compete with
-  the line's performance. The original trials established the benefit of adding
-  per-line speech, not of retaining the prefix versus using the line alone (see
-  [research finding 6](research.md#findings)). The per-line approach replaces
-  sorting lines into calm and raised: the delivery comes from the line itself.
-  Set `"render": {"ref_prefix": false, ...}` for a source-only comparison;
-  existing scripts keep the shared prefix by default. A line's own
-  `"ref_prefix": true` can opt back into a combined reference. Generation and
+- **Per-line references** (`line_ref`). Each clean line can use its actor's
+  original audio and matching source transcript as the reference. OmniVoice
+  copies the reference's delivery and accent. For new Japanese → English actor dubs, set
+  `"render": {"line_ref": true, "ref_prefix": false, ...}` and use the current
+  line alone when clean, with a conversational fallback for unsafe lines.
+  Existing scripts keep the shared prefix by default: the voice's clips from
+  `voices.json`, a pause, then the current line, with their transcripts joined.
+  Those clips are intended to stabilize identity, but the engine receives one
+  combined reference without separate roles. The prefix can compete with the
+  current line's performance. The original trials established the benefit of
+  adding per-line speech, not of retaining the prefix versus using the line
+  alone (see [research finding 6](research.md#findings)). A line's own
+  `"ref_prefix": true` can opt back into that combined reference. Generation and
   timing prediction use the same choice, and source-only cache identities
   include the original audio and transcript. This changes conditioning, so
   compare on an isolated job before changing an approved dub.
   Dubbing into Japanese it's off by default (see [languages/ja.md](languages/ja.md)).
   A line keeps the character's reference when it has `"line_ref": false`, a
   room effect (`echo`, `pa`; the original's room would be cloned), a window too
-  long to fit OmniVoice's 20 s limit alongside the clips, or a window that isn't
+  long to fit OmniVoice's 20 s limit with any enabled prefix, or a window that isn't
   clean. A window isn't clean if speech runs on past its end: the reference would
   end mid-sound, and OmniVoice finishes that sound at the start of the take.
   With `dips` (the `render` block's third switch) that doesn't count where the
@@ -695,8 +704,13 @@ delivery of its line and ends where the actor stops:
   overflows after the last pass, `generate` stops and lists it. In the
   integrated backend, an unsuccessful pass leaves the last published takes
   intact. `fit.py` can therefore show those older takes fitting even when the
-  rejected pass overflowed. Use the backend's reported line number to shorten
-  that line or widen its checked window before retrying.
+  rejected pass overflowed. For an automatic OmniVoice pace adjustment, the
+  client can reuse the published pace when the reference and other settings
+  still match and the take fits the current room. It resubmits the mix for
+  backend validation. Explicit paces and forced regenerations are never
+  replaced with an older cached success. If recovery is unavailable, use the
+  reported line number to revise its text or checked window. After reviewing a
+  fitting natural take, `"speed": 1.0` can keep its pace fixed for later passes.
   In the `"american"` voice a slowed take really is slower (see "Voice"), so there
   fill can make up for English somewhat short of the actor.
   `"predict_speed": true` in the `render` block (or `--predict-speed`) renders
@@ -763,6 +777,28 @@ through the same small set of translated lines in context, then keep the
 approved fallback consistent through the scene. Clean per-line Japanese
 references still supply their own original performance.
 
+Treat casting and fallback selection as separate decisions. A clean sample that
+establishes the speaker's identity still needs a generated audition before it
+becomes a recurring fallback. For an unreviewed recurring voice, try a small set
+of target-language lines: a statement, a question and a short reply in context.
+Check complete words, articulation, perceived pace, pitch and transitions to the
+neighboring dialogue. Keep the ordinary conversational sample as the baseline;
+choose a different register when the scene supports it. Reserve uncertain
+choices for a small post-dub listening page rather than blocking the whole dub.
+
+When comparing candidates, hold the requested text, seed, configured speed,
+steps and effects fixed, and match playback loudness. The same speed setting
+can still produce different perceived pace and clarity with another reference.
+Record an overall listener preference as an overall preference; it does not
+separately establish emotion transfer or voice likeness. Keep qualified or tied
+preferences qualified, and verify wider changes on more than one line or seed.
+Label each trial's reference choice and the delivered line's actual reference:
+a preferred fallback audition does not evaluate an own-reference production take.
+
+For narration, choose a complete clean sample in the narrator's register. A
+separate three-to-five-second narration fallback can serve a short rejected
+line while ordinary dialogue keeps its conversational fallback.
+
 `scripts/neutral_refs.py speaker_1 episode-01 episode-02 --out work/neutral.json`
 ranks complete, source-checked three-to-five-second phrases near four seconds.
 It needs at least eight clean phrases for a speaker-relative baseline. Pitch,
@@ -793,6 +829,27 @@ reference consistent through the scene. Do not invent dialogue or repeated
 words to fill a timing estimate. Inspect whether a long detected source span
 includes laughter or another speaker, then check the actual take and both
 handoffs before changing its text or pace.
+
+Transcript agreement alone does not establish a useful acting reference. A
+complete sentence followed by laughter can pass both the transcript and speaker
+checks, yet condition a markedly different voice. Keep laughter outside the
+reference where a clean, complete speech boundary permits it; otherwise compare
+the same speaker's conversational fallback in context. Preserve deliberate
+dramatic delivery rather than treating every expressive line as contamination.
+
+Borrowed gaps and overflow budgets can carry an English take into an original
+laugh even after the reference window is corrected. Check the actual take's end
+and its audible tail against the original sound being protected.
+
+New source checks save recognized word margins in `refs/source-review.json`.
+`fit.py` and generation print a reference-review prompt when at least 0.8 seconds
+and a quarter of the reference follow its last recognized word, with at least
+0.35 seconds of audible energy after a 0.25-second alignment allowance. Quiet
+window padding does not prompt a review. This adds no transcription pass and
+does not trim, reject or reroute the reference. The
+untranscribed tail may contain laughter, residual noise, crosstalk or speech the
+recognizer missed; inspect it before deciding. Cached checks made before this
+report existed have no timing evidence and produce no such prompt.
 
 **Voice** (the `render` block's `"voice"`, or `--voice`) is how the English
 sounds. Use the actor's native accent by default; use American English or both
@@ -1060,6 +1117,10 @@ quieter copy can still correlate perfectly with its reference.
 For exact checks of retained audio, decode both full tracks to a common sample
 rate and slice by sample index. Separately seeking to each crop can shift its
 sample alignment and give a false mismatch.
+Even after full-track decoding, resampled audio can need sub-sample alignment,
+especially for bright sounds. Preserve the coarse result and refine alignment
+with band-limited interpolation before judging a mismatch; keep the level,
+residual and correlation limits unchanged.
 
 Every subtitle track, a dub's included, is timed for reading as it's assembled
 (`subtitles.py`, below), and a line longer than about 42 letters is broken in
@@ -1351,6 +1412,13 @@ language there.
 - **After an NVIDIA driver update, restart the backend.** A backend that was
   running during the update keeps "CUDA out of memory" errors on an empty GPU
   and silently runs Whisper on the CPU.
+- **CPU OCR needs bounded inference pools.** The CPU OCR environment uses
+  `onnxruntime` instead of `onnxruntime-gpu`. It can scan on-screen text beside
+  a render on a discrete GPU; test a short range first, since CPU scans can take
+  much longer. Keep at most two scans running together. The OCR
+  engine caps each inference pool at four CPU threads. Limiting OpenMP alone
+  does not limit ONNX Runtime's own pools. On an integrated GPU, keep these
+  memory-intensive tasks sequential as described below.
 - **With an AMD GPU (or on a Mac), Whisper runs on the CPU.** CTranslate2 has
   no backend for either, so the tools that only listen (`asr_words.py`,
   `voices.py check`, `lineqa.py`, `qa.py`, the window check in `fit.py` and

@@ -42,6 +42,7 @@ import argparse
 import collections
 import difflib
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -77,18 +78,22 @@ def engine(lang):
     if cuda:  # on the CPU (an AMD GPU, a Mac) the OCR needn't wait for renders
         hold_gpu()
     rec, model = LANGUAGES[lang].OCR
-    return RapidOCR(
-        params={
-            "Det.ocr_version": OCRVersion.PPOCRV5,
-            "Det.model_type": ModelType.MOBILE,
-            "Rec.ocr_version": OCRVersion.PPOCRV5,
-            "Rec.model_type": ModelType[model],
-            "Rec.lang_type": LangRec[rec],
-            "Global.use_cls": False,
-            "Global.log_level": "critical",
-            "EngineConfig.onnxruntime.use_cuda": cuda,
-        }
-    ), cuda
+    params = {
+        "Det.ocr_version": OCRVersion.PPOCRV5,
+        "Det.model_type": ModelType.MOBILE,
+        "Rec.ocr_version": OCRVersion.PPOCRV5,
+        "Rec.model_type": ModelType[model],
+        "Rec.lang_type": LangRec[rec],
+        "Global.use_cls": False,
+        "Global.log_level": "critical",
+        "EngineConfig.onnxruntime.use_cuda": cuda,
+    }
+    if not cuda:
+        # Each detector/recognizer otherwise creates a machine-sized pool.
+        # Leave CPU time for the renderer and other parts being directed.
+        params["EngineConfig.onnxruntime.intra_op_num_threads"] = min(4, os.cpu_count() or 1)
+        params["EngineConfig.onnxruntime.inter_op_num_threads"] = 1
+    return RapidOCR(params=params), cuda
 
 
 def size(video):

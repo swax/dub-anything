@@ -7,12 +7,39 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
-from dub import _fill_speed, _override_speed
+from dub import _fill_speed, _fitting_published_pace, _override_speed
 from dub_anything import ready_problems
 import core
 
 
 class FillSpeedTests(unittest.TestCase):
+    def test_rejected_adjustment_can_reuse_fitting_published_pace(self):
+        spec = {"steps": 32, "line_ref": "own"}
+        self.assertEqual(_fitting_published_pace({**spec, "speed": 0.8}, spec, {"speech": 0.8, "room": 1.3}), 1.0)
+
+    def test_recovery_requires_current_reference_and_other_settings(self):
+        for field in ("line_ref", "fallback_ref", "steps", "seed", "effect"):
+            with self.subTest(field=field):
+                self.assertIsNone(
+                    _fitting_published_pace({field: "new", "speed": 0.8}, {field: "old"}, {"speech": 0.8, "room": 1.3})
+                )
+
+    def test_recovery_requires_a_measured_take_inside_the_current_room(self):
+        for speech in (None, 0, float("nan"), 1.29, 1.4):
+            with self.subTest(speech=speech):
+                self.assertIsNone(
+                    _fitting_published_pace({"steps": 32, "speed": 0.8}, {"steps": 32}, {"speech": speech, "room": 1.3})
+                )
+
+    def test_unchanged_or_invalid_pace_is_not_an_automatic_adjustment(self):
+        for old, new in ((1, 1), (True, 0.8), (1, float("nan")), (1.3, 0.8)):
+            with self.subTest(old=old, new=new):
+                self.assertIsNone(
+                    _fitting_published_pace(
+                        {"steps": 32, "speed": new}, {"steps": 32, "speed": old}, {"speech": 0.8, "room": 1.3}
+                    )
+                )
+
     def test_unmeasured_short_prediction_stays_at_natural_pace(self):
         self.assertEqual(_fill_speed(1.2, 2.0, power=1 / 0.7, measured=False), 1.0)
 

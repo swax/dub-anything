@@ -263,6 +263,22 @@ def end_dip(db, start, end):
     return round((lo + k) * frame, 3) if smooth[k] - level <= -DIP_DB else None
 
 
+def source_check_keys(work, lines, dips=False, cast_lines=False):
+    """Source-check cache keys shared by eligibility and diagnostic reports."""
+    src = langs(work.name)[0]
+    rivals = hashlib.sha1(
+        "|".join(f"{v}:{voice_sig(v)}" for v in sorted({line["voice"] for line in lines})).encode()
+    ).hexdigest()[:8]
+    return [
+        f"{line['start']:.2f}-{line['end']:.2f}_"
+        + hashlib.sha1(f"{line['voice']}|{voice_sig(line['voice'])}|{said(line, src)}".encode()).hexdigest()[:12]
+        + f"_{rivals}"
+        + ("_dips" if dips else "")
+        + ("_cast" if cast_lines else "")
+        for line in lines
+    ]
+
+
 def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
     """Whether each line's window can be its own reference, as (why, cut) per line.
     `why` says why it can't, or is None if it can: speech running on past the
@@ -284,21 +300,12 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
     src = langs(work.name)[0]
     cache_path = work / "refs" / "clean.json"
     cache = load_json(cache_path, {})
-    rivals = hashlib.sha1(
-        "|".join(f"{v}:{voice_sig(v)}" for v in sorted({line["voice"] for line in lines})).encode()
-    ).hexdigest()[:8]
-    keys = [
-        f"{line['start']:.2f}-{line['end']:.2f}_"
-        + hashlib.sha1(f"{line['voice']}|{voice_sig(line['voice'])}|{said(line, src)}".encode()).hexdigest()[:12]
-        + f"_{rivals}"
-        + ("_dips" if dips else "")
-        + ("_cast" if cast_lines else "")
-        for line in lines
-    ]
+    keys = source_check_keys(work, lines, dips, cast_lines)
     if any(k not in cache for k in keys):
         import draft
         import edges
         from register import cer
+        from reference_review import speech_margins
 
         sr = draft.SR
         audio = draft.decode_audio(str(JOBS / job_id / "vocals.wav"), sampling_rate=sr)
@@ -325,6 +332,9 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
         )
         # Exclude this part's own lines: a line mustn't vouch for itself.
         cents = draft.cast_centroids(embed, {who(v) for v in cast}, exclude=work.name) if (cast_lines and embed) else {}
+        review_path = work / "refs" / "source-review.json"
+        reviews = load_json(review_path, {})
+        source_stat = (JOBS / job_id / "vocals.wav").stat()
         for line, key in zip(lines, keys):
             if key in cache:
                 continue
@@ -336,7 +346,16 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
                     why = "speech runs on past the window's end"
             x = audio[int(a * sr) : int((cut or b) * sr)]
             if why is None:
-                heard = "".join(p["said"] for p in draft.transcribe(model, x, language=src))
+                found = draft.transcribe(model, x, language=src)
+                heard = "".join(p["said"] for p in found)
+                reviews[key] = {
+                    "start": a,
+                    "end": cut or b,
+                    "voice": line["voice"],
+                    "heard": heard,
+                    "source": {"job": job_id, "size": source_stat.st_size, "mtime_ns": source_stat.st_mtime_ns},
+                    **speech_margins(found, len(x) / sr),
+                }
                 err = cer(bare(said(line, src)), bare(heard))
                 if err > LINE_REF_CER:
                     why = f"heard as '{heard}' ({err:.0%} off)"
@@ -350,6 +369,7 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
                         why = f"voice nearer {best}"
             cache[key] = {"cut": cut} if cut and not why else why
         cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
+        review_path.write_text(json.dumps(reviews, ensure_ascii=False, indent=1), encoding="utf-8")
     return [(None, cache[k]["cut"]) if isinstance(cache[k], dict) else (cache[k], None) for k in keys]
 
 
@@ -377,14 +397,32 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
     (work / "refs").mkdir(exist_ok=True)
     refs = {}
     repeated = {key for key, count in Counter(ids).items() if count > 1}
-    for line, i, (why, cut) in zip(lines, ids, unclean_windows(work, job_id, lines, ids, dips, cast_lines)):
+    checks = unclean_windows(work, job_id, lines, ids, dips, cast_lines)
+    reviews = load_json(work / "refs" / "source-review.json", {})
+    keys = source_check_keys(work, lines, dips, cast_lines) if reviews else [None] * len(lines)
+    source_stat = (JOBS / job_id / "vocals.wav").stat()
+    source = {"job": job_id, "size": source_stat.st_size, "mtime_ns": source_stat.st_mtime_ns}
+    for line, i, key, (why, cut) in zip(lines, ids, keys, checks):
         if not line.get("line_ref", True) or line.get("effect") in ROOM_EFFECTS:
             continue
         if why:
             if verbose:
                 print(f"  line ref skipped at {line['start']}: {why}")
             continue
+        review = reviews.get(key, {})
         own = vocals[int(line["start"] * sr) : int((cut or line["end"]) * sr)]
+        if verbose and review.get("source") == source and review.get("review_tail"):
+            from reference_review import audible_tail
+
+            tail = audible_tail(own, sr, review)
+        else:
+            tail = {"review_tail": False}
+        if tail["review_tail"]:
+            print(
+                f"  reference review at {line['start']}: {review['trailing_seconds']:.2f} s after the last recognized word; "
+                f"{tail['tail_active_seconds']:.2f} s has audible energy; "
+                "check for laughter, crosstalk, noise or missed speech (reference unchanged)"
+            )
         with_prefix = line.get("ref_prefix", prefix)
         if not isinstance(with_prefix, bool):
             raise ValueError("ref_prefix must be true or false")

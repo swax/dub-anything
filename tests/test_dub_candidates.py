@@ -105,7 +105,7 @@ class IncrementalRenderTests(unittest.TestCase):
             tag="",
         )
 
-    def run_generate(self, args, wait=None, submit=None):
+    def run_generate(self, args, wait=None, submit=None, *, fill=False, spans=None):
         def post(url, json, timeout):
             self.requests.append(json)
             return SimpleNamespace(status_code=200, json=lambda: {"task_id": "task"})
@@ -123,7 +123,7 @@ class IncrementalRenderTests(unittest.TestCase):
 
         mode = {
             "voice": "actor",
-            "fill": False,
+            "fill": fill,
             "line_ref": False,
             "predict_speed": False,
             "dips": False,
@@ -135,6 +135,15 @@ class IncrementalRenderTests(unittest.TestCase):
             patch.object(dub, "line_id", side_effect=lambda line: "L" + str(line["start"])),
             patch.object(dub, "take_wav", side_effect=lambda job, lid, target, kind="seg": self.root / (lid + ".wav")),
             patch.object(dub, "render_mode", return_value=mode),
+            patch.object(dub, "actor_spans", return_value=spans or [(0, 0.9), (0, 0.5)]),
+            patch.object(
+                dub,
+                "fit_rows",
+                return_value=[
+                    {"i": 0, "speech": 0.5, "room": 1.55, "flag": ""},
+                    {"i": 1, "speech": 0.5, "room": 1.3, "flag": ""},
+                ],
+            ),
             patch.object(dub, "ensure_voice", side_effect=lambda key: "original-" + key),
             patch.object(dub, "seeded_voice", side_effect=lambda work, key, seed: "private-" + str(seed)) as seeded,
             patch.object(dub, "use_tts_engine", side_effect=engine),
@@ -154,6 +163,69 @@ class IncrementalRenderTests(unittest.TestCase):
         self.assertEqual([s["profile_id"] for s in self.requests[0]["segments"]], ["original-a", "original-b"])
         self.assertFalse(any("seed" in s for s in dub.load_json(self.work / "rendered.json").values()))
         self.assertFalse((self.work / "shorttakes" / "active-generation.json").exists())
+
+    def overflow(self, *args):
+        raise dub.BackendTaskError(
+            "task", {"type": "error", "segment": 0, "segment_id": "L0", "error_code": "dub_timing_overflow"}
+        )
+
+    def test_rolled_back_slow_take_remixes_the_fitting_published_take(self):
+        self.write("rendered.json", {"L0": self.settings, "L2": {**self.settings, "speed": 0.8}})
+        before = {lid: (self.root / (lid + ".wav")).read_bytes() for lid in ("L0", "L2")}
+
+        def wait(*args):
+            if len(self.requests) == 1:
+                return self.overflow(*args)
+            return {"type": "done"}
+
+        self.run_generate(self.args(), wait=wait, fill=True)
+        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(self.requests[0]["regen_only"], ["L0"])
+        self.assertEqual(self.requests[0]["segments"][0]["speed"], 0.8)
+        self.assertEqual(self.requests[1]["regen_only"], [])
+        self.assertNotIn("speed", self.requests[1]["segments"][0])
+        self.assertEqual({lid: (self.root / (lid + ".wav")).read_bytes() for lid in before}, before)
+        self.assertEqual(dub.load_json(self.work / "rendered.json")["L0"], self.settings)
+
+    def test_overflow_recovery_does_not_override_directed_pace(self):
+        self.lines[0]["speed"] = 0.8
+        self.write("script.json", {"lines": self.lines})
+        with self.assertRaises(SystemExit):
+            self.run_generate(self.args(), wait=self.overflow, fill=True)
+        self.assertTrue(all(r["segments"][0]["speed"] == 0.8 for r in self.requests))
+
+    def test_overflow_recovery_does_not_undo_requested_word_reroll(self):
+        self.write("reroll.json", [{"id": "L0"}])
+        with self.assertRaises(SystemExit):
+            self.run_generate(self.args(), wait=self.overflow, fill=True)
+        self.assertTrue(all("L0" in r["regen_only"] for r in self.requests))
+
+    def test_failed_word_reroll_cannot_be_replaced_with_a_cached_only_success(self):
+        self.write("reroll.json", [{"id": "L0"}])
+
+        def wait(*args):
+            if len(self.requests) == 1:
+                return self.overflow(*args)
+            return {"type": "done"}
+
+        with self.assertRaises(SystemExit):
+            self.run_generate(self.args(), wait=wait, fill=True, spans=[(0, 0.5), (0, 0.5)])
+        self.assertEqual(len(self.requests), 1)
+
+    def test_failed_full_regeneration_cannot_reuse_a_previous_publication(self):
+        args = self.args()
+        args.full = True
+        with self.assertRaises(SystemExit):
+            self.run_generate(args, wait=self.overflow, fill=True)
+        self.assertEqual(len(self.requests), 1)
+        self.assertNotIn("regen_only", self.requests[0])
+
+    def test_overflow_recovery_does_not_accept_old_quality_settings(self):
+        args = self.args()
+        args.steps = 16
+        with self.assertRaises(SystemExit):
+            self.run_generate(args, wait=self.overflow, fill=True)
+        self.assertTrue(all("L0" in r["regen_only"] for r in self.requests))
 
     def test_only_seeded_line_regenerates_and_other_metadata_survives(self):
         other = {**self.settings, "marker": "must survive"}

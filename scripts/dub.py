@@ -674,6 +674,34 @@ def _override_speed(segment, settings, speed):
             spec["speed"] = speed
 
 
+def _fitting_published_pace(requested, published, row):
+    """Recover a fitting published pace after an automatic adjustment fails.
+
+    A rejected staged take leaves the old WAV and settings intact. That old
+    length cannot tell us how long the rejected adjustment actually was.
+    """
+    if not published or {k: v for k, v in requested.items() if k != "speed"} != {
+        k: v for k, v in published.items() if k != "speed"
+    }:
+        return None
+    old, new = published.get("speed", 1.0), requested.get("speed", 1.0)
+    if (
+        any(
+            isinstance(s, bool)
+            or not isinstance(s, (int, float))
+            or not math.isfinite(s)
+            or not FILL_SPEED[0] <= s <= FILL_SPEED[1]
+            for s in (old, new)
+        )
+        or old == new
+    ):
+        return None
+    speech, room = row.get("speech"), row.get("room")
+    if speech is None or room is None or not all(math.isfinite(x) for x in (speech, room)):
+        return None
+    return old if 0 < speech <= room - 0.02 else None
+
+
 def _record_published_settings(rendered, settings, job, target, started, regen, *, published, selected=None):
     """Associate settings with takes the backend successfully published."""
     if not published:
@@ -827,7 +855,9 @@ def _cmd_generate(args):
     # or, when only the voice conversion garbled them, converted again.
     queued = load_json(work / "reroll.json", []) if script else []
     reroll = {r["id"] for r in queued if not r.get("reconvert") and not r.get("settled")}
+    forced_regeneration = args.full or only is not None or bool(reroll)
     reconvert = {r["id"] for r in queued if r.get("reconvert")}
+    fitting_paces = {}  # rejected automatic adjustments can reuse a validated published pace
     spans = actor_spans(job_id, script["lines"]) if mode["fill"] else None
     ends = [span and span[1] for span in spans] if spans else None
     for line in script["lines"] if script else []:
@@ -995,6 +1025,8 @@ def _cmd_generate(args):
                 if speed and abs(speed - 1) >= 0.01:
                     seg["speed"] = settings[i]["speed"] = round(speed, 2)
         for seg, lid, line in zip(segments, ids, script["lines"]):
+            if lid in fitting_paces:
+                _override_speed(seg, settings[lid], fitting_paces[lid])
             if "speed" in line:
                 _override_speed(seg, settings[lid], line["speed"])
         # A take that overflows its room at fill's fastest speed can't be re-timed:
@@ -1123,7 +1155,7 @@ def _cmd_generate(args):
             args._generation.save()
         for n in range(1 + (FILL_PASSES if mode["fill"] else 0)):
             segments, ids, settings, regen = plan(first=n == 0)
-            if n and not regen:
+            if n and not regen and (done is not None or not fitting_paces):
                 break  # every take ends on the actor, or is as fast or slow as fill allows
             if args.match_level and script:
                 level(segments, ids)
@@ -1153,7 +1185,35 @@ def _cmd_generate(args):
                     raise
                 if "dub_timing_overflow" not in str(e) or not script:
                     raise
+                # Failed attempts publish no takes. Keep the backend's validation
+                # detail available when the director repairs the reported line.
+                print(f"  timing validation: {e}")
                 done, stopped = None, re.search(r'"segment": (\d+)', str(e))
+                if (
+                    mode["fill"]
+                    and args.timing == "concise"
+                    and args.engine == "omnivoice"
+                    and not american
+                    and not forced_regeneration
+                    and isinstance(e, BackendTaskError)
+                    and e.event.get("type") == "error"
+                    and e.event.get("error_code") == "dub_timing_overflow"
+                ):
+                    index = e.event.get("segment")
+                    if type(index) is int and 0 <= index < len(ids):
+                        lid = ids[index]
+                        if (
+                            e.event.get("segment_id", lid) == lid
+                            and lid not in reroll
+                            and "speed" not in script["lines"][index]
+                        ):
+                            row = next(r for r in fit_rows(args.name, args.overflow) if r["i"] == index)
+                            pace = _fitting_published_pace(settings[lid], rendered.get(lid), row)
+                            if pace is not None:
+                                fitting_paces[lid] = pace
+                                print(
+                                    f"  L{index:02d}: keeping fitting published pace {pace:g}; rejected adjustment was not published"
+                                )
             finally:
                 # Failed/cancelled attempts leave the last publication intact.
                 if args._generation is None or not args._generation.unknown():
@@ -1172,7 +1232,7 @@ def _cmd_generate(args):
             print(f"    ({time.time() - t0:.0f} s)")
             synthesized |= regen is None or bool(regen)
             if done is None:
-                if not mode["fill"] or n == FILL_PASSES:
+                if not mode["fill"] or n == FILL_PASSES or forced_regeneration:
                     break
                 if not any(take_wav(job_id, lid, tgt).exists() for lid in ids):
                     print("  no published takes to measure; revise the reported line before retrying")

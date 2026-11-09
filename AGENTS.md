@@ -138,6 +138,19 @@ work; you direct.
    guess a `"listen"` note (who says it, a misheard word): it goes into the
    report. A part that stays original gets `"lines": []`. Then
    `scripts/dub_anything.py ready <slug> <NN>`: it renders by itself.
+
+   For Japanese → English in the actor's voice, use `"line_ref": true` and
+   `"ref_prefix": false` in `render`: clean current-line Japanese supplies the
+   voice and performance. Keep `dips`, `cast_lines`, `fill` and `predict_speed`
+   on. For unsafe references, choose a complete, ordinary three-to-five-second
+   utterance from the same speaker and route it with `fallback_voices`; keep
+   that fallback consistent through the scene. For an unreviewed recurring
+   voice, audition the fallback on a few generated target-language lines;
+   check clarity, pace and scene fit as well as source cleanliness and identity.
+   Save uncertain choices for a small post-dub A/B page. Inspect laughter and other
+   nonverbal tails even when transcript checks pass. Use a shared prefix only
+   for an explicit listening comparison. See the reference-selection notes in
+   [docs/directing.md](docs/directing.md).
 4. **When `run --watch` stops.** Exit 0: delivered. Exit 2: a part is blocked
    (`status` says why: lines that don't fit their window, or a render that
    failed twice). Fix the script and start `run --watch` again; the part
