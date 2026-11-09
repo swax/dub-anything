@@ -740,6 +740,12 @@ register before changing the engine or every line's settings. A source rejection
 for speaker mismatch also calls for an attribution check; substituting the
 assigned character's reference does not resolve that casting uncertainty.
 
+For fallback duration, OmniVoice recommends starting with
+[3–10 seconds](https://github.com/k2-fsa/OmniVoice#voice-cloning) and warns that
+longer audio can reduce cloning quality. A duration comparison should use
+shorter and longer cuts from the same clean conversational passage; changing
+the passage and its length together cannot isolate the effect of duration.
+
 **Voice** (the `render` block's `"voice"`, or `--voice`) is how the English
 sounds. Use the actor's native accent by default; use American English or both
 when the user requests it.
