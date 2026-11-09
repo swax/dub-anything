@@ -733,6 +733,13 @@ checked clean reference from the same speaker's nearby conversation, or retain
 the original with a caption. Keep those exceptions explicit so an automatic
 fallback cannot silently replace the source-only policy on substantial lines.
 
+Review fallback lines together by reference as well as in their surrounding
+dialogue. A clean reference still needs to suit the scene's delivery. Several
+jarring takes sharing one fallback are a reason to audition that reference's
+register before changing the engine or every line's settings. A source rejection
+for speaker mismatch also calls for an attribution check; substituting the
+assigned character's reference does not resolve that casting uncertainty.
+
 **Voice** (the `render` block's `"voice"`, or `--voice`) is how the English
 sounds. Use the actor's native accent by default; use American English or both
 when the user requests it.
