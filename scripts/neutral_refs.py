@@ -109,7 +109,7 @@ def collect(voice, parts):
         clean = []
         for index, (line, (why, cut)) in enumerate(zip(lines, checks)):
             same = voices[line["voice"]].get("register_of", line["voice"]) == family
-            if not same or why or line.get("effect") in core.ROOM_EFFECTS:
+            if not same or why or line.get("line_ref") is False or line.get("effect") in core.ROOM_EFFECTS:
                 continue
             end = cut or line["end"]
             feature = measure(

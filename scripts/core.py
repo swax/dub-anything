@@ -696,7 +696,11 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
     slowest = FILL_SPEED[0] if fill and american else 1.0
     ids = [line_id(line) for line in lines]
     own, base = {}, {}  # per-line references by line id, voices' references by key
-    check_references = bool(mode.get("fallback_voices")) or any("fallback_voice" in line for line in lines)
+    check_references = (
+        bool(mode.get("fallback_voices"))
+        or any("fallback_voice" in line for line in lines)
+        or any("fallback_voice" in settings for settings in rendered.values())
+    )
     if predict and not american:
         voices = load_json(WORK / "voices.json", {})
         todo = [
