@@ -57,6 +57,67 @@ class TextEvidenceTests(unittest.TestCase):
                         self.assertEqual(command, runner.SUBS + ["sample-01"] + extra)
 
 
+class OriginalAudioTextTests(unittest.TestCase):
+    def test_original_audio_scans_text_without_audio_prep_and_resumes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            folder = work / "sample-01"
+            folder.mkdir()
+            (folder / "script.json").write_text('{"lines": []}', encoding="utf-8")
+            part = {"name": folder.name, "file": "opening.mp4"}
+            job = {"signs": True, "langs": ["en", "es"]}
+            with patch.object(runner, "WORK", work), patch.object(runner, "tool", return_value=(True, "")) as tool:
+                self.assertEqual(runner.prepare_step(job, [part]), "busy")
+                self.assertEqual(
+                    tool.call_args.args[2],
+                    runner.SIGNS + [part["name"], "--video", part["file"], "--source", "en", "--target", "es"],
+                )
+                self.assertFalse((folder / "segments.json").exists())
+                (folder / "signs.json").write_text('{"candidates": []}', encoding="utf-8")
+                tool.reset_mock()
+                self.assertEqual(runner.prepare_step(job, [part]), "done")
+                tool.assert_not_called()
+
+    def test_original_audio_is_not_a_text_scan_completion_exemption(self):
+        for scanned in (False, True):
+            with self.subTest(scanned=scanned), tempfile.TemporaryDirectory() as tmp:
+                work = pathlib.Path(tmp)
+                part = {"name": "sample-01", "file": "opening.mp4"}
+                folder = work / part["name"]
+                folder.mkdir()
+                (folder / "script.json").write_text('{"lines": []}', encoding="utf-8")
+                if scanned:
+                    (folder / "signs.json").write_text('{"candidates": []}', encoding="utf-8")
+                job = {"slug": "sample", "voices": ["actor"], "signs": True, "delivered": {"path": "out.mkv"}}
+                with (
+                    patch.object(runner, "WORK", work),
+                    patch.object(runner, "load_job", return_value=job),
+                    patch.object(runner, "save_job"),
+                    patch.object(runner.backend, "ensure", return_value=True),
+                    patch.object(runner, "split", return_value=True),
+                    patch.object(runner, "parts", return_value=[part]),
+                    patch.object(runner, "second"),
+                    patch.object(runner, "variant", return_value=part["name"]),
+                    patch.object(runner, "advance", return_value="final"),
+                    patch.object(runner, "prepare_step", return_value="done"),
+                    patch.object(runner, "deliver_job", return_value=True) as delivery,
+                    patch.object(runner, "report", return_value=work / "report.md"),
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    self.assertEqual(runner.cmd_run(types.SimpleNamespace(slug="sample", watch=False)), 0)
+                self.assertEqual(delivery.call_count, int(scanned))
+
+    def test_text_scan_remains_optional_when_not_requested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            folder = work / "sample-01"
+            folder.mkdir()
+            (folder / "script.json").write_text('{"lines": []}', encoding="utf-8")
+            with patch.object(runner, "WORK", work), patch.object(runner, "tool") as tool:
+                self.assertEqual(runner.prepare_step({"signs": False}, [{"name": folder.name}]), "done")
+                tool.assert_not_called()
+
+
 class PauseCheckpointTests(unittest.TestCase):
     def test_pause_waits_for_background_checks_and_skips_the_next_tool(self):
         with tempfile.TemporaryDirectory() as tmp:

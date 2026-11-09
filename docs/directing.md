@@ -137,9 +137,19 @@ without any speech (a silent channel card) gets one from `dub_anything.py` itsel
 when VoiceStudio finds nothing to transcribe. A scene
 entirely in a third language is the same, with its `captions` (below) still in
 the subtitles.
+Keeping original audio is independent of translating visual text. With
+`--signs` or `--auto-text`, every part still gets a text scan, including empty-line
+parts, and delivery waits for those scans. Review film titles, credits,
+introductory cards and other meaningful text even over music or silence.
+Exclude unrelated commercial clutter only after reviewing the picture.
+An unprepped part can be scanned with
+`scripts/signs.py <part> --video <part.mp4> --source ja --target en` in the OCR
+environment; it needs no voice job or audio preparation. The scan saves its
+video and language metadata for later previews and assembly. Put translations
+in that part's `signs` while leaving `lines` empty to preserve all its audio.
 A trailer for the next film or episode, recorded with the show, is different: its
 dialogue is the same cast, so dub it like the show with the same voices. Its title
-cards and on-screen text stay as they are.
+cards and on-screen text need their own review too.
 
 A top-level `"captions": [{start, end, ja, text}]` list (`en` for `ja` dubbing
 from English, `es` from Spanish, `ko` from Korean, `zh` from Chinese) holds speech that stays in the original audio but still belongs in
@@ -210,6 +220,8 @@ part. Use it for a block that stays in the original (a run of songs, a
 commercial break) and at a splice between two recordings, such as a live
 stream that went off air and came back with another programme. Otherwise the
 ~3-minute cuts can land inside the block or straddle the splice.
+The whole-block choice controls splitting, not whether its picture needs
+translation. Record the audio and on-screen-text decisions separately at intake.
 
 `split.py` prints the pause each cut found. `pause 0.00s` means it found none:
 music under the speech can hide every gap from its full-mix VAD, and the cut

@@ -107,6 +107,10 @@ work; you direct.
    plays by default. Other target languages use the actor's voice.
    Look at the video's length and skim it for blocks that stay in the original
    (a channel card, commercial breaks, credits) so they can be split off whole.
+   Keeping original audio does not exclude on-screen text: review film titles,
+   credits and introductory cards separately. With `--signs` or `--auto-text`,
+   those parts still get a text scan and can have translated `signs` with empty
+   `lines`; unrelated commercial text is a separate editorial choice.
    `scripts/dub_anything.py new <video> [--source es|ko|zh|en --target en|ja|es] --voices actor|american|both|none [--whole A-B ...] [--captions|--subtitles|--auto-text] [--signs]`
    (`--voices none` subtitles the video instead: see "Subtitles only" below)
    (`--captions` when the picture carries burned-in closed captions,

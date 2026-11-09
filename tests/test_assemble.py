@@ -40,6 +40,46 @@ class SubtitlePacketChecks(unittest.TestCase):
 
 
 class AssemblyLayoutTests(unittest.TestCase):
+    def test_original_audio_signs_keep_the_job_language_without_prep(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            part = {"name": "sample-01", "file": str(root / "opening.mp4"), "start": 0, "end": 10}
+            manifest = root / "videos/sample-parts/parts.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(json.dumps({"video": str(root / "source.mp4"), "parts": [part]}), encoding="utf-8")
+            base = root / "work/sample-01"
+            base.mkdir(parents=True)
+            (base / "signs.json").write_text('{"source_lang":"en","target_lang":"es"}', encoding="utf-8")
+            script = {
+                "lines": [],
+                "signs": [{"start": 1, "end": 5, "text": "Bienvenidos", "box": [0.1, 0.1, 0.5, 0.2]}],
+            }
+            for voice, suffix in (("actor", ""), ("american", ".us")):
+                with self.subTest(voice=voice):
+                    folder = root / ("work/sample-01" + suffix)
+                    folder.mkdir(exist_ok=True)
+                    (folder / "script.json").write_text(json.dumps(script), encoding="utf-8")
+                    out = root / (voice + ".mkv")
+                    with (
+                        patch.object(assemble, "ROOT", root),
+                        patch.object(assemble, "WORK", root / "work"),
+                        patch.object(assemble, "out_dir", return_value=root),
+                        patch.object(
+                            assemble,
+                            "probe",
+                            return_value={"streams": [{"codec_type": "video", "width": 1280, "height": 720}]},
+                        ),
+                        patch.object(
+                            sys, "argv", ["assemble.py", "sample", "--subtitles", "--voice", voice, "--out", str(out)]
+                        ),
+                        contextlib.redirect_stdout(io.StringIO()),
+                    ):
+                        assemble.main()
+                    self.assertIn("Bienvenidos", out.with_suffix(".es.ass").read_text(encoding="utf-8-sig"))
+                    self.assertTrue(out.with_suffix(".es.srt").exists())
+                    self.assertFalse(out.with_suffix(".en.ass").exists())
+                    self.assertFalse((folder / "segments.json").exists())
+
     def test_offsets_reading_linger_plain_srt_and_stale_styled_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)

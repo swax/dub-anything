@@ -1,6 +1,7 @@
 """On-screen text: find the signs, labels and title cards in a clip's picture.
 
 Usage: scripts/signs.py <clip> [--fps 2] [--from T0] [--to T1]   (after `dub.py prep`; subs.py's environment, see AGENTS.md)
+       scripts/signs.py <clip> --video <part.mp4> --source ja --target en   (without audio prep)
        scripts/signs.py <clip> --preview [SIGN ...]
 
 Candidates for the director to translate into a part's "signs" (see
@@ -68,10 +69,18 @@ def bare(text):
     return PUNCT.sub("", text).lower()
 
 
+def context(work):
+    """Video and languages from audio prep, or a previous standalone text scan."""
+    for name in ("segments.json", "signs.json"):
+        path = work / name
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    return {}
+
+
 def pair(work):
-    """(source, target) languages of a part, as dub.py prep recorded them (core.langs)."""
-    seg = json.loads((work / "segments.json").read_text(encoding="utf-8")) if (work / "segments.json").exists() else {}
-    return pair_of(seg)
+    """(source, target) languages of a prepared or original-audio part."""
+    return pair_of(context(work))
 
 
 def spoken(text, t, dialogue):
@@ -287,7 +296,7 @@ def sheet(video, cand, path, w, h):
     cv2.imwrite(str(path), canvas, [cv2.IMWRITE_JPEG_QUALITY, 85])
 
 
-def preview(work, video, w, h, which=None):
+def preview(work, video, w, h, which=None, target=None):
     """The script's signs drawn into their frames, as delivered: preview-N.jpg sheets."""
     import cv2
 
@@ -296,7 +305,7 @@ def preview(work, video, w, h, which=None):
     if not signs:
         raise SystemExit(f"{work.name}: no signs in script.json")
     pick = [(k, s) for k, s in enumerate(signs, 1) if not which or k in which]
-    tgt = pair(work)[1]
+    tgt = target or pair(work)[1]
     dialogue = [
         (l["start"], l["end"], LANGUAGES[tgt].subtitle(l["text"])) for l in script["lines"] + script.get("captions", [])
     ]
@@ -332,9 +341,9 @@ def preview(work, video, w, h, which=None):
         print(path)
 
 
-def dialogue_of(work):
+def dialogue_of(work, source=None):
     """(start, end, bare original) of every line, from the script, else the draft."""
-    src = pair(work)[0]
+    src = source or pair(work)[0]
     for name in ("script.json", "draft.json"):
         p = work / name
         if p.exists():
@@ -347,6 +356,9 @@ def dialogue_of(work):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("clip")
+    ap.add_argument("--video", help="source video for a part that keeps its original audio and has no prep")
+    ap.add_argument("--source", choices=sorted(LANGUAGES), help="source language when audio has not been prepped")
+    ap.add_argument("--target", choices=sorted(LANGUAGES), help="subtitle language when audio has not been prepped")
     ap.add_argument("--fps", type=float, default=2.0, help="frames read a second (default 2)")
     ap.add_argument("--from", dest="t0", type=float)
     ap.add_argument("--to", dest="t1", type=float)
@@ -360,11 +372,22 @@ def main():
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
     work = ROOT / "work" / args.clip
-    video = json.loads((work / "segments.json").read_text(encoding="utf-8"))["video"]
+    doc = context(work)
+    video = args.video or doc.get("video")
+    if not video:
+        ap.error("no prepared video; provide --video, --source and --target for an original-audio part")
+    if not (work / "segments.json").exists() and any(
+        not explicit and not doc.get(field)
+        for explicit, field in ((args.source, "source_lang"), (args.target, "target_lang"))
+    ):
+        ap.error("provide --source and --target when no prepared language metadata is available")
+    src, tgt = pair_of(doc)
+    src, tgt = args.source or src, args.target or tgt
     video = pathlib.Path(video) if pathlib.Path(video).is_absolute() else ROOT / video
+    work.mkdir(parents=True, exist_ok=True)
     w, h = subs.size(video)
     if args.preview is not None:
-        return preview(work, video, w, h, set(args.preview))
+        return preview(work, video, w, h, set(args.preview), target=tgt)
     duration = float(
         subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(video)],
@@ -373,8 +396,8 @@ def main():
         ).stdout.strip()
     )
     shot_cuts = cuts(video, args.t0, args.t1)
-    dialogue = dialogue_of(work)
-    ocr, cuda = subs.engine(pair(work)[0])
+    dialogue = dialogue_of(work, source=src)
+    ocr, cuda = subs.engine(src)
     print(
         f"reading text in {video.name} ({'GPU' if cuda else 'CPU'}, {args.fps:g} frames/s, {len(shot_cuts)} cuts)",
         file=sys.stderr,
@@ -412,7 +435,11 @@ def main():
         file=sys.stderr,
     )
     (work / "signs.json").write_text(
-        json.dumps({"video": str(video), "cuts": shot_cuts, "candidates": cands}, ensure_ascii=False, indent=1),
+        json.dumps(
+            {"video": str(video), "source_lang": src, "target_lang": tgt, "cuts": shot_cuts, "candidates": cands},
+            ensure_ascii=False,
+            indent=1,
+        ),
         encoding="utf-8",
     )
     for c in cands:

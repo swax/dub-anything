@@ -15,7 +15,7 @@ plus sidecar .srt files named for their language (.en.srt, .ja.srt), and when
 any part has "signs" (translations of text in the picture) or "subtitle_layout",
 the styled track of the dub's language (.en.ass, or .ja.ass). With signs, it
 also writes the signs alone, .signs.ass (see ass.py). The languages are the
-parts' (core.langs), and the track names theirs (TITLES in languages/<code>.py).
+parts' audio-prep or text-scan metadata, and the track names theirs (TITLES in languages/<code>.py).
 Output defaults to the parts' `dubbed` folder.
 
 Every subtitle track is timed for reading (subtitles.timed): a cue stays up
@@ -39,8 +39,19 @@ import sys
 
 import ass
 import subtitles
-from core import ROOT, VOICE_LABEL, WORK, langs, load_json, original_audio_language, out_dir, said, srt_time, voice_part
-from languages import ISO3, LANGUAGES, PAIR
+from core import (
+    ROOT,
+    VOICE_LABEL,
+    WORK,
+    base_part,
+    load_json,
+    original_audio_language,
+    out_dir,
+    said,
+    srt_time,
+    voice_part,
+)
+from languages import ISO3, LANGUAGES, PAIR, pair_of
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 TEXT_SUBS = {"subrip", "ass", "ssa", "mov_text", "webvtt", "text"}
@@ -51,6 +62,17 @@ def probe(path):
                           "format=duration:stream=index,codec_type,codec_name,width,height:stream_tags=language,title,handler_name",
                           "-of", "json", str(path)], capture_output=True, encoding="utf-8", check=True).stdout  # fmt: skip
     return json.loads(out)
+
+
+def language_pair(parts):
+    """Use audio metadata, or text-scan metadata when all parts keep their audio."""
+    for filename in ("segments.json", "signs.json"):
+        for part in parts:
+            for name in (part["name"], base_part(part["name"])):
+                doc = load_json(WORK / name / filename)
+                if doc:
+                    return pair_of(doc)
+    return PAIR
 
 
 def pick(parts, spec):
@@ -116,7 +138,7 @@ def main():
         parts = [{"name": args.stem, "start": 0.0, "end": float(probe(source)["format"]["duration"])}]
     parts = [{**p, "name": voice_part(p["name"], args.voice)} for p in parts]
     t0, t1 = parts[0]["start"], parts[-1]["end"]
-    src, tgt = next((langs(p["name"]) for p in parts if (WORK / p["name"] / "segments.json").exists()), PAIR)
+    src, tgt = language_pair(parts)
 
     dubs, dubbed, original, signs, subtitle_layout = [], [], [], [], []
     for p in parts:

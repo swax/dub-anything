@@ -287,8 +287,12 @@ def prepare_step(job, ps):
     if not chunk:
         # Text in the picture, for translating: after the drafts, which the director needs first.
         for p in ps if job.get("signs") else []:
-            if not original_only(p) and not (WORK / p["name"] / "signs.json").exists():
-                if not tool(job, f"signs {p['name']}", SIGNS + [p["name"]], f"signs-{p['name']}")[0]:
+            if not (WORK / p["name"] / "signs.json").exists():
+                command = SIGNS + [p["name"]]
+                if not (WORK / p["name"] / "segments.json").exists():
+                    src, tgt = job_langs(job)
+                    command += ["--video", p["file"], "--source", src, "--target", tgt]
+                if not tool(job, f"signs {p['name']}", command, f"signs-{p['name']}")[0]:
                     problem(job, f"signs.py failed on {p['name']}")
                     return "failed"
                 return "busy"
@@ -1000,9 +1004,7 @@ def cmd_run(args):
                 return 2
             busy = step == "busy"
         # With --signs, signs.py reads every part before delivery, however early the parts were ready.
-        signs_read = not job.get("signs") or all(
-            original_only(p) or (WORK / p["name"] / "signs.json").exists() for p in ps
-        )
+        signs_read = not job.get("signs") or all((WORK / p["name"] / "signs.json").exists() for p in ps)
         final = signs_read and all(ready(p) and all(finished(p, v) for v in job["voices"]) for p in ps)
         if final:
             if SECOND_RUN.get(job["slug"]):
