@@ -1,7 +1,10 @@
 """Reference selection avoids expressive outliers and preserves source routing."""
 
+import contextlib
+import io
 import json
 import pathlib
+import runpy
 import sys
 import tempfile
 import types
@@ -110,6 +113,33 @@ class FallbackRoutingTests(unittest.TestCase):
                 )
                 self.assertTrue(problems)
         self.assertEqual(dub_anything.ready_problems({"lines": [], "render": self.mode}, self.voices), [])
+
+    def test_pace_warning_measures_configured_fallback_against_assigned_speakers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            work = root / "sample"
+            work.mkdir()
+            voices = {
+                "a": {"from": "sample", "clips": [[0, 4]], "ref_text": "r" * 80},
+                "a_neutral": {"from": "sample", "clips": [[0, 4]], "ref_text": "r" * 20, "register_of": "a"},
+            }
+            (root / "voices.json").write_text(json.dumps(voices), encoding="utf-8")
+            lines = [
+                {"voice": "a", "ja": "s" * 20, "text": "Example.", "start": i * 3, "end": i * 3 + 2} for i in range(5)
+            ]
+            (work / "script.json").write_text(json.dumps({"lines": lines, "render": self.mode}), encoding="utf-8")
+            output = io.StringIO()
+            with (
+                patch.object(core, "WORK", root),
+                patch.object(core, "langs", return_value=("ja", "en")),
+                patch.object(core, "_omnivoice", return_value=(types.SimpleNamespace(calculate_total_weight=len),)),
+                patch.object(core, "fit_rows", return_value=[]),
+                patch.object(sys, "argv", ["fit.py", "sample"]),
+                contextlib.redirect_stdout(output),
+            ):
+                runpy.run_path(str(pathlib.Path(core.__file__).with_name("fit.py")), run_name="__main__")
+            self.assertIn("a_neutral's reference says 5.0 units/s", output.getvalue())
+            self.assertNotIn("a's reference says 20.0", output.getvalue())
 
     def test_fit_repredicts_changed_fallback_but_measures_unchanged_own_take(self):
         self.check_fit_change(self.mode, {}, "a_neutral", "Reference.")

@@ -30,7 +30,7 @@ import statistics
 import sys
 
 import subtitles
-from core import WORK, _omnivoice, fit_rows, langs, load_json, said, voice_clips
+from core import WORK, _omnivoice, fallback_voice, fit_rows, langs, load_json, said, voice_clips
 
 ap = argparse.ArgumentParser()
 ap.add_argument("name")
@@ -68,7 +68,12 @@ def pace_check(name, tolerance=0.15):
     voices = load_json(WORK / "voices.json", {})
     src = langs(name)[0]  # a voice's lines are all its show's, in one language
     scripts = [load_json(p) for p in WORK.glob("*/script.json")]
-    for key in sorted({ln["voice"] for ln in load_json(WORK / name / "script.json")["lines"]}):
+    script = load_json(WORK / name / "script.json")
+    references = {}
+    for line in script["lines"]:
+        selected = fallback_voice(line, script.get("render", {}), voices)
+        references.setdefault(selected, set()).add(line["voice"])
+    for key, sources in sorted(references.items()):
         spec = voices.get(key)
         if not spec:
             continue
@@ -77,7 +82,7 @@ def pace_check(name, tolerance=0.15):
             weight(said(ln, src)) / (ln["end"] - ln["start"])
             for s in scripts
             for ln in s["lines"]
-            if ln.get("voice") == key and said(ln, src) and ln["end"] - ln["start"] >= 1.5
+            if ln.get("voice") in sources and said(ln, src) and ln["end"] - ln["start"] >= 1.5
         ]
         if len(rates) < 5:
             continue
