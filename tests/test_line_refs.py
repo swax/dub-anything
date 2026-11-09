@@ -112,6 +112,46 @@ class LineReferenceCacheTests(unittest.TestCase):
         ):
             self.assertEqual(core.line_refs(self.work, "sample", [self.line], ["L00"], prefix=False), {})
 
+    def test_repeated_ids_cannot_borrow_another_occurrences_own_reference(self):
+        for disabled in (False, True):
+            second = {**self.line, "start": 0.6, "end": 0.9, "line_ref": not disabled}
+            with (
+                self.subTest(second_disabled=disabled),
+                patch.object(core, "WORK", self.root),
+                patch.object(core, "JOBS", self.jobs),
+                patch.object(core, "langs", return_value=("ja", "en")),
+                patch.object(core, "unclean_windows", return_value=[(None, None)] * 2),
+                self.assertRaisesRegex(ValueError, "distinct take values"),
+            ):
+                core.line_refs(self.work, "sample", [self.line, second], ["shared", "shared"], prefix=False)
+
+    def test_distinct_takes_keep_their_own_source_audio_for_identical_english(self):
+        audio = np.full(self.sr, 0.2)
+        audio[int(0.6 * self.sr) :] = 0.4
+        sf.write(self.jobs / "sample" / "vocals.wav", audio, self.sr)
+        lines = [{**self.line, "text": "Yes."}, {**self.line, "text": "Yes.", "start": 0.6, "end": 0.9, "take": 1}]
+        with (
+            patch.object(core, "WORK", self.root),
+            patch.object(core, "JOBS", self.jobs),
+            patch.object(core, "langs", return_value=("ja", "en")),
+            patch.object(core, "unclean_windows", return_value=[(None, None)] * 2),
+        ):
+            ids = [core.line_id(line) for line in lines]
+            refs = core.line_refs(self.work, "sample", lines, ids, prefix=False)
+        self.assertEqual(len(refs), 2)
+        means = [sf.read(refs[key][0])[0].mean() for key in ids]
+        np.testing.assert_allclose(means, [0.2, 0.4], atol=1 / 32768)
+
+    def test_explicit_fallback_repetitions_can_still_share_a_take(self):
+        lines = [{**self.line, "line_ref": False}, {**self.line, "start": 0.6, "end": 0.9, "line_ref": False}]
+        with (
+            patch.object(core, "WORK", self.root),
+            patch.object(core, "JOBS", self.jobs),
+            patch.object(core, "langs", return_value=("ja", "en")),
+            patch.object(core, "unclean_windows", return_value=[(None, None)] * 2),
+        ):
+            self.assertEqual(core.line_refs(self.work, "sample", lines, ["shared", "shared"], prefix=False), {})
+
     def test_fit_predicts_with_the_same_source_only_reference_as_generation(self):
         voices = json.loads((self.root / "voices.json").read_text(encoding="utf-8"))
         voices["speaker1"].update({"from": "sample", "clips": [[0, 0.5]]})

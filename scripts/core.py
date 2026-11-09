@@ -6,6 +6,7 @@ check that a window is clean, and the length OmniVoice will give a take
 import them from here.
 """
 
+from collections import Counter
 import functools
 import hashlib
 import json
@@ -375,6 +376,7 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
     vocals, sr = sf.read(JOBS / job_id / "vocals.wav", dtype="float32")
     (work / "refs").mkdir(exist_ok=True)
     refs = {}
+    repeated = {key for key, count in Counter(ids).items() if count > 1}
     for line, i, (why, cut) in zip(lines, ids, unclean_windows(work, job_id, lines, ids, dips, cast_lines)):
         if not line.get("line_ref", True) or line.get("effect") in ROOM_EFFECTS:
             continue
@@ -406,6 +408,10 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
             if verbose:
                 print(f"  line ref skipped at {line['start']}: over {LINE_REF_MAX:.0f} s")
             continue
+        if i in repeated:
+            raise ValueError(
+                f"Repeated line {i} would share a per-line source reference; add distinct take values to its occurrences"
+            )
         path = (
             work
             / "refs"

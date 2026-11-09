@@ -81,7 +81,9 @@ differs.
   for public-address announcements; see the gotchas below.
 - `take` (optional): a number that gives a line repeated word for word its own
   take. VoiceStudio keys takes by the line's voice and text, so two identical
-  lines in one part would collide.
+  lines in one part would collide. Repeated English replies with different
+  original references need distinct take values; generation rejects a shared
+  ID when it would make one line borrow the other's original audio.
 - `keep_voice` (optional): `true` stops `scripts/register.py route` from moving
   the line to another of the character's references, e.g. when one of them can't
   say a word in it.
