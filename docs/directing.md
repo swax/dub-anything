@@ -708,6 +708,20 @@ delivery of its line and ends where the actor stops:
 override the script for one run, e.g. for an A/B job. Both change takes, so try them on a copy of an
 approved part rather than on the part itself.
 
+For reference comparisons, keep the English, seed, speed, engine and effects
+fixed within each pair. Preserve the exact reference audio and transcript,
+raw outputs and generation settings. Use level-matched playback copies and
+ask the listener to judge delivery and voice likeness separately. Keep these
+trials distinct from the preview's fitted takes; different timing or wording
+would confound a reference-only comparison.
+
+Check a very short original reference with an actual take before choosing its
+fallback from duration alone: verify the words, complete source boundaries and
+generated handoffs. When the original contains overlapping speakers, use a
+checked clean reference from the same speaker's nearby conversation, or retain
+the original with a caption. Keep those exceptions explicit so an automatic
+fallback cannot silently replace the source-only policy on substantial lines.
+
 **Voice** (the `render` block's `"voice"`, or `--voice`) is how the English
 sounds. Use the actor's native accent by default; use American English or both
 when the user requests it.
