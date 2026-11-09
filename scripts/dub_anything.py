@@ -67,6 +67,7 @@ from core import (
     VOICE_LABEL,
     WORK,
     actor_ends,
+    fallback_voice,
     langs,
     line_id,
     load_json,
@@ -808,6 +809,22 @@ def ready_problems(script, voices=None, american=False):
     elif isinstance(script.get("render"), dict) and "ref_prefix" in script["render"]:
         if not isinstance(script["render"]["ref_prefix"], bool):
             problems.append("render.ref_prefix must be true or false")
+    mode = script.get("render", {})
+    if isinstance(mode, dict) and "fallback_voices" in mode:
+        mapping = mode["fallback_voices"]
+        if not isinstance(mapping, dict):
+            problems.append("render.fallback_voices must be an object")
+        else:
+            for key, selected in mapping.items():
+                if not isinstance(key, str) or not isinstance(selected, str) or not selected.strip():
+                    problems.append("render.fallback_voices must map voice keys to nonblank voice keys")
+                elif voices is not None:
+                    try:
+                        if key not in voices:
+                            raise ValueError("source voice is absent from voices.json")
+                        fallback_voice({"voice": key}, mode, voices)
+                    except ValueError as error:
+                        problems.append(f"render.fallback_voices[{key}]: {error}")
     for field in ("lines", "captions", "subtitle_layout"):
         if field not in script and field != "lines":
             continue
@@ -851,6 +868,11 @@ def ready_problems(script, voices=None, american=False):
                 voice = line.get("voice")
                 if not isinstance(voice, str) or voice not in voices:
                     problems.append(f"{label}.voice must name a key in voices.json")
+                elif "fallback_voice" in line:
+                    try:
+                        fallback_voice(line, mode if isinstance(mode, dict) else {}, voices)
+                    except ValueError as error:
+                        problems.append(f"{label}.fallback_voice: {error}")
                 if american and "text_us" in line:
                     if not isinstance(line["text_us"], str) or not line["text_us"].strip():
                         problems.append(f"{label}.text_us must be nonblank text")

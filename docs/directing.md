@@ -87,6 +87,9 @@ differs.
   say a word in it.
 - `line_ref` (optional): `false` keeps the character's reference for this line
   instead of its own original (see "Render").
+- `fallback_voice` (optional): a separate reference key in the assigned
+  speaker's `register_of` family, used only when the line has no usable own
+  reference. Overrides `render.fallback_voices`; it does not change casting.
 - `ref_prefix` (optional): `false` uses only this line's original audio and
   transcript when its reference passes the source checks. It overrides the
   render block's choice; `true` adds the character's clips before the original.
@@ -757,6 +760,28 @@ features, not a validated neutrality classifier. Audition shortlisted references
 through the same small set of translated lines in context, then keep the
 approved fallback consistent through the scene. Clean per-line Japanese
 references still supply their own original performance.
+
+`scripts/neutral_refs.py speaker_1 episode-01 episode-02 --out work/neutral.json`
+ranks complete, source-checked three-to-five-second phrases near four seconds.
+It needs at least eight clean phrases for a speaker-relative baseline. Pitch,
+pitch range, spectral balance, level, level range and a rough source-text rate
+contribute separate distances; large outliers receive an extra penalty. An
+optional `--benchmark work/voices/approved.wav` compares candidates with a
+listener-approved reference instead of treating the statistical center as the
+desired performance. The report is a shortlist, not an emotion verdict.
+
+After reviewing the source and complete phrase boundaries, add
+`--pick episode-02:18.20:22.30 --key speaker_1_neutral4` to build a separate
+reference. The tool verifies its transcript and speaker similarity before
+adding the key. In the script, use
+`"render": {"line_ref": true, "ref_prefix": false, "fallback_voices":
+{"speaker_1": "speaker_1_neutral4"}}` alongside the other render settings.
+Clean lines retain their own source audio and cache identity. Fallback takes
+include the selected reference's fingerprint, so changing that reference
+regenerates those takes and recomputes their pace. `fit.py --predict` likewise
+estimates from the new reference instead of measuring an incompatible old take.
+This fallback routing applies to the actor voice; the American voice keeps its
+existing IndexTTS reference path.
 
 **Voice** (the `render` block's `"voice"`, or `--voice`) is how the English
 sounds. Use the actor's native accent by default; use American English or both

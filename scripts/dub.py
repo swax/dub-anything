@@ -49,6 +49,7 @@ from core import (
     WORK,
     actor_spans,
     base_part,
+    fallback_voice,
     fit_rows,
     indextts_length,
     langs,
@@ -56,6 +57,8 @@ from core import (
     line_refs,
     load_json,
     out_dir,
+    reference_settings,
+    reference_signature,
     speech_length,
     srt_time,
     take_length,
@@ -950,6 +953,18 @@ def _cmd_generate(args):
                 seg["ref_audio"], seg["ref_text"] = refs[i]
                 # The window, optional cut, and fingerprint of the voice audio.
                 settings[i]["line_ref"] = pathlib.Path(refs[i][0]).stem.split("_", 1)[1]
+        if not american:
+            for seg, i, line in zip(segments, ids, script["lines"]):
+                settings[i].update(reference_settings(line, mode, refs.get(i)))
+                if i not in refs:
+                    selected = fallback_voice(line, mode)
+                    if selected != line["voice"]:
+                        seed = settings[i].get("seed")
+                        seg["profile_id"] = (
+                            seeded_voice(work, selected, seed) if seed is not None else ensure_voice(selected)
+                        )
+                        if seed is not None:
+                            settings[i]["seed_profile"] = seg["profile_id"]
         if mode["fill"]:
             # Re-time takes that stop well short of the actor or run past them:
             # render them at the speed that lands their end on the actor's last sound.
@@ -961,14 +976,18 @@ def _cmd_generate(args):
             for seg, i, end, line, span in zip(segments, ids, ends, script["lines"], spans):
                 prev = rendered.get(i, {}).get("speed")
                 speed, wav = prev, engine_take(i)
-                length = speech_length(wav) if wav.exists() else None
+                compatible = reference_signature(rendered.get(i, {})) == reference_signature(settings[i])
+                length = speech_length(wav) if wav.exists() and compatible else None
                 measured = length is not None
+                if not compatible:
+                    prev, speed = None, None
                 if length is None and end and mode["predict_speed"] and american:
                     length, prev, speed = indextts_length(line["text"], span[1] - span[0]), None, None
                 elif (
                     length is None and end and mode["predict_speed"] and (i in refs or "clips" in voices[line["voice"]])
                 ):
-                    ref = refs.get(i) or (voice_wav(line["voice"]), voices[line["voice"]].get("ref_text", ""))
+                    selected = fallback_voice(line, mode)
+                    ref = refs.get(i) or (voice_wav(selected), voices[selected].get("ref_text", ""))
                     # The prediction is at natural pace, whatever speed a lost take had.
                     length, prev, speed = take_length(*ref, line["text"], lang=tgt), None, None
                 if end and length and abs(length - end) > FILL_TOL:

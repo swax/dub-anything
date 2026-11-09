@@ -179,6 +179,52 @@ LINE_REF_CER = 0.5
 KANA = {c: c - 0x60 for c in range(0x30A1, 0x30F7)}  # katakana -> hiragana, for str.translate
 
 
+def fallback_voice(line, mode, voices=None):
+    """Resolve an optional fallback within the assigned speaker's voice family.
+
+    This changes only the reference used when a clean per-line reference is
+    unavailable; it never changes casting or the per-line source checks.
+    """
+    mapping = mode.get("fallback_voices", {})
+    if not isinstance(mapping, dict):
+        raise ValueError("render.fallback_voices must be an object")
+    original = line["voice"]
+    selected = line.get("fallback_voice", mapping.get(original, original))
+    if not isinstance(selected, str) or not selected.strip():
+        raise ValueError("fallback_voice must name a voice in voices.json")
+    if selected == original:
+        return selected
+    voices = load_json(WORK / "voices.json", {}) if voices is None else voices
+
+    def family(key):
+        seen = set()
+        while True:
+            if key in seen or key not in voices:
+                raise ValueError("fallback_voice has an unknown or cyclic speaker family")
+            seen.add(key)
+            parent = voices[key].get("register_of")
+            if not parent:
+                return key
+            key = parent
+
+    if family(selected) != family(original):
+        raise ValueError("fallback_voice must belong to the assigned speaker's family")
+    return selected
+
+
+def reference_settings(line, mode, own=None):
+    """Cache identity of the actual audio reference, including fallback changes."""
+    if own:
+        return {"line_ref": pathlib.Path(own[0]).stem.split("_", 1)[1]}
+    selected = fallback_voice(line, mode)
+    return {"fallback_voice": selected, "fallback_sig": voice_sig(selected)} if selected != line["voice"] else {}
+
+
+def reference_signature(settings):
+    """Only the conditioning fields that make a measured take incompatible."""
+    return {k: settings[k] for k in ("line_ref", "fallback_voice", "fallback_sig") if k in settings}
+
+
 def bare(text):
     """Words as a window's check compares them with what Whisper hears: whatever the
     case, without spaces and punctuation, katakana as hiragana (Whisper writes a name
@@ -650,12 +696,16 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
     slowest = FILL_SPEED[0] if fill and american else 1.0
     ids = [line_id(line) for line in lines]
     own, base = {}, {}  # per-line references by line id, voices' references by key
+    check_references = bool(mode.get("fallback_voices")) or any("fallback_voice" in line for line in lines)
     if predict and not american:
         voices = load_json(WORK / "voices.json", {})
         todo = [
-            k for k, i in enumerate(ids) if not take_wav(job, i, tgt).exists() and "clips" in voices[lines[k]["voice"]]
+            k
+            for k, i in enumerate(ids)
+            if (check_references or not take_wav(job, i, tgt).exists()) and "clips" in voices[lines[k]["voice"]]
         ]
-        base = {key: (voice_wav(key), voices[key].get("ref_text", "")) for key in {lines[k]["voice"] for k in todo}}
+        keys = {fallback_voice(lines[k], mode, voices) for k in todo}
+        base = {key: (voice_wav(key), voices[key].get("ref_text", "")) for key in keys if "clips" in voices[key]}
         if todo and mode.get("line_ref", not rendered and PAIRS[pair]["line_ref"]):
             # Generation checks the full cast, including lines with cached takes.
             # Keep those rivals and their cached source checks after a rewording.
@@ -688,12 +738,20 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
         borrow = min(gap - 0.05, 0.25) if gap > 0.05 else 0.0
         row["room"] = row["window"] + borrow + overflow
         length = None
-        if wav.exists():
+        stale = (
+            predict
+            and not american
+            and check_references
+            and reference_signature(rendered.get(sid, {})) != reference_settings(line, mode, own.get(sid))
+        )
+        if stale:
+            row["stale_reference"] = True
+        if wav.exists() and not stale:
             length = row["speech"] = speech_length(wav)
             row["flag"] = "OVER" if row["speech"] > row["room"] else ("tight" if row["speech"] > row["window"] else "")
         else:
             row["speech"], row["flag"] = None, ""
-            ref = own.get(sid) or base.get(line["voice"])
+            ref = own.get(sid) or base.get(fallback_voice(line, mode))
             if american and predict:
                 length = row["est"] = indextts_length(line["text"], span[1] - span[0] if span else row["window"])
             elif ref:
