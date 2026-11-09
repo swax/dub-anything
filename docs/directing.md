@@ -746,6 +746,18 @@ longer audio can reduce cloning quality. A duration comparison should use
 shorter and longer cuts from the same clean conversational passage; changing
 the passage and its length together cannot isolate the effect of duration.
 
+For a conversational fallback, a complete utterance around four seconds is a
+useful starting candidate. Preserve natural word boundaries; three to five
+seconds is preferable to cutting a word to meet an exact duration. Assess
+neutrality relative to that speaker's ordinary conversation and recording
+conditions. Screen pitch, pitch variation, level, speaking rate and spectral
+balance separately for extremes; quiet whispers and unnaturally flat speech
+also need review. The existing register measurements are heuristic screening
+features, not a validated neutrality classifier. Audition shortlisted references
+through the same small set of translated lines in context, then keep the
+approved fallback consistent through the scene. Clean per-line Japanese
+references still supply their own original performance.
+
 **Voice** (the `render` block's `"voice"`, or `--voice`) is how the English
 sounds. Use the actor's native accent by default; use American English or both
 when the user requests it.
