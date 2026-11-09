@@ -783,6 +783,15 @@ estimates from the new reference instead of measuring an incompatible old take.
 This fallback routing applies to the actor voice; the American voice keeps its
 existing IndexTTS reference path.
 
+Check pace independently of the acoustic ranking. A dense transcript in a short
+reference can make the engine assign too little time to faithful translated
+speech. Recover a clean own window first; for an unavoidable fallback, compare
+another complete conversational phrase near the scene's usual pace. Keep its
+reference consistent through the scene. Do not invent dialogue or repeated
+words to fill a timing estimate. Inspect whether a long detected source span
+includes laughter or another speaker, then check the actual take and both
+handoffs before changing its text or pace.
+
 **Voice** (the `render` block's `"voice"`, or `--voice`) is how the English
 sounds. Use the actor's native accent by default; use American English or both
 when the user requests it.
