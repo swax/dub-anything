@@ -42,6 +42,11 @@ keeps waiting for scripts until delivery, and stops early when a part is blocked
 so the agent can tell the user. Exit codes: 0 done or idle, 2 needs the director,
 1 error. Every GPU step waits for the GPU lock (gpulock.py); logs are in
 work/jobs/<slug>/logs/.
+
+Current take hashes are recorded after QA. A re-mix that changes checked audio
+returns to ordinary QA; after two such rechecks for one unchanged script, another
+changed re-mix blocks for the director instead of looping. Legacy final parts
+without these receipts stay final until explicitly reopened or revised.
 """
 
 import argparse
@@ -81,6 +86,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 JOB_DIR = WORK / "jobs"
 VIDEOS = ROOT / "videos"
 QA_ROUNDS = 3  # rounds of fresh takes for flagged lines after the first check
+MAX_REMIX_QA_RECHECKS = 2  # additional QA passes when a re-mix changes checked audio
 PREP_CHUNK = 4  # parts prepped, separated and drafted together, after the first part
 PY = backend.vs_python()
 UV = ["uv", "run", "--no-project"]
@@ -228,13 +234,15 @@ def pause_checkpoint():
 
 
 def tool(job, label, cmd, logname):
-    """Run one step, its output to the job's log; returns (ok, output)."""
+    """Run a step, retaining earlier retry logs; return success and its output."""
     pause_checkpoint()
     logs = JOB_DIR / job["slug"] / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     log(f"{label} ...")
     path = logs / f"{logname}.log"
+    if path.exists():
+        path.replace(path.with_name(f"{path.stem}.previous-{time.time_ns()}.log"))
     with open(path, "w", encoding="utf-8") as f:  # written as it runs, to follow a long render
         r = subprocess.run(cmd, cwd=ROOT, env=ENV, stdout=f, stderr=subprocess.STDOUT)
     out = path.read_text(encoding="utf-8", errors="replace")
@@ -485,7 +493,41 @@ def finished(p, voice):
     if not script["lines"]:
         return True
     st = load_json(WORK / voice_part(p["name"], voice) / "state.json", {})
-    return st.get("stage") == "final" and st.get("script") == script_sha(derived_script(script, voice))
+    wanted = derived_script(script, voice)
+    if st.get("stage") != "final" or st.get("script") != script_sha(wanted):
+        return False
+    # Do not migrate or invalidate unrelated legacy finals. New receipts must
+    # still describe the actual current takes before delivery can use them.
+    if "qa_take_hashes" not in st:
+        return True
+    if st.get("problem"):
+        return False
+    try:
+        return st["qa_take_hashes"] == current_take_hashes(voice_part(p["name"], voice), wanted)
+    except (OSError, ValueError):
+        return False
+
+
+def current_take_hashes(name, script):
+    """Hash every requested current take; missing audio cannot count as checked."""
+    segment = load_json(WORK / name / "segments.json", {})
+    if not segment.get("job_id"):
+        raise ValueError(f"{name}: missing current take job metadata")
+    target = langs(name)[1]
+    result = {}
+    for line in script["lines"]:
+        lid = line_id(line)
+        path = take_wav(segment["job_id"], lid, target)
+        try:
+            before = path.stat()
+            raw = path.read_bytes()
+            after = path.stat()
+        except OSError as error:
+            raise ValueError(f"{name}: missing or unreadable current take {lid}: {path}") from error
+        if not raw or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+            raise ValueError(f"{name}: empty or changing current take {lid}: {path}")
+        result[lid] = hashlib.sha256(raw).hexdigest()
+    return result
 
 
 def advance(job, name):
@@ -511,7 +553,20 @@ def advance(job, name):
 
     stage = st["stage"]
     if stage == "final":
-        return "final"
+        if "qa_take_hashes" not in st:
+            return "final"
+        try:
+            current = current_take_hashes(name, script)
+        except (OSError, ValueError) as error:
+            st["problem"] = str(error)
+            save()
+            return "blocked"
+        if current == st["qa_take_hashes"]:
+            return "final"
+        log(f"{name}: current takes changed since QA; checking the current audio")
+        st["stage"] = "qa"
+        save()
+        return "busy"
     if stage in ("render", "remix"):
         clean_backend(job)
         what = {"render": "render" if not st["round"] else f"round {st['round']}", "remix": "re-mix"}[stage]
@@ -537,7 +592,28 @@ def advance(job, name):
             save()
             return "blocked" if st.get("problem") else "busy"
         st["fails"] = 0
-        st["stage"] = "qa" if stage == "render" else "final"
+        if stage == "render":
+            st["stage"] = "qa"
+        else:
+            try:
+                current = current_take_hashes(name, script)
+            except (OSError, ValueError) as error:
+                st["problem"] = str(error)
+                save()
+                return "blocked"
+            if current == st.get("qa_take_hashes"):
+                st["stage"] = "final"
+            else:
+                st["qa_remix_rechecks"] = st.get("qa_remix_rechecks", 0) + 1
+                st["stage"] = "qa"
+                if st["qa_remix_rechecks"] > MAX_REMIX_QA_RECHECKS:
+                    st["problem"] = (
+                        f"re-mix changed checked takes after {MAX_REMIX_QA_RECHECKS} QA rechecks; "
+                        "director review required before checking or rendering again"
+                    )
+                    save()
+                    return "blocked"
+                log(f"{name}: re-mix changed checked takes; returning to QA")
         save()
         return "busy"
     if stage == "qa":
@@ -549,6 +625,12 @@ def advance(job, name):
         )
         if not ok:
             st["problem"] = f"lineqa failed: {last_error(out)}"
+            save()
+            return "blocked"
+        try:
+            st["qa_take_hashes"] = current_take_hashes(name, script)
+        except (OSError, ValueError) as error:
+            st["problem"] = str(error)
             save()
             return "blocked"
         # Lines lineqa settled (heard the same wrong way on several takes) are listed
@@ -936,6 +1018,16 @@ def cmd_status(args):
             st = load_json(WORK / voice_part(name, voice) / "state.json", {})
             if st and script and script["lines"] and st.get("script") != script_sha(derived_script(script, voice)):
                 cols.append(f"{voice}: script changed; render pending")
+                continue
+            if (
+                script
+                and script["lines"]
+                and st.get("stage") == "final"
+                and "qa_take_hashes" in st
+                and not st.get("problem")
+                and not finished(p, voice)
+            ):
+                cols.append(f"{voice}: current take QA coverage pending (changed or missing audio)")
                 continue
             left = len(load_json(WORK / voice_part(name, voice) / "reroll-left.json", []))
             s = ("BLOCKED" if st.get("problem") else st.get("stage", "-")) + (

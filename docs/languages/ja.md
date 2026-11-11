@@ -28,6 +28,12 @@ those speakers.
 Check retained speech in the rendered video's soundtrack. A dub-only stem
 contains silence in those original-speech ranges.
 
+Read a leading `いや` in the context of the preceding turn and the following
+clause. It can correct an assumption while confirming the underlying question;
+a literal English "No" can reverse that meaning. Use a natural clarification
+such as "Actually" when the complete exchange supports it, and preserve an
+unclear acknowledgment rather than guessing its polarity.
+
 ## As the target: English → Japanese
 
 - **The job.** `scripts/dub_anything.py new <video> --source en --target ja` (by

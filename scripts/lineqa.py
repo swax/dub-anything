@@ -36,6 +36,7 @@ RECONVERTS failed tries the take is re-rolled instead.
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import sys
@@ -79,22 +80,39 @@ class Ear:
         # heard.json keys a hearing by this: one in int8 isn't reused for float32's, or back.
         self.tag = self.MODEL.rsplit("-", 1)[-1] + ("" if self.compute_type == "default" else f"-{self.compute_type}")
         self.load_s = self.hear_s = 0.0  # waiting for the GPU and loading; listening
+        self.record_provenance = False
+        self.resolved_model_path = None
+        self.queue_wait_s = self.model_load_s = 0.0
 
     def __call__(self, wav, lang):
         if self.model is None:
             t = time.time()
             hold_gpu_for_whisper()
-            self.model = WhisperModel(self.MODEL, device="auto", compute_type=self.compute_type)
-            self.load_s += time.time() - t
+            after_wait = time.time() if self.record_provenance else None
+            source = self.MODEL
+            if self.record_provenance:
+                from faster_whisper.utils import download_model
+
+                # Resolve the same requested reader once, retaining the actual
+                # local weight revision used for the observation's fresh hearing.
+                self.resolved_model_path = download_model(self.MODEL)
+                source = self.resolved_model_path
+            self.model = WhisperModel(source, device="auto", compute_type=self.compute_type)
+            finished = time.time()
+            self.load_s += finished - t
+            if after_wait is not None:
+                self.queue_wait_s += after_wait - t
+                self.model_load_s += finished - after_wait
         t = time.time()
         got = hear(self.model, wav, lang)
         self.hear_s += time.time() - t
         return got
 
 
-def check(name, ear, show_all, reroll, only=None):
+def check(name, ear, show_all, reroll, only=None, observations=None):
     work = WORK / name
-    job = json.loads((work / "segments.json").read_text(encoding="utf-8"))["job_id"]
+    segments = json.loads((work / "segments.json").read_text(encoding="utf-8"))
+    job = segments["job_id"]
     tgt = langs(name)[1]
     # What Whisper heard in each take, by the take's hash: the same audio is heard the
     # same way, so only new takes need listening to (a round re-rolls a few lines).
@@ -110,7 +128,15 @@ def check(name, ear, show_all, reroll, only=None):
             new.append(key)
         return heard[key]
 
-    lines = json.loads((work / "script.json").read_text(encoding="utf-8"))["lines"]
+    script = json.loads((work / "script.json").read_text(encoding="utf-8"))
+    lines = script["lines"]
+    observer = None
+    if observations is not None:
+        from qa_triage import ObservationStore
+
+        if isinstance(ear, Ear):
+            ear.record_provenance = True
+        observer = ObservationStore(observations, name, work, segments, script, ear)
     # Takes re-rolled before, so a worse roll never replaces a better one: before a
     # flagged line is re-rolled its take is kept in takes/, with the settings it was
     # made with, and the best of them is put back if the fresh take is worse.
@@ -130,6 +156,10 @@ def check(name, ear, show_all, reroll, only=None):
         if not wav.exists():
             print(f"L{i:02d} {line['start']:7.2f}  (not rendered)  {line['text']}")
             continue
+        cached = observer is not None and f"{model_tag}:{tgt}:{file_sha(wav)}" in heard
+        hearing_started = time.perf_counter() if observer is not None else 0
+        cost_fields = ("queue_wait_s", "model_load_s", "hear_s")
+        cost_before = {k: getattr(ear, k, 0.0) for k in cost_fields} if observer is not None else {}
         got = listen(wav)
         notes, ratio = LANGUAGES[tgt].compare(line["text"], got)
         take = {
@@ -139,6 +169,19 @@ def check(name, ear, show_all, reroll, only=None):
             "sha": file_sha(wav),
             "settings": rendered.get(lid, {}),
         }
+        observation = (
+            observer.capture(
+                i,
+                wav,
+                got,
+                take["settings"],
+                cached,
+                time.perf_counter() - hearing_started,
+                {k: getattr(ear, k, 0.0) - v for k, v in cost_before.items()},
+            )
+            if observer is not None
+            else None
+        )
 
         # Only takes made the same way count (a moved window re-renders the line anyway);
         # a seed only tells two rolls apart.
@@ -196,6 +239,21 @@ def check(name, ear, show_all, reroll, only=None):
                     notes = notes + [f"failed on {failed} takes: not re-rolled (reword it, or leave it to the ear)"]
                 else:
                     rolls[rkey] = rolls.get(rkey, 0) + 1
+        if observer is not None:
+            status = next((f for f in flagged if f["id"] == lid), None)
+            observer.action(
+                observation,
+                {
+                    "restored_best_prior": lid in restored,
+                    "result_audio_sha256": hashlib.sha256(wav.read_bytes()).hexdigest(),
+                    "result_settings": take["settings"],
+                    "result_hearing": got,
+                    "result_flag": status,
+                    "repair_requested": bool(reroll and status and not status.get("settled")),
+                    "reroll_enabled": reroll,
+                },
+                wav,
+            )
         if notes or show_all:
             dur = sf.info(wav).duration
             print(
@@ -269,6 +327,12 @@ def main():
     ap.add_argument("--reroll", action="store_true", help="queue flagged lines for fresh takes")
     ap.add_argument("--only", help="check only these zero-based comma-separated indices; preserve other queued lines")
     ap.add_argument("--metrics", type=pathlib.Path, help="optional cost receipt (queue/model load and transcription)")
+    ap.add_argument(
+        "--observations",
+        type=pathlib.Path,
+        default=os.environ.get("DUB_QA_OBSERVATIONS"),
+        help="archive pre-repair QA evidence without changing repair policy (or DUB_QA_OBSERVATIONS)",
+    )
     args = ap.parse_args()
     ear = Ear()
     started = time.perf_counter()
@@ -278,7 +342,7 @@ def main():
         from dub import selected_indices
 
         lines = load_json(WORK / name / "script.json")["lines"]
-        check(name, ear, args.all, args.reroll, selected_indices(args.only, len(lines)))
+        check(name, ear, args.all, args.reroll, selected_indices(args.only, len(lines)), observations=args.observations)
     if args.metrics:
         args.metrics.parent.mkdir(parents=True, exist_ok=True)
         args.metrics.write_text(

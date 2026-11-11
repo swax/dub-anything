@@ -11,9 +11,10 @@ No render is needed, so it works for a new show's first part. --voice american
 estimates the director's script in the American voice (each line's "text_us",
 if it has one) before that voice renders it. They're flagged
 "OVER?" or "risk", to fix before rendering. "SHORT" / "SHORT?" marks English that
-ends well before the actor stops: write fuller text for it (slowing a take adds
-little). `dub.py generate` prints the same table for the failing lines when a
-line overflows.
+ends well before the actor stops: review omitted meaning, source pauses and
+quiet-reference estimation before writing fuller text. Do not invent padding;
+check the actual take after rendering. `dub.py generate` prints the same table
+for the failing lines when a line overflows.
 It first warns about any voice whose reference is much faster or slower than
 its speaker's lines: lines on that reference inherit its pace (OmniVoice only).
 

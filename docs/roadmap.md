@@ -4,17 +4,22 @@ Remaining work, in priority order. Current capabilities are in the
 [README](../README.md); findings and completed experiments are in
 [research.md](research.md).
 
-## Next dub: improve QA
+## QA triage evaluation
 
-- [ ] Distinguish speech defects, recognition disagreements and timing problems
-  before requesting another take. Add structured evidence and contextual second
-  checks in observation mode, keeping the normal repair policy as control.
-- [ ] Review flagged and passing lines to measure missed defects as well as
-  unnecessary alarms. Preserve checks for meaning changes and speaker boundaries.
+- [x] Collect structured evidence for speech defects, recognition disagreements
+  and timing problems, with bounded contextual second checks in observation
+  mode and the normal repair policy as control.
+- [x] Review a prospective sample of flagged and passing lines for missed
+  defects as well as unnecessary alarms. Preserve checks for meaning changes
+  and speaker boundaries.
 - [ ] Measure repair work and private listening outcomes before changing the
   default. Preserve acceptable performances rather than chasing endpoint scores.
 
 Implementation and evaluation: [QA pilot plan](plans/qa-triage-pilot.md).
+The optional observer, frozen sample and bounded secondary-reader review have
+been exercised prospectively, including a cached resume without production
+changes. Unresolved words and marginal timing remain review items. Private
+listening outcomes are pending; the default repair policy remains unchanged.
 
 ## After that
 
@@ -22,7 +27,8 @@ Implementation and evaluation: [QA pilot plan](plans/qa-triage-pilot.md).
   kana-aware window checks, where fallback references cause audible problems.
 - **Pauses inside lines:** preserve internal pauses during fill.
 - **Caption recognition:** better Japanese OCR; use caption colours and name
-  brackets as speaker suggestions.
+  brackets as speaker suggestions. Carry actual source-frame timestamps through
+  thumbnail extraction so a label cannot point across a short shot boundary.
 - **American-voice conversion:** preserve words and intonation while improving
   likeness.
 - **Listener-reported mix issues:** fix line edges and scene acoustics as heard.

@@ -428,14 +428,58 @@ originals per part.
     [QA pilot plan](plans/qa-triage-pilot.md) keeps the new checks observational
     while measuring their decisions, costs and private listening outcomes.
 
+24. **Observe QA before changing its repair policy.** `qa_triage.py` now archives
+    immutable first-check audio, contextual mixes, settings, raw hearings and
+    ordinary repair actions through optional `lineqa.py` capture. Its frozen
+    sample includes both flagged and passing lines. Bounded, unprompted isolated
+    and contextual readings produce a director review queue; they cannot queue
+    synthesis, restore audio or approve delivery. Physical defects and possible
+    meaning changes remain visible even when another recognizer passes. A
+    reviewed passing control records only that the bounded checks found no
+    defect, not that its acting or likeness is approved. A prospective frozen
+    sample has received bounded reviews, including passing controls; a cached
+    resume reused all hearings without new inference or production changes.
+    Unresolved words and timing stay visible, and listener outcomes remain
+    pending. The default repair policy is unchanged. Retry logs are retained
+    rather than overwritten.
+
+25. **Preserving a pause also requires phrases that fit.** Explicit placement of
+    complete generated phrases can retain a deliberate source beat that whole-line
+    fill does not represent. Correctly recognized words can nevertheless overrun
+    their individual slots. Preserve those failed outcomes; do not cut words or
+    silently move a following voice to call the timing valid. A listening context
+    may retain complete outputs with an equal, disclosed delay in both arms, but
+    that does not make them eligible production replacements. Segmentation also
+    changes generation context, so preference evaluates the strategy rather than
+    isolating silence duration. Listening feedback is pending.
+
+26. **Compare a new engine against fresh controlled takes.** The private
+    Qwen3-TTS comparison preserves first outcomes alongside fresh OmniVoice takes
+    using identical words and Japanese references. Numeric seeds do not mean
+    equivalent randomness across engines, and native pacing differs. Keep word
+    recognition, timing, signal levels, listener preference and generation costs
+    separate. A later production reference or wording change is a separate
+    context, not an improvement to the frozen comparison. The alternate engine
+    remains experimental while listening feedback is pending.
+
+27. **A quiet-reference duration fix needs broader calibration.** Applying the
+    backend's input-level gain to the empirical duration predictor can recover
+    speech that silence removal otherwise misses in a quiet reference. It can
+    also overpredict ordinary examples. Selected quiet probes and a broader
+    prospective set did not support a blanket predictor change, so the existing
+    estimator remains. Review `SHORT?` against source words and deliberate
+    pauses, then check an actual take. Do not expand an already complete
+    translation merely to satisfy the prediction.
+
 ## What the pipeline does now
 
 `dub.py generate` renders new parts with per-line references, fill and `dips` by
 default, recorded in each script's `render` block (see
 [directing.md](directing.md#4-render)). `fit.py` predicts each line's length with
-OmniVoice's own rule before the first render. It flags `SHORT?` lines, whose
-English is too short for the actor's speech at natural pace, so the director
-writes fuller text before rendering. `register.py`'s calm/raised
+OmniVoice's own rule before the first render. It flags `SHORT?` lines for review
+of omitted meaning, source pauses and quiet-reference estimation. The director
+checks a measured take before expanding an already complete translation.
+`register.py`'s calm/raised
 references are now a fallback for characters whose lines can't use their own
 original. A show can instead take the `"american"` voice: IndexTTS with the
 emotion reference and fill, then `vc.py` converts each settled take to the
@@ -467,8 +511,10 @@ flagged line one fresh take before settling it for the director (finding 22).
   Blind follow-up has not justified a default change. Distinguishing real speech
   failures from recognition disagreements, and preserving performances the
   listener prefers, remain open.
-- **Pauses inside a line.** Fill aligns where a line ends. An actor who pauses
-  mid-sentence still gets continuous English.
+- **Pauses inside a line.** Fill aligns where a line ends. Separate complete
+  phrases can preserve a deliberate beat, but need actual slot and handoff checks
+  (finding 25). The controlled listening comparison is pending; automatic
+  phrase-level planning remains open.
 - **Coverage of per-line references.** Snapping windows to pauses helps. Long
   lines hit OmniVoice's 20 s reference limit next to the voice's clips; using
   fewer clips needs a transcript per clip. The window check compares

@@ -1,7 +1,12 @@
 # Next dub: QA triage pilot
 
-Status: planned. The evidence output and triage mode below still need
-implementation. This plan does not start or schedule a movie.
+Status: observation mode implemented in `scripts/qa_triage.py`, with optional
+capture from `scripts/lineqa.py`. A first prospective frozen sample has received
+bounded secondary checks and director reviews, including passing controls.
+A cached resume reused every hearing without loading a model or changing
+production files. Unresolved cases stay unresolved; private listener outcomes
+and wider policy evaluation remain pending. This document does not start or
+schedule a movie or change the default repair policy.
 
 ## Question and scope
 
@@ -50,7 +55,9 @@ policy is deliberately tested; it is not measured saved GPU time.
 ## Freeze the comparison before secondary checks
 
 During the first normal QA pass, enroll the first dozen flagged occurrences in
-recording order. Also enroll a dozen passing occurrences: half short and half
+source recording order (part, then line index), independent of parallel workers'
+completion order. Preserve actual capture times as a separate timeline. Also
+enroll a dozen passing occurrences: half short and half
 longer, spread across speakers where available. Declare those duration and
 speaker-sampling rules before enrollment, then freeze identities before the new
 triage readings or repairs are observed. If a category is sparse, report its
@@ -70,8 +77,10 @@ Existing reviewed clips may help develop the checks, but their disclosed votes
 are calibration evidence. New-movie cases provide the fresh evaluation. Include
 passing lines because a flag-only sample cannot reveal false negatives.
 
-For each case, the director records supported defect, probable recognition issue
-or unresolved, with evidence. Record listener preference separately. An overall
+For each case, the director records supported defect, probable recognition issue,
+no defect found in the bounded review, or unresolved, with evidence. The negative
+review category is useful for passing controls; it does not certify acting,
+likeness or all possible speech errors. Record listener preference separately. An overall
 preference vote cannot certify the exact words or diagnose its own cause.
 
 ## Verification before production use

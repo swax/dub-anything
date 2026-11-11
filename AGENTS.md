@@ -133,8 +133,10 @@ work; you direct.
    ending each window in a pause with nobody else inside it. Then
    `scripts/edges.py <part> --apply` (check long `skip`s by hand), `tails.py`
    for echo and PA, and `fit.py`. Snap the windows of lines that fall back to
-   the character's reference, fix every `OVER?`, and write a fuller translation
-   for every `SHORT?`. With the American voice in the job, also run
+   the character's reference and fix every `OVER?`. Review every `SHORT?` for
+   omitted meaning, source pauses and quiet-reference estimation errors before
+   expanding the translation; never invent padding to satisfy a prediction. Check
+   the actual take's fit after rendering. With the American voice in the job, also run
    `scripts/fit.py <part> --voice american`; a line that needs other English
    for that voice alone gets `"text_us"`. With `--signs`, translate the text in
    the picture the viewer needs into the part's `"signs"` from `signs.py`'s

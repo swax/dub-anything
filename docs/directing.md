@@ -84,6 +84,9 @@ differs.
   lines in one part would collide. Repeated English replies with different
   original references need distinct take values; generation rejects a shared
   ID when it would make one line borrow the other's original audio.
+  Check these identities again after shortening dialogue: two previously
+  different sentences can become identical while retaining the same `take`
+  value. Give the later occurrence an unused value before rendering.
 - `keep_voice` (optional): `true` stops `scripts/register.py route` from moving
   the line to another of the character's references, e.g. when one of them can't
   say a word in it.
@@ -230,6 +233,16 @@ may then fall inside a phrase. Transcribe a few seconds around such a cut
 with `--whole` bounds placed in a real pause. A long pause can be false too:
 shouts over music hide from the same VAD, and in one anime two cuts placed in
 the middle of 4–6 s "pauses" each landed on a line's first syllable.
+
+Review both sides of cuts beside an original-audio block, too, especially the
+last spoken sentence before credits. A closing shot or music cue can begin
+before the actor finishes a clause. Check the source words and image rather
+than assuming the whole-block boundary is a speech boundary. Repair a bad cut
+before generating dialogue, preserve the earlier preparation, and update the
+manifest and both neighboring scripts together. If a voice reference came
+from an affected part, preserve its exact materialized audio and provenance;
+rebuilding from newly separated stems can change the voice despite identical
+clip times.
 
 `prep` separates the voices and prints Whisper's rough transcript. It also
 switches VoiceStudio to pyannote when it's installed.
@@ -625,6 +638,13 @@ nominal crossing, inspect the generated speech end and the next original
 voice's actual onset before rewriting; put any remaining uncertain handoff
 on the listen list.
 
+Account for the backend's leading-silence trim when placing raw take timestamps.
+For retained speech, compare the source and actual export at the onset itself.
+A correlation check that excludes a generous cloned-audio mask cannot establish
+that the excluded beginning survived. Conversely, quiet padding can cross a
+nominal boundary while the actual reply remains intact; check the waveform
+before requesting another take.
+
 Check the next generated English voice's onset too. A take can fit the overflow
 budget yet collide with the next English line. Compare both speech boundaries
 with the original exchange: shorten the outgoing line if the dub turns a
@@ -704,12 +724,38 @@ delivery of its line and ends where the actor stops:
   take ending more than 0.25 s away from it, at the OmniVoice speed that lands it
   there, within 0.8–1.25. OmniVoice sets the take's length from the speed;
   nothing is time-stretched. With published takes to measure, two passes usually
-  converge. Fill only aligns where a line ends, not pauses inside it. Lines stuck at 0.8 have
-  English much shorter than the actor's speech (`fit.py` flags them `SHORT`):
-  give them fuller text, and listen to slowed lines for drawl. A take asked
+  converge. Fill only aligns where a line ends, not pauses inside it. For a
+  meaningful internal beat, direct separate complete phrases at the source's
+  phrase starts, keeping their own clean source references where enabled.
+  Check every generated phrase and its following onset: segmentation alone
+  does not make a take fit. Preserve complete words and nonverbal responses;
+  do not cut a word or add meaning to manufacture a pause. The engine's prompt
+  and output silence processing can shorten gaps, so supplying the original
+  recording does not guarantee the same pauses in English.
+
+  A `SHORT?` prediction is evidence to review, not proof of undertranslation.
+  Very quiet references are a particular hazard: OmniVoice raises their level
+  before silence removal, while the empirical duration predictor omits that
+  gain. The two preparations can retain quite different amounts of speech.
+  Check source words, pauses and a measured take before expanding a complete
+  translation or replacing a clean reference. Applying the gain to every
+  prediction has not established a general improvement; keep actual fit and
+  protected onsets as the delivery gates.
+
+  A matching controlled audition can supply an actual duration before the
+  whole part renders. Use that evidence when the predictor is clearly wrong,
+  keeping the engine, wording, reference and generation settings in view.
+  Shorten an overlong translation faithfully or choose a justified pace; leave
+  the earlier trial and its failed fit unchanged. Another engine's duration
+  does not establish how this engine will fit.
+
+  For lines stuck at 0.8, check whether the English omits meaning or needs a
+  more natural full expression before writing fuller text; do not pad a
+  complete translation to satisfy `SHORT`. Listen to slowed lines for drawl. A take asked
   for at 0.8 often isn't slower at all: OmniVoice says the words at its own
-  pace and leaves the extra time silent, and the silence is trimmed. Only
-  fuller text fills those lines. With a published baseline, fill also absorbs most natural-pace
+  pace and leaves the extra time silent, and the silence is trimmed. A complete
+  translation may legitimately leave a source pause; expand it only when the
+  meaning or natural phrasing calls for more. With a published baseline, fill also absorbs most natural-pace
   overflows, which otherwise stop the render and each need a reword or a wider
   window. A take that still overflows at 1.25 gets a fresh take on the next
   pass, since takes of one line differ by a few tenths of a second. If it
@@ -991,12 +1037,31 @@ QA leaves the other lines' repair counters alone.
 
 ### 5. QA
 
-For the planned optional triage experiment, see the
-[next-dub QA pilot](plans/qa-triage-pilot.md). Keep raw hearings, machine flags and
+For the optional observation-only triage workflow, see the
+[QA pilot](plans/qa-triage-pilot.md). Keep raw hearings, machine flags and
 director decisions separate. A second recognizer agreeing with the first is
 evidence, not proof; disputed numbers, negation, missing words and turn boundaries
 still need review. A review decision belongs to the current audio, wording,
 voice and occurrence window, and must be revisited when those inputs change.
+
+Set `DUB_QA_OBSERVATIONS` to an ignored study directory before the normal runner
+starts, or give `lineqa.py --observations DIR`. This archives the first checked
+audio and contextual mix before ordinary repair or restoration, along with
+settings, raw readings, comparisons and control actions. It leaves the normal
+repair policy in charge. After primary QA finishes, freeze the declared sample
+with `scripts/qa_triage.py enroll DIR --freeze`; use `--allow-incomplete` only
+at the final freeze when a stratum is genuinely sparse. Then run
+`scripts/qa_triage.py hear DIR --reader sensevoice` in `second.py`'s environment
+and `scripts/qa_triage.py report DIR` with VoiceStudio's Python. Secondary
+hearings are unprompted, bounded and cached. The report is a review queue: it
+cannot queue synthesis, restore takes, mark readiness or approve delivery.
+
+The normal runner records exact current-take hashes after QA. A re-mix can
+regenerate audio while fitting, so it is final only when those checked hashes
+still match; changed takes return to ordinary QA. After two such rechecks,
+another changed re-mix blocks for a timing/reference review instead of cycling.
+Missing takes also block. New final receipts are checked again before delivery;
+older final jobs without these receipts stay unchanged until reopened or revised.
 
 - `scripts/qa.py episode-01` transcribes the finished MP4 in English and lines
   it up with the script. Word timestamps drift by a line or so in quiet

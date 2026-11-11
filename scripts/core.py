@@ -710,9 +710,11 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
     renders with fill, a line only overflows if it would even at fill's fastest
     speed. With `short`, a line whose English ends more than SHORT_BY before the
     actor stops is flagged "SHORT" (the take as rendered) or "SHORT?" (the
-    estimate at natural pace), with the actor's end in "actor": it needs fuller
-    text. Estimates get no credit for fill's slowing: slowed takes often come
-    out little longer, so the text has to fill the time by itself.
+    estimate at natural pace), with the actor's end in "actor". Review meaning,
+    source pauses and quiet-reference estimation before expanding the text;
+    complete translations do not need invented padding. Estimates get no credit
+    for fill's slowing: slowed takes often come out little longer, so the text
+    has to fill the time by itself.
     A part in the "american" voice is estimated with IndexTTS's length
     (indextts_length) instead. Its duration factor scales a take exactly, so
     there fill's slowest speed is credited, and "SHORT?" means even that ends
