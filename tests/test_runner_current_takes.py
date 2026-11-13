@@ -181,6 +181,71 @@ class CurrentTakeGateTests(unittest.TestCase):
         tool.assert_not_called()
         self.assertEqual(self.current_state()["stage"], "qa")
 
+    def rebuilt(self):
+        """The script's lines under the ids a rebuilt voice gives them: no take has them yet."""
+        return patch.object(runner, "line_id", side_effect=lambda line: line["id"] + "-rebuilt")
+
+    def render_rebuilt(self, *args):
+        for line in self.script["lines"]:
+            self.wav(line["id"] + "-rebuilt").write_bytes(b"speech in the rebuilt voice")
+        return True, "done", {}
+
+    def test_rebuilt_voice_renders_a_final_part_again(self):
+        self.state("final", qa_take_hashes=self.checked())
+        with self.rebuilt():
+            self.assertFalse(runner.finished({"name": self.name}, "actor"))
+            with patch.object(runner, "tool", side_effect=self.render_rebuilt) as tool:
+                self.assertEqual(runner.advance({}, self.name), "busy")
+            self.assertEqual(tool.call_args.args[2][1:4], ["scripts/dub.py", "generate", self.name])
+            state = self.current_state()
+            self.assertEqual((state["stage"], state["round"]), ("qa", 0))
+            self.assertNotIn("problem", state)
+            self.assertNotIn("qa_take_hashes", state)
+
+    def test_part_blocked_by_a_rebuilt_voice_renders_again(self):
+        missing = f"{self.name}: missing or unreadable current take Lfirst-rebuilt: takes/Lfirst-rebuilt.wav"
+        self.state("final", qa_take_hashes=self.checked(), problem=missing)
+        with self.rebuilt(), patch.object(runner, "tool", side_effect=self.render_rebuilt):
+            self.assertEqual(runner.advance({}, self.name), "busy")
+        self.assertEqual(self.current_state()["stage"], "qa")
+
+    def test_changed_fallback_voice_renders_a_final_part_again(self):
+        voices = {
+            "speaker_a": {"from": self.name, "clips": [[0.0, 2.0]], "ref_text": "こんにちは。"},
+            "speaker_a_calm": {
+                "from": self.name,
+                "clips": [[6.0, 9.0]],
+                "ref_text": "そうですか。",
+                "register_of": "speaker_a",
+            },
+            "speaker_b": {"from": self.name, "clips": [[3.0, 5.0]], "ref_text": "ありがとう。"},
+            "speaker_c": {"from": self.name, "clips": [[12.0, 15.0]], "ref_text": "いいえ。"},
+        }
+        self.script["render"]["fallback_voices"] = {"speaker_a": "speaker_a_calm"}
+        self.write("script.json", self.script)
+        with patch.object(runner, "load_voices", side_effect=lambda: voices):
+            self.state("final", qa_take_hashes=self.checked(), cast=runner.cast_sha(self.script))
+            # A remark, and a voice this part doesn't use: nothing to render.
+            voices["speaker_a_calm"]["note"] = "from the kitchen scene"
+            voices["speaker_c"]["clips"] = [[12.0, 16.0]]
+            self.assertTrue(runner.finished({"name": self.name}, "actor"))
+            self.assertEqual(runner.advance({}, self.name), "final")
+            voices["speaker_a_calm"]["clips"] = [[6.0, 9.5]]
+            self.assertFalse(runner.finished({"name": self.name}, "actor"))
+            with patch.object(runner, "tool", return_value=(True, "done", {})) as tool:
+                self.assertEqual(runner.advance({}, self.name), "busy")
+            self.assertEqual(tool.call_args.args[2][1:4], ["scripts/dub.py", "generate", self.name])
+            state = self.current_state()
+            self.assertEqual(state["stage"], "qa")
+            self.assertEqual(state["cast"], runner.cast_sha(self.script))
+
+    def test_missing_take_of_an_unchanged_cast_still_blocks(self):
+        self.state("final", qa_take_hashes=self.checked())
+        self.wav("Lfirst").unlink()
+        with patch.object(runner, "tool") as tool:
+            self.assertEqual(runner.advance({}, self.name), "blocked")
+        tool.assert_not_called()
+
     def test_missing_new_final_cannot_silently_pass_delivery_gate(self):
         self.state("final", qa_take_hashes=self.checked())
         self.wav("Lfirst").unlink()

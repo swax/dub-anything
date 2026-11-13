@@ -766,9 +766,34 @@ def update_voices(change):
     return result
 
 
-def voice_sig(key):
-    """Fingerprint of a voice's spec in voices.json (clips, text, source)."""
-    spec = load_voices()[key]
+# The director's remarks: fields of a line, a caption, a sign, a script or a voice
+# that people and the report read, never a render or the delivery. A fingerprint
+# leaves them out, so writing one down costs no render. Any other field counts as
+# part of what is rendered: one no script knows yet makes a take again rather than
+# leaving a stale one.
+REMARKS = ("listen", "note", "notes")
+
+
+def without_remarks(value):
+    """A script (or any part of one) without the remark fields, at every depth."""
+    if isinstance(value, dict):
+        return {k: without_remarks(v) for k, v in value.items() if k not in REMARKS}
+    if isinstance(value, list):
+        return [without_remarks(v) for v in value]
+    return value
+
+
+def voice_sig(key, voices=None):
+    """Fingerprint of what a voice's takes are made from: its entry in voices.json
+    (clips, text, source, register) without the remarks (REMARKS). It is part of
+    every line's id (line_id), which names the take's file: an entry that hasn't
+    changed must keep its fingerprint, or every take of the voice is made again.
+    That is why an entry's register fields stay in it, though no take is made from
+    them: the tools that build a voice write them once, and leaving them out now
+    would rename the takes of every voice that has them. `voices` saves reading
+    the cast again when fingerprinting several."""
+    voices = load_voices() if voices is None else voices
+    spec = {k: v for k, v in voices[key].items() if k not in REMARKS}
     return hashlib.sha1(json.dumps(spec, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 

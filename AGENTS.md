@@ -253,7 +253,8 @@ Budget a feature film in both voices at about seven hours, nearly all of it GPU
 work: about half the American voice (some 2.5 times the actor's voice per
 line), a quarter preparing the parts. Parallel directing finishes hours before
 the renders. Rewording a line of a part that's already final is fine while
-`run` goes on: that part renders again before delivery.
+`run` goes on: that part renders again before delivery. A `listen` or `note`
+remark renders nothing, so add them whenever you learn something.
 
 **Alerting the user.** At once, by notification if your harness has one: the
 backend won't start, the source can't be split or prepped, the disk is

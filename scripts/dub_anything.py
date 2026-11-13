@@ -51,6 +51,16 @@ returns to ordinary QA; after two such rechecks for one unchanged script, anothe
 changed re-mix blocks for the director instead of looping. Legacy final parts
 without these receipts stay final until explicitly reopened or revised.
 
+A part renders again when what its render is made from changes (script_sha: the
+lines and render settings), not when the director writes a remark ("listen",
+"note", "notes": core.REMARKS) or, in the actor's voice, the American voice's
+"text_us". A delivery is made again when a render, a subtitle or a sign changes
+(delivery_sha), not for a remark or a ready mark; the report is written either
+way. Records from before these fingerprints were narrowed are recognised and
+brought up to date when run starts (adopt_fingerprints). A part also renders
+again when a voice its takes are made from is rebuilt in voices.json (cast_sha):
+the lines of that voice get new takes, the rest are mixed in as they were.
+
 A tool tells run what it decided in a report, not in its wording: run names a file
 in DUB_RESULT_FILE, the tool leaves its facts there (core.report_result: a silent
 part, the lines that overflow, the takes QA put back, the assembled file) and run
@@ -95,6 +105,8 @@ from core import (
     take_wav,
     use_job,
     voice_part,
+    voice_sig,
+    without_remarks,
 )
 from languages import LANGUAGES, NAMES, PAIR, PAIRS
 
@@ -507,12 +519,66 @@ def variant(job, p, voice):
 # ---- rendering and QA, one part in one voice ----
 
 
+def render_view(script):
+    """What a part's render is made from: its lines and render settings, without
+    the director's remarks (core.REMARKS) and without "text_us", which only the
+    American voice's own script reads, as its text (derived_script). Every other
+    field of a line counts, known or not."""
+    lines = [{k: v for k, v in line.items() if k != "text_us"} for line in without_remarks(script["lines"])]
+    return {"lines": lines, "render": script.get("render")}
+
+
+def _sha(value):
+    return hashlib.sha1(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
+
+
 def script_sha(script):
-    return hashlib.sha1(
-        json.dumps(
-            {"lines": script["lines"], "render": script.get("render")}, sort_keys=True, ensure_ascii=False
-        ).encode()
-    ).hexdigest()[:12]
+    """Fingerprint of what a part renders from (render_view): state.json records
+    the one its render is for, and a script with another renders again."""
+    return _sha(render_view(script))
+
+
+def legacy_script_sha(script):
+    """script_sha as it was while it covered every field of a line: what a
+    state.json written then holds (adopt_fingerprints)."""
+    return _sha({"lines": script["lines"], "render": script.get("render")})
+
+
+def rendered_from(st, script):
+    """Whether a part's state is for this script, by either fingerprint."""
+    return st.get("script") in (script_sha(script), legacy_script_sha(script))
+
+
+def cast_sha(script):
+    """Fingerprint of the voices a part's takes are made from: each line's voice
+    and, in the actor's voice, the voices its lines fall back to (a line's
+    "fallback_voice", the render's "fallback_voices"), as voices.json has them now
+    (core.voice_sig: a remark in an entry changes nothing). The cast's other
+    voices aren't in it."""
+    mode = script.get("render") or {}
+    keys = {line.get("voice") for line in script["lines"]}
+    if mode.get("voice") != "american":
+        mapping = mode.get("fallback_voices")
+        keys |= {line.get("fallback_voice") for line in script["lines"]}
+        keys |= set(mapping.values()) if isinstance(mapping, dict) else set()
+    voices = load_voices()
+    return _sha({k: voice_sig(k, voices) if k in voices else None for k in keys if isinstance(k, str)})
+
+
+def cast_changed(st, script):
+    """Whether a voice of the part was rebuilt (or dropped) since the render its
+    state is for: the takes on disk are then another voice's, or under ids no line
+    has any more. A state from before the cast was recorded shows it by its QA
+    receipts, which name the takes by line id, and a line's id holds its voice's
+    fingerprint; without receipts either, nothing can tell and it counts as unchanged."""
+    if "cast" in st:
+        return st["cast"] != cast_sha(script)
+    if "qa_take_hashes" not in st:
+        return False
+    try:
+        return set(st["qa_take_hashes"]) != {line_id(line) for line in script["lines"]}
+    except KeyError:  # a voice the script names is gone from the cast
+        return True
 
 
 def finished(p, voice):
@@ -523,7 +589,7 @@ def finished(p, voice):
         return True
     st = load_json(part_dir(voice_part(p["name"], voice)) / "state.json", {})
     wanted = derived_script(script, voice)
-    if st.get("stage") != "final" or st.get("script") != script_sha(wanted):
+    if st.get("stage") != "final" or not rendered_from(st, wanted) or cast_changed(st, wanted):
         return False
     # Do not migrate or invalidate unrelated legacy finals. New receipts must
     # still describe the actual current takes before delivery can use them.
@@ -568,12 +634,16 @@ def advance(job, name):
     path = work / "state.json"
     st = load_json(path, {})
     sha = script_sha(script)
-    if st.get("script") != sha:
+    rewritten = not rendered_from(st, script)
+    if rewritten or cast_changed(st, script):
+        # A rebuilt voice starts the part over as a changed script does: its lines
+        # have new ids and no takes, and a problem recorded for the old ones is moot.
         if st:
-            log(f"{name}: script changed, rendering again")
+            log(f"{name}: {'script' if rewritten else 'a voice'} changed, rendering again")
         for f in ("reroll.json", "reroll-left.json"):
             (work / f).unlink(missing_ok=True)
-        st = {"script": sha, "round": 0, "stage": "render"}
+        st = {"script": sha, "cast": cast_sha(script), "round": 0, "stage": "render"}
+    st["script"] = sha
     if st.get("problem"):
         return "blocked"
 
@@ -691,6 +761,27 @@ def advance(job, name):
 
 
 def delivery_sha(job, ps):
+    """Fingerprint of what a delivery is made from: each part's script as the
+    subtitles and signs read it (no remarks, no ready mark) and, per voice, the
+    script its render is for and the takes QA checked. A remark added after
+    delivery changes the report, not the delivered file."""
+    h = hashlib.sha1()
+    if job.get("quicktime_audio"):
+        h.update(b"quicktime-audio")
+    for p in ps:
+        script = load_json(part_dir(p["name"]) / "script.json") or {"lines": []}
+        shown = {k: v for k, v in without_remarks(script).items() if k != "ready"}
+        h.update(json.dumps(shown, sort_keys=True, ensure_ascii=False).encode())
+        for voice in job["voices"]:
+            st = load_json(part_dir(voice_part(p["name"], voice)) / "state.json", {})
+            heard = [voice, script_sha(derived_script(script, voice)), st.get("qa_take_hashes")]
+            h.update(json.dumps(heard, sort_keys=True).encode())
+    return h.hexdigest()[:12]
+
+
+def legacy_delivery_sha(job, ps):
+    """delivery_sha as it was while it covered each script and state file whole:
+    what a job delivered then recorded (adopt_fingerprints)."""
     h = hashlib.sha1()
     if job.get("quicktime_audio"):
         h.update(b"quicktime-audio")
@@ -707,6 +798,36 @@ def delivery_sha(job, ps):
                 ).encode()
             )
     return h.hexdigest()[:12]
+
+
+def adopt_fingerprints(job, ps):
+    """Bring a job's records up to the current fingerprints, so that narrowing what
+    they cover makes nothing render or deliver again: a state.json holding the
+    earlier fingerprint of its part's unchanged script gets the current one and the
+    cast it was rendered in, and the record of a delivery nothing has changed since
+    gets the current one too. Only run does this, as it starts: status and ready
+    leave the records alone, since a run started before an update still reads them
+    by the earlier fingerprint and would render every part they rewrote."""
+    done = job.get("delivered") or {}
+    # Read before the states change: the earlier fingerprint covers them whole.
+    delivered = bool(done) and done.get("state") == legacy_delivery_sha(job, ps)
+    for p in ps:
+        script = load_json(part_dir(p["name"]) / "script.json")
+        if not script or not script["lines"]:
+            continue
+        for voice in job["voices"]:
+            path = part_dir(voice_part(p["name"], voice)) / "state.json"
+            st, wanted = load_json(path, {}), derived_script(script, voice)
+            if not rendered_from(st, wanted) or cast_changed(st, wanted):
+                continue  # it renders again, and that writes its record
+            # The cast as it is now is taken for the one the part was rendered in:
+            # its takes still carry its lines' ids, or nothing recorded says otherwise.
+            adopted = {**st, "script": script_sha(wanted), "cast": st.get("cast", cast_sha(wanted))}
+            if adopted != st:
+                save_json(path, adopted)
+    if delivered:
+        job["delivered"]["state"] = delivery_sha(job, ps)
+        save_job(job)
 
 
 def deliver_job(job, ps):
@@ -1059,8 +1180,11 @@ def cmd_status(args):
         problems = []
         for voice in job["voices"]:
             st = load_json(part_dir(voice_part(name, voice)) / "state.json", {})
-            if st and script and script["lines"] and st.get("script") != script_sha(derived_script(script, voice)):
+            if st and script and script["lines"] and not rendered_from(st, derived_script(script, voice)):
                 cols.append(f"{voice}: script changed; render pending")
+                continue
+            if st and script and script["lines"] and cast_changed(st, derived_script(script, voice)):
+                cols.append(f"{voice}: a voice changed; render pending")
                 continue
             if (
                 script
@@ -1095,6 +1219,7 @@ def cmd_run(args):
     ps = parts(job)
     job.pop("problems", None)
     save_job(job)
+    adopt_fingerprints(job, ps)
     # A later failure on a previously blocked part is new, including the same
     # failure after the director has changed its script.
     known = set()

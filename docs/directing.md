@@ -65,9 +65,13 @@ A clip can also come from any other prepped part, written `["episode-03", 81.2,
 84.9]`, so a bit part can pool clean lines from every part it appears in.
 `dub.py` joins the clips (with 0.3 s gaps) into the job's `voices/<key>.wav` and
 creates a VoiceStudio profile on first use. Changing a voice's entry re-renders
-every line that voice speaks, in every part. To give a character a better
+every line that voice speaks, in every part, final ones included: `run` takes
+them up again, and `status` shows them as `a voice changed`. A voice other
+lines only fall back to counts the same way. To give a character a better
 voice without re-rendering parts already approved, add it under a new key
-(`speaker_1_v2`) and use that from then on.
+(`speaker_1_v2`) and use that from then on. A remark is the exception: a
+`note` in an entry (who the character is, why these clips) is for the record
+and changes no take.
 
 Each job has its own cast. A later episode can borrow an earlier one's:
 `dub_anything.py new <video> --voices-from <earlier slug>` lets its scripts use
@@ -139,6 +143,15 @@ differs.
   `<part>.us`.
 - `listen` (optional): why the user should check this line (a casting guess, a
   misheard word); `dub_anything.py` puts it in the report with the film time.
+- `note` (optional): a remark for the record (why a window moved, what was
+  tried).
+
+`listen`, `note` and `notes` are remarks wherever they appear (a line, a
+caption, a sign, the script, a voice): nothing renders from them. Adding or
+changing one on a final part updates the report and leaves the part final and
+the delivered file as it is. `text_us` renders the American voice only. Any
+other change to a line renders its part again in each voice, re-using the takes
+of the lines whose voice and words stayed.
 
 A top-level `"ready": true` tells `dub_anything.py` the part is directed
 (`scripts/dub_anything.py ready <slug> <NN>`); it renders nothing before that.
