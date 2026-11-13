@@ -131,7 +131,9 @@ MAX_SHIFT_SILENT = 0.40
 SEARCH = 0.45  # how far past an edge to look for where the voice begins or ends
 
 
-def check(name, apply=False, min_shift=0.015):
+def analyse(name, apply=False, min_shift=0.015):
+    """The edge moves for a part, written to script.json with `apply`: (moved
+    starts, tails at ends, shared boundaries) as (i, old, new, text[, cut, fix])."""
     path = WORK / name / "script.json"
     script = load_json(path)
     lines = script["lines"]
@@ -192,31 +194,7 @@ def check(name, apply=False, min_shift=0.015):
             tails.append((i, line["end"], round(release, 2), line["text"], cut, fix))
             if apply and fix:
                 line["end"] = round(release, 2)
-    for i, old, new, text, cut, fix in moved:
-        print(
-            f"  {'FIX ' if fix else 'skip'} L{i:02d} start {old:7.2f} -> {new:7.2f}  ({(old - new) * 1000:3.0f} ms "
-            f"earlier, voice {cut:+5.1f} dB at the cut)  {text[:40]}"
-        )
-    for i, old, new, text, cut, fix in tails:
-        what = (
-            f"-> {new:7.2f}  ({(new - old) * 1000:3.0f} ms later,"
-            if fix
-            else f"   voice sounds {(new - old) * 1000:3.0f}+ ms on,"
-            if new >= old + SEARCH - 1e-6
-            else f"   voice sounds {(new - old) * 1000:3.0f} ms on,"
-        )
-        print(
-            f"  {'FIX ' if fix else 'note'} L{i:02d} end   {old:7.2f} {what} voice {cut:+5.1f} dB at the cut)  {text[:36]}"
-        )
-    for i, old, new, text in joins:
-        print(f"  FIX  L{i:02d}/L{i + 1:02d} boundary {old:7.2f} -> {new:7.2f}  (the voice dips there)  {text[:36]}")
-    fixes = sum(m[5] for m in moved)
-    end_fixes = sum(t[5] for t in tails)
-    print(
-        f"{name}: {fixes} starts, {end_fixes} ends and {len(joins)} shared boundaries to move"
-        f"{' (applied)' if apply else ''}, {len(moved) - fixes} starts and {len(tails) - end_fixes} ends left alone"
-    )
-    if apply and (fixes or end_fixes or joins):
+    if apply and (any(m[5] for m in moved) or any(t[5] for t in tails) or joins):
         # One entry per line, keeping every other top-level key (captions, notes).
         parts = []
         for key, val in {**script, "lines": lines}.items():
@@ -226,6 +204,55 @@ def check(name, apply=False, min_shift=0.015):
             else:
                 parts.append(f"  {json.dumps(key)}: {json.dumps(val, ensure_ascii=False)}")
         path.write_bytes(("{\n" + ",\n".join(parts) + "\n}\n").encode("utf-8"))
+    return moved, tails, joins
+
+
+def messages(moved, tails, joins):
+    """What check prints for each edge, as (fix, text): the moves first, then what's left alone."""
+    out = []
+    for i, old, new, text, cut, fix in moved:
+        out.append(
+            (
+                fix,
+                f"  {'FIX ' if fix else 'skip'} L{i:02d} start {old:7.2f} -> {new:7.2f}  ({(old - new) * 1000:3.0f} ms "
+                f"earlier, voice {cut:+5.1f} dB at the cut)  {text[:40]}",
+            )
+        )
+    for i, old, new, text, cut, fix in tails:
+        what = (
+            f"-> {new:7.2f}  ({(new - old) * 1000:3.0f} ms later,"
+            if fix
+            else f"   voice sounds {(new - old) * 1000:3.0f}+ ms on,"
+            if new >= old + SEARCH - 1e-6
+            else f"   voice sounds {(new - old) * 1000:3.0f} ms on,"
+        )
+        out.append(
+            (
+                fix,
+                f"  {'FIX ' if fix else 'note'} L{i:02d} end   {old:7.2f} {what} voice {cut:+5.1f} dB at the cut)  "
+                f"{text[:36]}",
+            )
+        )
+    for i, old, new, text in joins:
+        out.append(
+            (
+                True,
+                f"  FIX  L{i:02d}/L{i + 1:02d} boundary {old:7.2f} -> {new:7.2f}  (the voice dips there)  {text[:36]}",
+            )
+        )
+    return out
+
+
+def check(name, apply=False, min_shift=0.015):
+    moved, tails, joins = analyse(name, apply, min_shift)
+    for _, text in messages(moved, tails, joins):
+        print(text)
+    fixes = sum(m[5] for m in moved)
+    end_fixes = sum(t[5] for t in tails)
+    print(
+        f"{name}: {fixes} starts, {end_fixes} ends and {len(joins)} shared boundaries to move"
+        f"{' (applied)' if apply else ''}, {len(moved) - fixes} starts and {len(tails) - end_fixes} ends left alone"
+    )
     return moved
 
 

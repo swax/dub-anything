@@ -191,7 +191,7 @@ Jumpgate's `packages/jumpgate`.
 - [AGENTS.md](AGENTS.md): the agent's instructions, and a dub from start to
   finish
 - [docs/directing.md](docs/directing.md): the directing workflow, every tool,
-  and the gotchas
+  and a page per phase in [docs/directing/](docs/directing/), the gotchas among them
 - [docs/languages/](docs/languages/README.md): notes for each language, and
   how to add one
 - [docs/research.md](docs/research.md): what was measured and tried

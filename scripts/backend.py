@@ -306,7 +306,7 @@ def ensure():
 
 
 def restart():
-    """A fresh backend: frees the GPU memory its PyTorch cache holds (docs/directing.md, gotchas)."""
+    """A fresh backend: frees the GPU memory its PyTorch cache holds (docs/directing/machine.md)."""
     stop()
     return start()
 

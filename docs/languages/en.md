@@ -13,7 +13,7 @@ language's notes ([ja.md](ja.md), [es.md](es.md), [yue.md](yue.md)). The code is
   (`[Japanese]`, `[Spanish]`, `[Cantonese]`): keep it and caption it. `second.py` runs
   Parakeet TDT 0.6B v2 and SenseVoice in English and compares them with the
   draft word by word.
-- **Casting** is as in directing.md. English drafts come out with clean
+- **Casting** is as in [directing](../directing/prep-and-cast.md). English drafts come out with clean
   punctuation and phrase-length lines, but Whisper's word times run early here
   too, and the VAD merges quick exchanges into one span: snap turn changes by
   loudness.

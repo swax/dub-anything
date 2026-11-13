@@ -19,7 +19,7 @@ unless --replace: voices.json holds every show's cast, so a character name used 
 another show is taken (pick another key). Replacing a voice re-renders all its lines.
 
 check: every phrase of a reference must be complete and its ref_text must say exactly
-what is said (see "Voice-reference leakage" in docs/directing.md).
+what is said (see "Voice-reference leakage" in docs/directing/gotchas.md).
 
 sim: two references of the same person score well above unrelated voices (in one
 film, 0.5 against 0.1-0.3), e.g. when two directors built the same character.

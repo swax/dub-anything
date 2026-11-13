@@ -44,20 +44,18 @@ def tail_ms(db, a, b, limit):
     return (j - k) * HOP / SR * 1000, j >= stop
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("name")
-    ap.add_argument("--all", action="store_true", help="print every line, not just wet ones")
-    args = ap.parse_args()
-    lines = load_json(WORK / args.name / "script.json")["lines"]
-    job = load_json(WORK / args.name / "segments.json")["job_id"]
+def rows(name):
+    """Each line's reverb tail: (i, line, original ms, capped, the take's ms or None),
+    for lines whose tail can be measured. WET_MS or more is wet."""
+    lines = load_json(WORK / name / "script.json")["lines"]
+    job = load_json(WORK / name / "segments.json")["job_id"]
     audio = decode_audio(str(JOBS / job / "vocals.wav"), sampling_rate=SR)
     db = frames_db(audio)
     onsets = [
         s["start"] / SR
         for s in get_speech_timestamps(audio, VadOptions(threshold=0.5, min_silence_duration_ms=120, speech_pad_ms=0))
     ]
-    wet = 0
+    out = []
     for i, line in enumerate(lines):
         nxt = lines[i + 1]["start"] if i + 1 < len(lines) else line["end"] + 2
         nxt = min([o for o in onsets if o > line["end"] - 0.05] + [nxt])
@@ -65,8 +63,8 @@ def main():
         if got is None:
             continue
         ms, capped = got
-        take = ""
-        wav = take_wav(job, line_id(line), langs(args.name)[1])
+        take = None
+        wav = take_wav(job, line_id(line), langs(name)[1])
         if wav.exists():
             x, sr = sf.read(wav, dtype="float32")
             x = x.mean(1) if x.ndim > 1 else x
@@ -74,15 +72,35 @@ def main():
             tdb = frames_db(np.concatenate([x, np.zeros(SR, dtype="float32")]))
             loud = np.nonzero(tdb > tdb.max() - 30)[0]
             t = tail_ms(tdb, loud[0] * HOP / SR, (loud[-1] + 1) * HOP / SR, len(tdb) * HOP / SR)
-            take = f"   take {t[0]:4.0f} ms{' (' + line['effect'] + ')' if line.get('effect') else ''}" if t else ""
-        flag = ms >= WET_MS
+            take = t[0] if t else None
+        out.append((i, line, ms, capped, take))
+    return out
+
+
+def row_text(i, line, ms, capped, take):
+    flag = ms >= WET_MS
+    take = (
+        f"   take {take:4.0f} ms{' (' + line['effect'] + ')' if line.get('effect') else ''}" if take is not None else ""
+    )
+    return (
+        f"  {'WET ' if flag else '    '} L{i:02d} {line['start']:7.2f}  original {ms:4.0f}{'+' if capped else ' '}ms"
+        f"{take}  {line['text'][:44]}"
+    )
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("name")
+    ap.add_argument("--all", action="store_true", help="print every line, not just wet ones")
+    args = ap.parse_args()
+    found = rows(args.name)
+    wet = 0
+    for row in found:
+        flag = row[2] >= WET_MS
         wet += flag
         if flag or args.all:
-            more = "+" if capped else " "
-            print(
-                f"  {'WET ' if flag else '    '} L{i:02d} {line['start']:7.2f}  original {ms:4.0f}{more}ms{take}"
-                f"  {line['text'][:44]}"
-            )
+            print(row_text(*row))
+    lines = load_json(WORK / args.name / "script.json")["lines"]
     print(f"{args.name}: {wet} of {len(lines)} lines with a reverb tail of {WET_MS} ms or more")
 
 

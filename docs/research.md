@@ -114,7 +114,7 @@ originals per part.
 9. **OmniVoice decides a take's length by rule.** Its length is the
    reference's duration scaled by the weight of the English against the weight
    of the reference's transcript, with a stretch for anything under 2 s (see
-   [directing.md](directing.md#3-translate-and-time)). With per-line
+   [directing/translate.md](directing/translate.md#3-translate-and-time)). With per-line
    references each line's own original enters the rule, so pace varies from
    line to line. `fit.py` used to estimate lengths from each voice's average
    rate on lines already rendered. That needs renders first, and it can't
@@ -475,7 +475,7 @@ originals per part.
 
 `dub.py generate` renders new parts with per-line references, fill and `dips` by
 default, recorded in each script's `render` block (see
-[directing.md](directing.md#4-render)). `fit.py` predicts each line's length with
+[directing/render.md](directing/render.md#4-render)). `fit.py` predicts each line's length with
 OmniVoice's own rule before the first render. It flags `SHORT?` lines for review
 of omitted meaning, source pauses and quiet-reference estimation. The director
 checks a measured take before expanding an already complete translation.

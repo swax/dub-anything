@@ -373,7 +373,7 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
     return [(None, cache[k]["cut"]) if isinstance(cache[k], dict) else (cache[k], None) for k in keys]
 
 
-def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=False, prefix=True):
+def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=False, prefix=True, notes=None):
     """Per-line references: the voice's own clips (work/voices/<key>.wav), a 0.3 s
     pause, then this line's original from the job's separated vocals, with the
     line's original words (`ja`, or the field of the part's source language) after
@@ -387,7 +387,9 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
     cut and voice-audio fingerprint, which dub.py saves with the take. Rebuilding
     a voice must not reuse a cached reference containing its old audio.
     With prefix=False (or a line's ref_prefix=False), use only that line's
-    original audio/transcript. Source cleanliness checks still apply."""
+    original audio/transcript. Source cleanliness checks still apply.
+    With `notes` (a dict), what verbose would print goes into it instead, as
+    {line index: [note, ...]}, for a caller that reports by line (check.py)."""
     import numpy as np
     import soundfile as sf
 
@@ -402,26 +404,34 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
     keys = source_check_keys(work, lines, dips, cast_lines) if reviews else [None] * len(lines)
     source_stat = (JOBS / job_id / "vocals.wav").stat()
     source = {"job": job_id, "size": source_stat.st_size, "mtime_ns": source_stat.st_mtime_ns}
-    for line, i, key, (why, cut) in zip(lines, ids, keys, checks):
+
+    def note(k, kind, detail):
+        if notes is not None:
+            notes.setdefault(k, []).append(f"{kind}: {detail}")
+        elif verbose:
+            print(f"  {kind} at {lines[k]['start']}: {detail}")
+
+    for k, (line, i, key, (why, cut)) in enumerate(zip(lines, ids, keys, checks)):
         if not line.get("line_ref", True) or line.get("effect") in ROOM_EFFECTS:
             continue
         if why:
-            if verbose:
-                print(f"  line ref skipped at {line['start']}: {why}")
+            note(k, "line ref skipped", why)
             continue
         review = reviews.get(key, {})
         own = vocals[int(line["start"] * sr) : int((cut or line["end"]) * sr)]
-        if verbose and review.get("source") == source and review.get("review_tail"):
+        if (verbose or notes is not None) and review.get("source") == source and review.get("review_tail"):
             from reference_review import audible_tail
 
             tail = audible_tail(own, sr, review)
         else:
             tail = {"review_tail": False}
         if tail["review_tail"]:
-            print(
-                f"  reference review at {line['start']}: {review['trailing_seconds']:.2f} s after the last recognized word; "
+            note(
+                k,
+                "reference review",
+                f"{review['trailing_seconds']:.2f} s after the last recognized word; "
                 f"{tail['tail_active_seconds']:.2f} s has audible energy; "
-                "check for laughter, crosstalk, noise or missed speech (reference unchanged)"
+                "check for laughter, crosstalk, noise or missed speech (reference unchanged)",
             )
         with_prefix = line.get("ref_prefix", prefix)
         if not isinstance(with_prefix, bool):
@@ -431,7 +441,7 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
             base_path = WORK / "voices" / f"{line['voice']}.wav"
             base, base_sr = sf.read(base_path, dtype="float32")
             if base_sr != sr or base.shape[1:] != own.shape[1:]:
-                print(f"  line ref skipped at {line['start']}: {base_path.name} isn't in the vocals' format")
+                note(k, "line ref skipped", f"{base_path.name} isn't in the vocals' format")
                 continue
             duration = (len(base) + len(own)) / sr + 0.3
             reference_sig = "v" + hashlib.sha1(base.tobytes()).hexdigest()[:12]
@@ -443,8 +453,7 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
             reference_sig = "own" + hashlib.sha1(own.tobytes() + transcript.encode()).hexdigest()[:12]
             audio = own
         if duration > LINE_REF_MAX:
-            if verbose:
-                print(f"  line ref skipped at {line['start']}: over {LINE_REF_MAX:.0f} s")
+            note(k, "line ref skipped", f"over {LINE_REF_MAX:.0f} s")
             continue
         if i in repeated:
             raise ValueError(
@@ -740,7 +749,7 @@ def indextts_length(text, actor, speed=1.0):
 SHORT_BY = 0.5  # s of the actor's speech left uncovered that makes a line "SHORT"
 
 
-def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
+def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None, notes=None):
     """Each rendered clip's length vs its window, and the room concise timing
     allows: VoiceStudio's own rule (dub_generate.py) of the window, plus up to
     0.25 s of the gap before the next line (less a 0.05 s buffer), plus the
@@ -764,7 +773,8 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
     there fill's slowest speed is credited, and "SHORT?" means even that ends
     SHORT_BY early. `voice` estimates the part in another voice than its own
     renders (the director's script in the American voice, with each line's
-    "text_us"): its takes are ignored and every line is estimated."""
+    "text_us"): its takes are ignored and every line is estimated. `notes`
+    collects the per-line reference notes generate would print (line_refs)."""
     work = WORK / name
     job = load_json(work / "segments.json")["job_id"]
     pair = langs(name)
@@ -811,6 +821,7 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None):
                 dips=mode.get("dips", not rendered),
                 cast_lines=mode.get("cast_lines", not rendered),
                 prefix=mode.get("ref_prefix", True),
+                notes=notes,
             )
     spans = actor_spans(job, lines) if short or (predict and american) else [None] * len(lines)
     rows = []

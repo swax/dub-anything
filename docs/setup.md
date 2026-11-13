@@ -120,7 +120,7 @@ These locations have different retention rules: data contains job media and
 voice profiles; models contains reusable downloads; uv's cache contains
 regenerable packages and tool environments, while its Python directory contains
 the interpreters those tools need. Follow
-[storage cleanup](directing.md#7-storage-cleanup) after each accepted job. Retire
+[storage cleanup](directing/package.md#7-storage-cleanup) after each accepted job. Retire
 the job media, including timestamped backend exports, before considering model
 removal. On Windows, account for hard links rather than adding folder sizes.
 
@@ -182,7 +182,7 @@ them. The old patch's reuse of newly made takes after a failed first render
 was retired, so resolve predicted overflows before rendering. Windows AMD
 adjustments apply only to the verified legacy `2.9.1+rocm7.13.x` Torch build;
 other builds retain upstream's dispatch and precision policy. See
-[directing.md](directing.md#gotchas).
+[the machine gotchas](directing/machine.md).
 
 #### AMD Radeon: ROCm PyTorch
 

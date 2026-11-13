@@ -9,8 +9,12 @@ You are the **dub director**. The user brings a video; you turn the machine
 transcript into a directed `work/<clip>/script.json` (who says what, in natural
 English, or natural Japanese or Spanish when dubbing from English, timed to the
 actor) and render it with cloned voices. Read
-[docs/directing.md](docs/directing.md) before directing anything. It holds the
-workflow and the gotchas that cost the most time to find. Read the notes on the
+[docs/directing.md](docs/directing.md) before directing anything: the files,
+the workflow's outline and the tools, with a page per phase in
+[docs/directing/](docs/directing/) (its table says which to read when). Read
+[Translate and time](docs/directing/translate.md) and the
+[gotchas](docs/directing/gotchas.md) that cost the most time to find before
+writing any script, and the other pages as their phase comes. Read the notes on the
 job's two languages in [docs/languages/](docs/languages/README.md) too (`ja.md`,
 `en.md`, `es.md`, `ko.md`, `zh.md`): what differs with each as the source and as the target.
 
@@ -128,22 +132,29 @@ work; you direct.
    is done. Follow it with `scripts/dub_anything.py status <slug>` and the logs in
    `work/jobs/<slug>/logs/`.
 3. **Direct, part by part** ([docs/directing.md](docs/directing.md)). Cast the
-   voices (`cast.py`, `frames.py`, `work/voices.json`) from the first parts.
+   voices (`cast.py`, `frames.py`, `work/voices.json`) from the first parts
+   ([Prep, draft and cast](docs/directing/prep-and-cast.md)).
    Write each part's `script.json` from its `draft.json` and the `second.py` log,
    ending each window in a pause with nobody else inside it. Then
-   `scripts/edges.py <part> --apply` (check long `skip`s by hand), `tails.py`
-   for echo and PA, and `fit.py`. Snap the windows of lines that fall back to
-   the character's reference and fix every `OVER?`. Review every `SHORT?` for
+   `scripts/check.py <part>`: in one pass it checks the script's structure,
+   moves window edges (`edges.py --apply`; check long `skip`s by hand, and
+   re-read the lines it moved before editing them), finds echo and PA
+   (`tails.py`) and predicts every line's fit in each of the job's voices
+   (`fit.py`), printing only what needs a look. Fix everything marked `!`
+   (every `OVER?`, among others) and snap the windows of lines that fall back
+   to the character's reference. Review every `SHORT?` for
    omitted meaning, source pauses and quiet-reference estimation errors before
    expanding the translation; never invent padding to satisfy a prediction. Check
-   the actual take's fit after rendering. With the American voice in the job, also run
-   `scripts/fit.py <part> --voice american`; a line that needs other English
+   the actual take's fit after rendering. With the American voice in the job,
+   a line that needs other English
    for that voice alone gets `"text_us"`. With `--signs`, translate the text in
    the picture the viewer needs into the part's `"signs"` from `signs.py`'s
    sheets, and check them with `scripts/signs.py <part> --preview`. Give each
    guess a `"listen"` note (who says it, a misheard word): it goes into the
    report. A part that stays original gets `"lines": []`. Then
-   `scripts/dub_anything.py ready <slug> <NN>`: it renders by itself.
+   `scripts/check.py <part> --ready` checks it once more and marks it ready
+   when nothing must be fixed (or `scripts/dub_anything.py ready <slug> <NN>`):
+   it renders by itself.
 
    For Japanese → English in the actor's voice, use `"line_ref": true` and
    `"ref_prefix": false` in `render`: clean current-line Japanese supplies the
@@ -156,7 +167,7 @@ work; you direct.
    Save uncertain choices for a small post-dub A/B page. Inspect laughter and other
    nonverbal tails even when transcript checks pass. Use a shared prefix only
    for an explicit listening comparison. See the reference-selection notes in
-   [docs/directing.md](docs/directing.md).
+   [Render](docs/directing/render.md).
 4. **When `run --watch` stops.** Exit 0: delivered. Exit 2: a part is blocked
    (`status` says why: lines that don't fit their window, or a render that
    failed twice). Fix the script and start `run --watch` again; the part
@@ -188,7 +199,7 @@ work; you direct.
    reclaiming space, verify the staged inventory and retained files, then
    remove only the authorized disposable files. Otherwise give the holding
    path and size for the user to delete. Record the result and measured free
-   space change in `work/NOTES.md`. See [storage cleanup](docs/directing.md#7-storage-cleanup)
+   space change in `work/NOTES.md`. See [storage cleanup](docs/directing/package.md#7-storage-cleanup)
    for source preservation, old exports, idle dependency caches and unfinished jobs.
 
 **Subtitles only.** When the user wants a video subtitled rather than dubbed,
@@ -200,16 +211,19 @@ you write each part's `script.json` for reading instead of for the lips (no
 fix every `FAST`, `LONG` and `SPLIT?`) and mark it ready. Nothing renders: when
 every part is ready, `run` delivers `<name> (subtitled).mkv` (the source's video
 and audio, the translation on by default with the signs placed, the
-transcript) and the translation's `.srt` beside it. See docs/directing.md,
-"Subtitles only".
+transcript) and the translation's `.srt` beside it. See
+[Subtitles only](docs/directing/subtitles.md).
 
 **A long video: direct in parallel.** The machine work is a few hours for a
 feature film, and directing it alone takes longer. Direct the first two or
 three parts yourself: cast every voice you can and write the show's notes in
 `work/NOTES.md` (characters, who calls whom what, word choices, running jokes,
 names a clone can't say). Then hand batches of parts to subagents with those
-notes, docs/directing.md and the two languages' notes, each writing its parts'
-`script.json` without marking them ready. Give them the keys to use for
+notes, docs/directing.md, docs/directing/translate.md, docs/directing/gotchas.md
+and the two languages' notes (not the other phase pages: casting, rendering,
+QA and delivery stay with you, and each page a subagent reads is re-read on
+every turn it takes), each writing its parts' `script.json` and running
+`scripts/check.py` on it without marking them ready. Give them the keys to use for
 characters you expect in several batches; they add any other voice with
 `scripts/voices.py add` only (it
 locks `voices.json` and refuses a key that exists). Two directors whose batches
@@ -237,7 +251,7 @@ filling, or a part is blocked and you can't fix it. At the end: the delivered
 file and the listen list.
 
 **By hand.** The steps `scripts/dub_anything.py run` takes can be run one by one
-(docs/directing.md, "Workflow"): `split.py`, `dub.py prep`, `separate.py`,
+(docs/directing.md, "Workflow", and its phase pages): `split.py`, `dub.py prep`, `separate.py`,
 `subs.py`, `draft.py`, `second.py`, then per part `dub.py generate
 --match-level` and `lineqa.py --reroll`, and `assemble.py` and `deliver.py` at
 the end, each from `scripts/`. Only when many of a character's fallback lines
@@ -264,9 +278,9 @@ sound wrong: `scripts/register.py report`, `build`, `route --apply`, `check`.
 - You can't listen, so verify with every tool you have: careful ASR, VAD,
   speaker embeddings, frames, `fit.py`, `qa.py`, and per-line transcription of
   the rendered clips. Then tell the user what to listen for.
-- When you learn something general about dubbing, put it in
-  `docs/directing.md`, or in `docs/languages/<code>.md` when it's about one
-  language. Show-specific notes go in `work/NOTES.md`.
+- When you learn something general about dubbing, put it in the phase's page
+  in `docs/directing/` (or `docs/directing.md` when every phase needs it), or in
+  `docs/languages/<code>.md` when it's about one language. Show-specific notes go in `work/NOTES.md`.
 - Keep production titles, real cast names, dialogue excerpts, scene descriptions
   and source-specific measurements in ignored `work/` files. Documentation,
   diagrams, examples and commit messages must use generic descriptions and

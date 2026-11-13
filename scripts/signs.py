@@ -5,7 +5,7 @@ Usage: scripts/signs.py <clip> [--fps 2] [--from T0] [--to T1]   (after `dub.py 
        scripts/signs.py <clip> --preview [SIGN ...]
 
 Candidates for the director to translate into a part's "signs" (see
-docs/directing.md, "Signs"). Most text in a picture is clutter; the director
+docs/directing/translate.md, "Translate the text in the picture"). Most text in a picture is clutter; the director
 reads the sheets and keeps what the viewer needs.
 
 1. Shot cuts come from ffmpeg's scene detection: a sign usually shows for

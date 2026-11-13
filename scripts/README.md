@@ -12,6 +12,7 @@ the tools produce evidence and render each part.
 | Start or inspect the voice backend | `scripts/backend.py` |
 | Cast voices and inspect speakers | `voices.py`, `cast.py`, `frames.py` |
 | Read speech and on-screen text | `asr_words.py`, `subs.py`, `signs.py`, `second.py` |
+| Check a directed part before it renders, in one pass | `check.py` (`edges.py`, `tails.py` and `fit.py`, with only the flags printed; `--ready` marks it ready) |
 | Fit dialogue windows and check takes | `edges.py`, `tails.py`, `fit.py`, `qa.py`, `lineqa.py` |
 | Time subtitles for reading and check their speed | `subtitles.py` (shared), `fit.py` |
 
