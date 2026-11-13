@@ -20,3 +20,9 @@ signs. For a supervised pause and resume, see the directing guide's
 `DUB_PAUSE_FILE` instructions. Shared modules such as `core.py`, `gpulock.py`,
 `gpu.py` (the PyTorch build and what an AMD GPU needs), `whisper_safe.py`, and
 `languages/` support the tools.
+
+A tool that `dub_anything.py run` acts on reports what it decided with
+`core.report_result(...)` instead of leaving the runner to read its messages:
+change a message freely, but keep the reported fields (`no_speech`, `overflow`,
+`parts`, `output`). Write shared JSON with `core.save_json`, which replaces the
+file in one step.

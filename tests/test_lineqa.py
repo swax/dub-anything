@@ -51,7 +51,7 @@ class KeptTakeTests(unittest.TestCase):
                 contextlib.redirect_stdout(output),
             ):
                 # check() hears each new take through the ear it is given (lineqa.Ear).
-                lineqa.check("clip", lambda wav, lang: current, False, reroll)
+                self.last_summary = lineqa.check("clip", lambda wav, lang: current, False, reroll)
             self.last_output = output.getvalue()
             reroll_path = work / "reroll.json"
             self.last_reroll = json.loads(reroll_path.read_text(encoding="utf-8")) if reroll_path.exists() else []
@@ -64,6 +64,7 @@ class KeptTakeTests(unittest.TestCase):
     def test_stale_passing_score_cannot_restore_a_wrong_number(self):
         result = self.check_kept("我哋有三本書。", "我哋有三本新書。", "我哋有四本書。", [], 1.0)
         self.assertEqual(result, b"current")
+        self.assertEqual(self.last_summary["restored"], 0)
 
     def test_restoration_message_and_reroll_describe_the_restored_take(self):
         earlier = "Please deliver four small boxes to this door."
@@ -82,6 +83,8 @@ class KeptTakeTests(unittest.TestCase):
         self.assertIn(repr(earlier), message)
         self.assertNotIn(repr(current), message)
         self.assertEqual(self.last_reroll[0]["got"], earlier)
+        # The runner re-mixes on this count, not on the message's wording.
+        self.assertEqual(self.last_summary, {"flagged": 1, "restored": 1})
 
 
 class EarTests(unittest.TestCase):

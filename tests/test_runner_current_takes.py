@@ -69,14 +69,14 @@ class CurrentTakeGateTests(unittest.TestCase):
 
         def qa(*args):
             self.wav("Lfirst").write_bytes(b"restored better prior speech")
-            return True, "put back the better prior take"
+            return True, "", {"parts": {self.name: {"flagged": 0, "restored": 1}}}
 
         with patch.object(runner, "tool", side_effect=qa):
             self.assertEqual(runner.advance({}, self.name), "busy")
         state = self.current_state()
         self.assertEqual(state["stage"], "remix")
         self.assertEqual(state["qa_take_hashes"], self.checked())
-        with patch.object(runner, "tool", return_value=(True, "done")):
+        with patch.object(runner, "tool", return_value=(True, "done", {})):
             self.assertEqual(runner.advance({}, self.name), "busy")
         self.assertEqual(self.current_state()["stage"], "final")
         self.assertTrue(runner.finished({"name": self.name}, "actor"))
@@ -86,7 +86,7 @@ class CurrentTakeGateTests(unittest.TestCase):
 
         def remix(*args):
             self.wav("Lsecond").write_bytes(b"new fitting speech not yet checked")
-            return True, "done"
+            return True, "done", {}
 
         with patch.object(runner, "tool", side_effect=remix):
             self.assertEqual(runner.advance({}, self.name), "busy")
@@ -95,16 +95,43 @@ class CurrentTakeGateTests(unittest.TestCase):
         self.assertEqual(state["qa_remix_rechecks"], 1)
         self.assertNotEqual(state["qa_take_hashes"], self.checked())
         self.assertFalse(runner.finished({"name": self.name}, "actor"))
-        with patch.object(runner, "tool", return_value=(True, "all current takes checked")) as tool:
+        with patch.object(
+            runner, "tool", return_value=(True, "", {"parts": {self.name: {"flagged": 0, "restored": 0}}})
+        ) as tool:
             self.assertEqual(runner.advance({}, self.name), "busy")
         self.assertEqual(tool.call_args.args[2][1:], ["scripts/lineqa.py", self.name, "--reroll"])
         self.assertEqual(self.current_state()["qa_take_hashes"], self.checked())
         self.assertTrue(runner.finished({"name": self.name}, "actor"))
 
+    def test_reported_overflow_blocks_with_the_lines_that_do_not_fit(self):
+        self.state("render")
+        over = {"i": 1, "start": 3.0, "speech": 2.9, "window": 2.0, "room": 2.55, "text": "Thank you very much."}
+        with patch.object(runner, "tool", return_value=(False, "stopped", {"overflow": [over]})):
+            self.assertEqual(runner.advance({}, self.name), "blocked")
+        problem = self.current_state()["problem"]
+        self.assertTrue(problem.startswith("lines don't fit their windows: L01 3.00"))
+        self.assertIn("2.90s / 2.00s / 2.55s  Thank you very much.", problem)
+
+    def test_failure_wording_without_a_report_is_retried_not_blocked(self):
+        self.state("render")
+        log = "  L01    3.00  2.90s / 2.00s / 2.55s  OVER  Thank you very much."
+        with patch.object(runner, "tool", return_value=(False, log, {})), patch.object(runner.backend, "ensure"):
+            self.assertEqual(runner.advance({}, self.name), "busy")
+        self.assertNotIn("problem", self.current_state())
+        self.assertEqual(self.current_state()["fails"], 1)
+
+    def test_qa_without_a_report_remixes_before_final(self):
+        self.state()
+        with patch.object(runner, "tool", return_value=(True, "0 of 2 lines flagged", {})):
+            self.assertEqual(runner.advance({}, self.name), "busy")
+        self.assertEqual(self.current_state()["stage"], "remix")
+
     def test_missing_take_after_successful_qa_blocks(self):
         self.state()
         self.wav("Lsecond").unlink()
-        with patch.object(runner, "tool", return_value=(True, "QA skipped missing audio")):
+        with patch.object(
+            runner, "tool", return_value=(True, "", {"parts": {self.name: {"flagged": 0, "restored": 0}}})
+        ):
             self.assertEqual(runner.advance({}, self.name), "blocked")
         self.assertIn("missing or unreadable current take Lsecond", self.current_state()["problem"])
         self.assertNotEqual(self.current_state()["stage"], "final")
@@ -114,7 +141,7 @@ class CurrentTakeGateTests(unittest.TestCase):
 
         def remix(*args):
             self.wav("Lfirst").unlink()
-            return True, "done"
+            return True, "done", {}
 
         with patch.object(runner, "tool", side_effect=remix):
             self.assertEqual(runner.advance({}, self.name), "blocked")
@@ -128,10 +155,10 @@ class CurrentTakeGateTests(unittest.TestCase):
             nonlocal remixes
             if command[1] == "scripts/lineqa.py":
                 self.wav("Lfirst").write_bytes(b"restored prior")
-                return True, "put back the better prior take"
+                return True, "", {"parts": {self.name: {"flagged": 0, "restored": 1}}}
             remixes += 1
             self.wav("Lfirst").write_bytes(f"new remix {remixes}".encode())
-            return True, "done"
+            return True, "done", {}
 
         with patch.object(runner, "tool", side_effect=tools):
             for count in range(runner.MAX_REMIX_QA_RECHECKS + 1):
@@ -176,7 +203,7 @@ class CurrentTakeGateTests(unittest.TestCase):
 
     def test_resumed_legacy_remix_needs_a_current_qa_receipt(self):
         self.state("remix")
-        with patch.object(runner, "tool", return_value=(True, "done")):
+        with patch.object(runner, "tool", return_value=(True, "done", {})):
             self.assertEqual(runner.advance({}, self.name), "busy")
         self.assertEqual(self.current_state()["stage"], "qa")
         self.assertNotIn("qa_take_hashes", self.current_state())
@@ -217,7 +244,7 @@ class CurrentTakeGateTests(unittest.TestCase):
         )
         self.script["lines"][0]["text"] = "The parcel arrived this morning."
         self.write("script.json", self.script)
-        with patch.object(runner, "tool", return_value=(True, "done")) as tool:
+        with patch.object(runner, "tool", return_value=(True, "done", {})) as tool:
             self.assertEqual(runner.advance({}, self.name), "busy")
         self.assertEqual(tool.call_args.args[2][1:3], ["scripts/dub.py", "generate"])
         self.assertEqual(self.current_state()["stage"], "qa")

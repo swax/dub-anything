@@ -368,8 +368,8 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
                     ):
                         why = f"voice nearer {best}"
             cache[key] = {"cut": cut} if cut and not why else why
-        cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
-        review_path.write_text(json.dumps(reviews, ensure_ascii=False, indent=1), encoding="utf-8")
+        save_json(cache_path, cache)
+        save_json(review_path, reviews)
     return [(None, cache[k]["cut"]) if isinstance(cache[k], dict) else (cache[k], None) for k in keys]
 
 
@@ -499,7 +499,51 @@ def actor_ends(job_id, lines):
 
 
 def load_json(path, default=None):
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+    # Windows can briefly refuse a read while another process swaps the file in (save_json).
+    for pause in (0.02, 0.05, 0.1, None):
+        try:
+            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+        except PermissionError:
+            if pause is None:
+                raise
+            time.sleep(pause)
+
+
+def save_json(path, value, indent=1):
+    """Write JSON so a reader sees the old file or the new one, never part of one:
+    the runner, the director and the tools read each other's files while they work,
+    and a write cut short would otherwise leave JSON that stops the next reader."""
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(value, stream, ensure_ascii=False, indent=indent)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Windows refuses the swap while a reader or a scanner has the file open.
+        for pause in (0.02, 0.05, 0.1, 0.25, 0.5, None):
+            try:
+                temporary.replace(path)
+                return
+            except PermissionError:
+                if pause is None:
+                    raise
+                time.sleep(pause)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+RESULT_ENV = "DUB_RESULT_FILE"  # where the runner asks a tool to leave what it decided
+
+
+def report_result(**fields):
+    """Leave the runner the facts it acts on (dub_anything.tool reads them back), so
+    its decisions don't depend on how a message is worded. Without the runner, nothing."""
+    path = os.environ.get(RESULT_ENV)
+    if path:
+        path = pathlib.Path(path)
+        save_json(path, {**load_json(path, {}), **fields})
 
 
 def update_voices(change):

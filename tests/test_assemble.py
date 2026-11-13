@@ -106,9 +106,13 @@ class AssemblyLayoutTests(unittest.TestCase):
                     assemble, "probe", return_value={"streams": [{"codec_type": "video", "width": 1280, "height": 720}]}
                 ),
                 patch.object(sys, "argv", ["assemble.py", "sample", "--subtitles", "--out", str(out)]),
+                patch.dict("os.environ", {"DUB_RESULT_FILE": str(root / "assemble.result.json")}),
                 contextlib.redirect_stdout(io.StringIO()),
             ):
                 assemble.main()
+                # The runner delivers the file assemble.py reports, not one read from its output.
+                reported = json.loads((root / "assemble.result.json").read_text(encoding="utf-8"))
+                self.assertEqual(reported, {"output": str(out)})
                 text = styled.read_text(encoding="utf-8-sig")
                 self.assertIn("0:00:11.00,0:00:12.50,Dialogue,,0,0,0,,{\\an8\\pos(640,137)}Hello.", text)
                 self.assertIn("0:00:01.00,0:00:02.50,Dialogue,,0,0,0,,Hello.", text)

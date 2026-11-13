@@ -47,7 +47,7 @@ class TextEvidenceTests(unittest.TestCase):
                     self.assertEqual(job["signs"], signs)
                     with (
                         patch.object(runner, "job_dir_of", return_value=root),
-                        patch.object(runner, "tool", return_value=(True, "")) as tool,
+                        patch.object(runner, "tool", return_value=(True, "", {})) as tool,
                     ):
                         self.assertEqual(runner.prepare_step(job, [{"name": "sample-01"}]), "busy")
                     command = tool.call_args.args[2]
@@ -66,7 +66,7 @@ class OriginalAudioTextTests(unittest.TestCase):
             (folder / "script.json").write_text('{"lines": []}', encoding="utf-8")
             part = {"name": folder.name, "file": "opening.mp4"}
             job = {"signs": True, "langs": ["en", "es"]}
-            with patch.object(runner, "WORK", work), patch.object(runner, "tool", return_value=(True, "")) as tool:
+            with patch.object(runner, "WORK", work), patch.object(runner, "tool", return_value=(True, "", {})) as tool:
                 self.assertEqual(runner.prepare_step(job, [part]), "busy")
                 self.assertEqual(
                     tool.call_args.args[2],

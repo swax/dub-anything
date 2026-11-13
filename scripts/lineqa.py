@@ -44,7 +44,7 @@ import time
 
 import soundfile as sf
 
-from core import WORK, langs, line_id, load_json, take_wav, whisper_setup
+from core import WORK, langs, line_id, load_json, report_result, save_json, take_wav, whisper_setup
 from languages import LANGUAGES
 
 whisper_setup()
@@ -269,15 +269,15 @@ def check(name, ear, show_all, reroll, only=None, observations=None):
         f"{len(flagged)} of {len(lines) if only is None else len(only)} lines flagged "
         f"({len(new)} takes heard{timing}, the rest as in earlier checks)"
     )
-    heard_path.write_text(json.dumps(heard, ensure_ascii=False, indent=1), encoding="utf-8")
+    save_json(heard_path, heard)
     if kept:
-        kept_path.write_text(json.dumps(kept, ensure_ascii=False, indent=1), encoding="utf-8")
+        save_json(kept_path, kept)
     if rolls:
-        rolls_path.write_text(json.dumps(rolls, indent=1), encoding="utf-8")
+        save_json(rolls_path, rolls)
     if restored:
-        (work / "rendered.json").write_text(json.dumps(rendered, indent=1), encoding="utf-8")
+        save_json(work / "rendered.json", rendered)
         if converted:
-            (work / "converted.json").write_text(json.dumps(converted, indent=1), encoding="utf-8")
+            save_json(work / "converted.json", converted)
         print(f"put back {len(restored)} earlier takes: the next `scripts/dub.py generate {name}` re-mixes them")
     if reroll and (flagged or only is not None):
         queued = flagged
@@ -285,7 +285,7 @@ def check(name, ear, show_all, reroll, only=None, observations=None):
             selected_ids = {line_id(lines[i]) for i in only}
             queued = [r for r in load_json(work / "reroll.json", []) if r["id"] not in selected_ids] + flagged
         # Settled lines are listed too (for the report) but get no fresh take.
-        (work / "reroll.json").write_text(json.dumps(queued, ensure_ascii=False, indent=1), encoding="utf-8")
+        save_json(work / "reroll.json", queued)
         again = sum(1 for f in flagged if f.get("reconvert"))
         settled = sum(1 for f in flagged if f.get("settled"))
         what = [
@@ -300,6 +300,8 @@ def check(name, ear, show_all, reroll, only=None, observations=None):
             )
         if settled:
             print(f"{settled} settled (failed on {SETTLE_TAKES} takes): not re-rolled")
+    # Takes put back are only mixed in by the next generate: the runner re-mixes on "restored".
+    return {"flagged": len(flagged), "restored": len(restored)}
 
 
 RECONVERTS = 2  # conversions of one IndexTTS take tried again before it gets a fresh take
@@ -336,13 +338,17 @@ def main():
     args = ap.parse_args()
     ear = Ear()
     started = time.perf_counter()
+    summary = {}
     for name in args.names:
         if len(args.names) > 1:
             print(f"=== {name}")
         from dub import selected_indices
 
         lines = load_json(WORK / name / "script.json")["lines"]
-        check(name, ear, args.all, args.reroll, selected_indices(args.only, len(lines)), observations=args.observations)
+        summary[name] = check(
+            name, ear, args.all, args.reroll, selected_indices(args.only, len(lines)), observations=args.observations
+        )
+    report_result(parts=summary)
     if args.metrics:
         args.metrics.parent.mkdir(parents=True, exist_ok=True)
         args.metrics.write_text(

@@ -65,7 +65,7 @@ class SubtitleJobTests(unittest.TestCase):
             job = new_job(root, "--voices", "none")
             with (
                 patch.object(runner, "WORK", root / "work"),
-                patch.object(runner, "tool", return_value=(True, "")) as tool,
+                patch.object(runner, "tool", return_value=(True, "", {})) as tool,
                 contextlib.redirect_stdout(io.StringIO()),
             ):
                 self.assertEqual(runner.prepare_step(job, [{"name": "sample-01", "file": "p.mp4"}]), "busy")

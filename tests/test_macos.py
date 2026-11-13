@@ -334,7 +334,7 @@ class AudioTrackLanguageTests(unittest.TestCase):
                     "quicktime_audio": enabled,
                 }
                 with (
-                    patch.object(dub_anything, "tool", return_value=(True, "-> assembled.mp4")) as tool,
+                    patch.object(dub_anything, "tool", return_value=(True, "", {"output": "assembled.mp4"})) as tool,
                     patch.object(deliver, "deliver", return_value=pathlib.Path("delivered.mp4")) as delivery,
                     patch.object(dub_anything, "save_job"),
                 ):

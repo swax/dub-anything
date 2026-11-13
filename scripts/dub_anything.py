@@ -47,6 +47,13 @@ Current take hashes are recorded after QA. A re-mix that changes checked audio
 returns to ordinary QA; after two such rechecks for one unchanged script, another
 changed re-mix blocks for the director instead of looping. Legacy final parts
 without these receipts stay final until explicitly reopened or revised.
+
+A tool tells run what it decided in a report, not in its wording: run names a file
+in DUB_RESULT_FILE, the tool leaves its facts there (core.report_result: a silent
+part, the lines that overflow, the takes QA put back, the assembled file) and run
+reads them back; the file stays beside the step's log as <log>.result.json. Job,
+state and script files are replaced in one step (core.save_json), so a run stopped
+mid-write leaves the earlier file.
 """
 
 import argparse
@@ -68,6 +75,7 @@ import subtitles
 from core import (
     FILL_SPEED,
     JOBS,
+    RESULT_ENV,
     ROOT,
     VOICE_LABEL,
     WORK,
@@ -76,6 +84,7 @@ from core import (
     langs,
     line_id,
     load_json,
+    save_json,
     speech_length,
     take_wav,
     voice_part,
@@ -186,7 +195,7 @@ def load_job(slug):
 
 
 def save_job(job):
-    job_file(job["slug"]).write_text(json.dumps(job, ensure_ascii=False, indent=1), encoding="utf-8")
+    save_json(job_file(job["slug"]), job)
 
 
 def job_langs(job):
@@ -205,9 +214,10 @@ def parts(job):
 
 
 def write_json(path, data):
+    """Write a file only when its contents change, and then in one step (core.save_json)."""
     text = json.dumps(data, ensure_ascii=False, indent=1)
     if not path.exists() or path.read_text(encoding="utf-8") != text:
-        path.write_text(text, encoding="utf-8")
+        save_json(path, data)
 
 
 def job_dir_of(name):
@@ -234,7 +244,9 @@ def pause_checkpoint():
 
 
 def tool(job, label, cmd, logname):
-    """Run a step, retaining earlier retry logs; return success and its output."""
+    """Run a step, retaining earlier retry logs; return success, its output and what
+    it reported (core.report_result, kept beside the log as <logname>.result.json).
+    The runner decides from the report; the output is for messages and the log."""
     pause_checkpoint()
     logs = JOB_DIR / job["slug"] / "logs"
     logs.mkdir(parents=True, exist_ok=True)
@@ -243,11 +255,18 @@ def tool(job, label, cmd, logname):
     path = logs / f"{logname}.log"
     if path.exists():
         path.replace(path.with_name(f"{path.stem}.previous-{time.time_ns()}.log"))
+    reported = logs / f"{logname}.result.json"
+    reported.unlink(missing_ok=True)  # an earlier attempt's report says nothing about this one
     with open(path, "w", encoding="utf-8") as f:  # written as it runs, to follow a long render
-        r = subprocess.run(cmd, cwd=ROOT, env=ENV, stdout=f, stderr=subprocess.STDOUT)
+        env = {**ENV, RESULT_ENV: str(reported)}
+        r = subprocess.run(cmd, cwd=ROOT, env=env, stdout=f, stderr=subprocess.STDOUT)
     out = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        result = load_json(reported, {})
+    except ValueError:
+        result = {}
     log(f"{label} {'ok' if r.returncode == 0 else 'FAILED'} ({time.time() - t0:.0f} s)")
-    return r.returncode == 0, out
+    return r.returncode == 0, out, result if isinstance(result, dict) else {}
 
 
 # ---- preparing ----
@@ -310,14 +329,14 @@ def prepare_step(job, ps):
     for p in chunk:
         if not (WORK / p["name"] / "segments.json").exists():
             src, tgt = job_langs(job)
-            ok, out = tool(
+            ok, out, result = tool(
                 job,
                 f"prep {p['name']}",
                 [PY, "scripts/dub.py", "prep", p["file"], "--source", src, "--target", tgt]
                 + (["--subtitles-only"] if subtitles_only(job) else []),
                 f"prep-{p['name']}",
             )
-            if not ok and "produced no segments" in out:
+            if not ok and result.get("no_speech"):
                 # No speech at all (a silent channel card): nothing to dub, so it stays original.
                 (WORK / p["name"]).mkdir(exist_ok=True)
                 write_json(WORK / p["name"] / "script.json", {"lines": []})
@@ -456,7 +475,7 @@ def variant(job, p, voice):
         except OSError:
             shutil.copy2(p["file"], video)
     if not (work / "segments.json").exists():
-        ok, out = tool(job, f"prep {name}", [PY, "scripts/dub.py", "prep", str(video)], f"prep-{name}")
+        ok, out, _ = tool(job, f"prep {name}", [PY, "scripts/dub.py", "prep", str(video)], f"prep-{name}")
         if not ok:
             problem(job, f"prep {name} failed: {last_error(out)}")
             return None
@@ -549,7 +568,7 @@ def advance(job, name):
         return "blocked"
 
     def save():
-        path.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+        save_json(path, st)
 
     stage = st["stage"]
     if stage == "final":
@@ -570,17 +589,21 @@ def advance(job, name):
     if stage in ("render", "remix"):
         clean_backend(job)
         what = {"render": "render" if not st["round"] else f"round {st['round']}", "remix": "re-mix"}[stage]
-        ok, out = tool(
+        ok, out, result = tool(
             job,
             f"{what} {name}",
             [PY, "scripts/dub.py", "generate", name, "--match-level"],
             f"gen-{name}-{st['round']}{'-remix' if stage == 'remix' else ''}",
         )
         if not ok:
-            over = re.findall(r"^\s+(L\d+\s+[\d.]+\s.*\sOVER\s+.*)$", out, re.M)
+            over = result.get("overflow") or []
             st["fails"] = st.get("fails", 0) + 1
             if over:
-                st["problem"] = "lines don't fit their windows: " + "; ".join(o.strip() for o in over)
+                st["problem"] = "lines don't fit their windows: " + "; ".join(
+                    f"L{o['i']:02d} {o['start']:.2f}  {o['speech']:.2f}s / {o['window']:.2f}s "
+                    f"/ {o['room']:.2f}s  {o['text']}"
+                    for o in over
+                )
             elif st["fails"] >= 2:
                 st["problem"] = f"render failed twice: {last_error(out)}"
             elif GPU_FULL.search(out):
@@ -617,7 +640,7 @@ def advance(job, name):
         save()
         return "busy"
     if stage == "qa":
-        ok, out = tool(
+        ok, out, result = tool(
             job,
             f"qa {name}" + (f" (round {st['round']})" if st["round"] else ""),
             [PY, "scripts/lineqa.py", name, "--reroll"],
@@ -645,8 +668,10 @@ def advance(job, name):
                 (work / "reroll.json").replace(work / "reroll-left.json")
             else:
                 (work / "reroll-left.json").unlink(missing_ok=True)
-            # Takes lineqa put back are only mixed in by the next generate.
-            st["stage"] = "remix" if "put back" in out else "final"
+            # Takes lineqa put back are only mixed in by the next generate. Without its
+            # count, re-mix anyway: the mix must hold the takes that were checked.
+            checked = (result.get("parts") or {}).get(name)
+            st["stage"] = "remix" if checked is None or checked.get("restored") else "final"
         save()
         return "busy"
     raise SystemExit(f"{name}: unknown stage {stage!r}")
@@ -682,12 +707,13 @@ def deliver_job(job, ps):
     if done.get("state") == sha and pathlib.Path(done.get("path", "")).exists():
         return True
     if subtitles_only(job):
-        ok, out = tool(job, "assemble subtitles", [PY, "scripts/assemble.py", job["slug"], "--subtitles"], "assemble")
-        m = re.search(r"-> (.+)$", out, re.M)
-        if not ok or not m:
+        ok, out, result = tool(
+            job, "assemble subtitles", [PY, "scripts/assemble.py", job["slug"], "--subtitles"], "assemble"
+        )
+        if not ok or not result.get("output"):
             return problem(job, f"assemble.py failed for the subtitles: {last_error(out)}")
         log(f"deliver into {pathlib.Path(job['source']).name}")
-        out = deliver.deliver_subtitles(job["source"], pathlib.Path(m.group(1).strip()), job_langs(job))
+        out = deliver.deliver_subtitles(job["source"], pathlib.Path(result["output"]), job_langs(job))
         job["source"] = str(out)
         job["delivered"] = {"path": str(out), "at": time.strftime("%Y-%m-%d %H:%M"), "state": sha}
         job.pop("problems", None)
@@ -698,11 +724,10 @@ def deliver_job(job, ps):
         cmd = [PY, "scripts/assemble.py", job["slug"], "--voice", voice]
         if job.get("quicktime_audio"):
             cmd.append("--quicktime-audio")
-        ok, out = tool(job, f"assemble {voice}", cmd, f"assemble-{voice}")
-        m = re.search(r"-> (.+\.mp4)", out)
-        if not ok or not m:
+        ok, out, result = tool(job, f"assemble {voice}", cmd, f"assemble-{voice}")
+        if not ok or not result.get("output"):
             return problem(job, f"assemble.py failed for the {voice} voice: {last_error(out)}")
-        dubs[voice] = pathlib.Path(m.group(1).strip())
+        dubs[voice] = pathlib.Path(result["output"])
     log(f"deliver into {pathlib.Path(job['source']).name}")
     out = deliver.deliver(
         job["source"], dubs, job["default"], job_langs(job), quicktime_audio=bool(job.get("quicktime_audio"))

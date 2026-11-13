@@ -59,6 +59,8 @@ from core import (
     out_dir,
     reference_settings,
     reference_signature,
+    report_result,
+    save_json,
     speech_length,
     srt_time,
     take_length,
@@ -70,6 +72,8 @@ from gpulock import hold_gpu
 from languages import LANGUAGES, NAMES, PAIR, PAIRS
 
 API = os.environ.get("VOICESTUDIO_API", "http://127.0.0.1:3900")
+# How VoiceStudio's transcription says it found no speech (its error event has no code for it).
+NO_SPEECH = "produced no segments"
 
 
 class BackendTaskError(RuntimeError):
@@ -367,7 +371,7 @@ def prep_subtitles(video, work, src, tgt):
         "subtitles_only": True,
         "segments": [],
     }
-    (work / "segments.json").write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_json(work / "segments.json", doc, indent=2)
 
 
 def cmd_prep(args):
@@ -401,7 +405,7 @@ def cmd_prep(args):
         # Another voice of a prepped part: same audio, so its transcript (the renders
         # send their own lines) instead of transcribing and diarizing again.
         doc = {**load_json(WORK / base / "segments.json"), "job_id": job_id, "video": str(video)}
-        (work / "segments.json").write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+        save_json(work / "segments.json", doc, indent=2)
         if (WORK / base / f"{args.source}.srt").exists():
             shutil.copy2(WORK / base / f"{args.source}.srt", work / f"{args.source}.srt")
         print(f"  transcript from {base} ({len(doc['segments'])} segments)")
@@ -423,6 +427,8 @@ def cmd_prep(args):
             elif ev == "warning":
                 print(f"  [{time.time() - t0:5.0f}s] warning: {json.dumps(d, ensure_ascii=False)[:300]}")
             elif ev == "error":
+                if isinstance(d, dict) and not d.get("code") and NO_SPEECH in str(d.get("detail", "")):
+                    report_result(no_speech=True)  # the runner leaves the part in the original
                 raise RuntimeError(f"transcribe error: {json.dumps(d, ensure_ascii=False)}")
             elif ev == "start":
                 print(f"  [{time.time() - t0:5.0f}s] start {d}")
@@ -440,7 +446,7 @@ def cmd_prep(args):
         "speaker_clones": final.get("speaker_clones"),
         "segments": final["segments"],
     }
-    (work / "segments.json").write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_json(work / "segments.json", doc, indent=2)
 
     with open(work / f"{args.source}.srt", "w", encoding="utf-8") as f:
         for i, s in enumerate(final["segments"], 1):
@@ -479,7 +485,7 @@ def ensure_voice(key):
     if old:
         requests.delete(f"{API}/profiles/{old['id']}", timeout=30)
     cache[key] = {"id": pid, "sig": sig}
-    cache_path.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+    save_json(cache_path, cache, indent=2)
     print(f"  voice {key}: profile {pid} ({len(spec['clips'])} clips)")
     return pid
 
@@ -743,7 +749,7 @@ def render_mode(work, script, args, pair=PAIR):
         }
         if fresh:
             mode.setdefault("cast_lines", True)
-        (work / "script.json").write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
+        save_json(work / "script.json", script)
         print(
             f"  render mode written to script.json: {mode}"
             + ("" if fresh else " (this part was rendered before some of these became the default)")
@@ -901,7 +907,7 @@ def _cmd_generate(args):
             raise SystemExit("voice conversion needs uv on PATH (see AGENTS.md)")
         for p in todo:
             converted[p["id"]] = file_sha(p["out"])
-        converted_path.write_text(json.dumps(converted, indent=1), encoding="utf-8")
+        save_json(converted_path, converted)
         return True
 
     def plan(first):
@@ -1228,7 +1234,7 @@ def _cmd_generate(args):
                         selected={ids[k] for k in only} if only is not None else None,
                     )
                 if settings and (args._generation is None or not args._generation.unknown()):
-                    rendered_path.write_text(json.dumps(rendered, indent=1), encoding="utf-8")
+                    save_json(rendered_path, rendered)
             print(f"    ({time.time() - t0:.0f} s)")
             synthesized |= regen is None or bool(regen)
             if done is None:
@@ -1245,12 +1251,20 @@ def _cmd_generate(args):
             # pass of edits fixes every line.
             print(f"\nVoiceStudio stopped at L{int(stopped.group(1)):02d}" if stopped else "")
             print("lines that don't fit (clip / window / room with borrowed gap and overflow budget):")
-            for row in fit_rows(args.name, args.overflow):
-                if row["flag"] in ("OVER", "tight"):
-                    print(
-                        f"  L{row['i']:02d} {row['start']:7.2f}  {row['speech']:4.2f}s / {row['window']:4.2f}s "
-                        f"/ {row['room']:4.2f}s  {row['flag']:5s} {row['text']}"
-                    )
+            rows = [row for row in fit_rows(args.name, args.overflow) if row["flag"] in ("OVER", "tight")]
+            for row in rows:
+                print(
+                    f"  L{row['i']:02d} {row['start']:7.2f}  {row['speech']:4.2f}s / {row['window']:4.2f}s "
+                    f"/ {row['room']:4.2f}s  {row['flag']:5s} {row['text']}"
+                )
+            # The runner blocks the part on these until its script changes.
+            report_result(
+                overflow=[
+                    {k: row[k] for k in ("i", "start", "speech", "window", "room", "text")}
+                    for row in rows
+                    if row["flag"] == "OVER"
+                ]
+            )
             raise SystemExit("shorten the text or widen the window of each OVER line, then generate again")
         # "american": now that the takes' timing is settled, give the new ones the
         # actor's timbre. VoiceStudio re-mixes the files it finds (the job has rendered).
@@ -1289,7 +1303,7 @@ def _cmd_generate(args):
             },
         },
     }
-    (work / "generate-result.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_json(work / "generate-result.json", receipt, indent=2)
     if script and queued and only is None:
         (work / "reroll.json").unlink(missing_ok=True)
 

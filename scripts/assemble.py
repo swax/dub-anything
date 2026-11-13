@@ -47,6 +47,7 @@ from core import (
     load_json,
     original_audio_language,
     out_dir,
+    report_result,
     said,
     srt_time,
     voice_part,
@@ -207,6 +208,7 @@ def main():
         for path, *_ in subs:
             print(f"  {path.name}")
         print(f"subtitles for {len(parts)} part(s), {t0:.2f}-{t1:.2f}s -> {out}")
+        report_result(output=str(out))
         return
     for s in args.sub:
         m = re.match(r"^(.+\.(?:srt|ass|ssa|vtt))(?::([^:]+))?(?::(.+))?$", s, re.IGNORECASE)
@@ -300,6 +302,7 @@ def main():
         name = tags.get("title") or tags.get("handler_name", "")
         print(f"  #{s['index']} {s['codec_type']:8s} {s['codec_name']:10s} {tags.get('language', ''):4s} {name}")
     print(f"  duration {float(info['format']['duration']):.2f}s")
+    report_result(output=str(out))
 
 
 if __name__ == "__main__":
