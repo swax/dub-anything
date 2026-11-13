@@ -109,5 +109,20 @@ def rocm_settings(torch):
         torch.backends.cudnn.enabled = False
 
 
+def separate_command():
+    """`uv run ... python scripts/separate.py`: separate.py's own environment, with
+    VoiceStudio's ROCm torch on AMD, CUDA 12.8 PyTorch on Windows and Linux, and
+    PyPI's on macOS. Append the clips (and options) to run it from the repo root."""
+    uv = ["uv", "run", "--no-project", "--python", "3.11"]
+    tail = ["--with", "audio-separator", "--with", "onnxruntime", "python", "scripts/separate.py"]
+    if sys.platform == "darwin":
+        return uv + ["--with", "torch"] + tail
+    rocm = uv_torch_args()
+    if rocm:
+        return uv + rocm + tail
+    cuda = ["--index", "https://download.pytorch.org/whl/cu128", "--index-strategy", "unsafe-best-match"]
+    return uv + cuda + ["--with", "torch==2.8.0"] + tail
+
+
 if __name__ == "__main__":
     print(vs_torch(), uv_torch_args())

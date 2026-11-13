@@ -8,8 +8,8 @@ OMNIVOICE_CACHE_DIR and the full PATH set, and waits until /health says ok. The
 log goes to backend.log beside the data folder (or $VOICESTUDIO_LOG). The
 checkout is $VOICESTUDIO_DIR, else the pinned vendor/VoiceStudio submodule,
 else (macOS) the desktop app's runtime, else VoiceStudio beside this repo.
-dub_anything.py calls ensure() before GPU work and restarts a backend that
-stopped answering.
+dub_anything.py calls ensure() before GPU work, restarts a backend that
+stopped answering, and unload()s what prep loaded before rendering.
 """
 
 import argparse
@@ -303,6 +303,26 @@ def start(wait=600):
 def ensure():
     """True once the backend answers ok, starting it if needed."""
     return healthy() or start()
+
+
+UNLOADED_GB = 1.0  # GPU memory the backend may still reserve after an unload, in GB
+
+
+def unload(timeout=300):
+    """Unload every model the backend holds and hand their memory back
+    (POST /system/flush-memory?unload_model=true). True when it answered with at
+    most UNLOADED_GB still reserved; False when it didn't, or held on to more:
+    then restart() frees it."""
+    import json
+    import urllib.request
+
+    request = urllib.request.Request(f"{API}/system/flush-memory?unload_model=true", data=b"", method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
+            freed = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return False
+    return bool(freed.get("flushed")) and float(freed.get("vram_reserved") or 0.0) <= UNLOADED_GB
 
 
 def restart():

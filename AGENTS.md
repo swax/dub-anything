@@ -262,8 +262,8 @@ filling, or a part is blocked and you can't fix it. At the end: the delivered
 file and the listen list.
 
 **By hand.** The steps `scripts/dub_anything.py run` takes can be run one by one
-(docs/directing.md, "Workflow", and its phase pages): `split.py`, `dub.py prep`, `separate.py`,
-`subs.py`, `draft.py`, `second.py`, then per part `dub.py generate
+(docs/directing.md, "Workflow", and its phase pages): `split.py`, `dub.py prep` (it runs
+`separate.py`; subtitles-only parts need it run after), `subs.py`, `draft.py`, `second.py`, then per part `dub.py generate
 --match-level` and `lineqa.py --reroll`, and `assemble.py` and `deliver.py` at
 the end, each from `scripts/`. Only when many of a character's fallback lines
 sound wrong: `scripts/register.py report`, `build`, `route --apply`, `check`.

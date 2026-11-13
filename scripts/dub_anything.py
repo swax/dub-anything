@@ -70,7 +70,6 @@ mid-write leaves the earlier file.
 """
 
 import argparse
-import filecmp
 import hashlib
 import json
 import math
@@ -117,39 +116,7 @@ PREP_CHUNK = 4  # parts prepped, separated and drafted together, after the first
 PY = backend.vs_python()
 UV = ["uv", "run", "--no-project"]
 ROCM_TORCH = gpu.uv_torch_args()  # AMD: VoiceStudio's ROCm build of torch, in the tools' environments too
-if sys.platform == "darwin":
-    SEPARATE = UV + [
-        "--python",
-        "3.11",
-        "--with",
-        "torch",
-        "--with",
-        "audio-separator",
-        "--with",
-        "onnxruntime",
-        "python",
-        "scripts/separate.py",
-    ]
-elif ROCM_TORCH:
-    SEPARATE = UV + ["--python", "3.11", *ROCM_TORCH, "--with", "audio-separator", "--with", "onnxruntime"]
-    SEPARATE += ["python", "scripts/separate.py"]
-else:
-    SEPARATE = UV + [
-        "--python",
-        "3.11",
-        "--index",
-        "https://download.pytorch.org/whl/cu128",
-        "--index-strategy",
-        "unsafe-best-match",
-        "--with",
-        "torch==2.8.0",
-        "--with",
-        "audio-separator",
-        "--with",
-        "onnxruntime",
-        "python",
-        "scripts/separate.py",
-    ]
+SEPARATE = gpu.separate_command()
 SECOND = UV + [
     "--python",
     "3.12",
@@ -189,7 +156,6 @@ else:
         "scripts/subs.py",
     ]
 SIGNS = SUBS[:-1] + ["scripts/signs.py"]
-STEMS = ("vocals.wav", "no_vocals.wav")
 AMERICAN_RENDER = {"line_ref": False, "fill": True, "dips": False, "cast_lines": False, "voice": "american"}
 ACTOR_RENDER = {"line_ref": True, "fill": True, "dips": True, "cast_lines": True, "voice": "actor"}
 ENV = {**backend.full_env(), "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
@@ -365,8 +331,8 @@ def prepare_step(job, ps):
             if not ok:
                 problem(job, f"prep {p['name']} failed: {last_error(out)}")
                 return "failed"
-            # Prep loads transcription, diarisation and separation into the backend, and its
-            # cache keeps that memory: renders beside it run out of GPU memory.
+            # Prep loads transcription and diarisation into the backend, which keeps them
+            # loaded: renders beside them run out of GPU memory.
             BACKEND["dirty"] = not subtitles_only(job)
             return "busy"
     todo = [n for n in names if not (job_dir_of(n) / "separator.json").exists()]
@@ -392,11 +358,14 @@ BACKEND = {"dirty": False}  # prep has run since the backend last started
 
 
 def clean_backend(job):
-    """Restart the backend before a render if prep has used it since it started."""
+    """Before a render, unload what prep loaded into the backend since it last
+    rendered; restart it when unloading leaves the memory held."""
     if BACKEND["dirty"]:
-        log("restarting the backend to free the GPU memory prep used")
-        if not backend.restart():
-            raise SystemExit(problem(job, "the backend won't restart (scripts/backend.py status)") or 2)
+        log("unloading the models prep loaded into the backend")
+        if not backend.unload():
+            log("unloading left GPU memory held: restarting the backend")
+            if not backend.restart():
+                raise SystemExit(problem(job, "the backend won't restart (scripts/backend.py status)") or 2)
         BACKEND["dirty"] = False
 
 
@@ -490,29 +459,17 @@ def variant(job, p, voice):
     write_json(work / "script.json", derived_script(script, voice))
     if not script["lines"]:
         return name
-    video = pathlib.Path(p["file"]).with_name(f"{name}.mp4")
-    if not video.exists():
-        try:
-            os.link(p["file"], video)
-        except OSError:
-            shutil.copy2(p["file"], video)
     if not (work / "segments.json").exists():
-        ok, out, _ = tool(job, f"prep {name}", [PY, "scripts/dub.py", "prep", str(video)], f"prep-{name}")
+        # Same audio as the actor's part: a fork of its VoiceStudio job shares its media
+        # and stems, with nothing uploaded or separated again.
+        ok, out, _ = tool(job, f"fork {name}", [PY, "scripts/dub.py", "fork", name], f"fork-{name}")
         if not ok:
-            problem(job, f"prep {name} failed: {last_error(out)}")
+            problem(job, f"fork {name} failed: {last_error(out)}")
             return None
-    new, old = job_dir_of(name), job_dir_of(p["name"])
-    if not (new / "separator.json").exists():
-        # Same audio as the actor job, which is separated already: reuse its stems.
-        if not (old / "separator.json").exists() or not filecmp.cmp(
-            old / "audio_hq.wav", new / "audio_hq.wav", shallow=False
-        ):
-            problem(job, f"{name}: no separated stems to share from {p['name']}")
-            return None
-        for stem in STEMS:
-            (new / stem).replace(new / stem.replace(".wav", ".htdemucs.wav"))
-            shutil.copy2(old / stem, new / stem)
-        shutil.copy2(old / "separator.json", new / "separator.json")
+    if (job_dir_of(p["name"]) / "separator.json").exists() and not (job_dir_of(name) / "separator.json").exists():
+        # Uploaded before forks, and stopped before its stems were shared.
+        problem(job, f"{name}: no separated stems; remove {work / 'segments.json'} to fork {p['name']} again")
+        return None
     return name
 
 

@@ -5,12 +5,17 @@ job's part <slug>-NN, work/<name> for a clip prepped by hand. Its VoiceStudio jo
 folder is named for it (core.new_vs_job_id).
 
 prep <video> [--speakers N] [--source ja --target en]
-                              upload, separate vocals, transcribe + diarize;
-                              writes <part>/segments.json (with the language
-                              pair, Japanese -> English by default) and prints the
-                              transcript. A voice variant (<part>.us) is the same
-                              audio as its prepped part: only uploaded, with the
-                              part's transcript and pair
+                              upload (VoiceStudio extracts the audio, without
+                              separating it), separate the voices with
+                              separate.py (Roformer), attach those stems to the
+                              job, transcribe + diarize; writes
+                              <part>/segments.json (with the language pair,
+                              Japanese -> English by default) and prints the
+                              transcript
+fork <part>.us                another voice of a prepped part: a VoiceStudio job
+                              over the same media (hard-linked, nothing uploaded
+                              or separated again), with the part's transcript
+                              and pair. prep of a <part>.us video does the same
 prep <video> --subtitles-only [--source ja --target en]
                               for subtitles alone: no backend, no voices. Writes
                               the audio into a job folder of VoiceStudio's shape
@@ -49,6 +54,7 @@ from core import (
     HERE,
     HF_CACHE,
     JOBS,
+    ROOT,
     SPEED_EXPONENT,
     active_job,
     actor_spans,
@@ -76,6 +82,7 @@ from core import (
     voice_sig,
     voice_wav,
 )
+import gpu
 from gpulock import hold_gpu
 from languages import LANGUAGES, NAMES, PAIR, PAIRS
 
@@ -388,20 +395,25 @@ def cmd_prep(args):
     work.mkdir(parents=True, exist_ok=True)
     if args.subtitles_only:
         return prep_subtitles(video, work, args.source, args.target)
-    base = base_part(video.stem)
-    variant = base != video.stem and (part_dir(base) / "segments.json").exists()
-    if variant:
-        args.source, args.target = langs(base)
+    if base_part(video.stem) != video.stem:
+        return fork(video.stem)
     if (args.source, args.target) not in PAIRS:
         raise SystemExit(f"{args.source} -> {args.target}: the scripts know {sorted(PAIRS)}")
+    require_shared_media()
 
     print(f"upload {video.name} ({NAMES[args.source]} -> {NAMES[args.target]})")
     with open(video, "rb") as f:
         r = requests.post(
             f"{API}/dub/upload",
             files={"video": (video.name, f, "video/mp4")},
-            # Named for the part, so VoiceStudio's folder says whose it is.
-            data={"source_lang": args.source, "input_type": "video", "job_id": new_vs_job_id(video.stem)},
+            # Named for the part, so VoiceStudio's folder says whose it is. Not separated
+            # there: separate.py's Roformer stems replace htdemucs's, which only cost GPU time.
+            data={
+                "source_lang": args.source,
+                "input_type": "video",
+                "job_id": new_vs_job_id(video.stem),
+                "separate": "false",
+            },
             timeout=300,
         )
     r.raise_for_status()
@@ -409,16 +421,7 @@ def cmd_prep(args):
     job_id = job["job_id"]
     print(f"  job {job_id}")
     wait_task(job["task_id"], {"ready"})
-
-    if variant:
-        # Another voice of a prepped part: same audio, so its transcript (the renders
-        # send their own lines) instead of transcribing and diarizing again.
-        doc = {**load_json(part_dir(base) / "segments.json"), "job_id": job_id, "video": str(video)}
-        save_json(work / "segments.json", doc, indent=2)
-        if (part_dir(base) / f"{args.source}.srt").exists():
-            shutil.copy2(part_dir(base) / f"{args.source}.srt", work / f"{args.source}.srt")
-        print(f"  transcript from {base} ({len(doc['segments'])} segments)")
-        return
+    separate(video.stem, job_id)
 
     print("transcribe + diarize")
     ensure_diarizer()
@@ -465,6 +468,65 @@ def cmd_prep(args):
             f"{s['id']}  {s['start']:6.2f}-{s['end']:6.2f}  {s.get('speaker_id')}  "
             f"{s.get('profile_id') or '-'}  {s['text']}"
         )
+
+
+def require_shared_media():
+    """The pinned VoiceStudio fork uploads without separating, takes a client's stems
+    and forks jobs; an older checkout would separate with htdemucs, transcribe that
+    and upload every voice again."""
+    try:
+        paths = requests.get(f"{API}/openapi.json", timeout=30).json().get("paths", {})
+    except (requests.RequestException, ValueError):
+        return  # can't tell: the requests below fail on their own if it's missing
+    if "/dub/stems/{job_id}" not in paths or "/dub/fork/{job_id}" not in paths:
+        raise SystemExit(
+            "this VoiceStudio can't attach stems or fork jobs: update vendor/VoiceStudio "
+            "(python scripts/setup.py --init-only) and restart the backend"
+        )
+
+
+def separate(name, job_id):
+    """Separate a part's voices with separate.py (its own environment; this
+    process's GPU hold covers it) and make its stems the job's voices and bed,
+    which VoiceStudio transcribes, diarizes and mixes over."""
+    print("separate the voices (separate.py)")
+    try:
+        subprocess.run(gpu.separate_command() + [name, "--job", job_id], cwd=ROOT, check=True)
+    except OSError:
+        raise SystemExit("separating the voices needs uv on PATH (see AGENTS.md)") from None
+    r = requests.post(
+        f"{API}/dub/stems/{job_id}", json={"vocals": "vocals.wav", "no_vocals": "no_vocals.wav"}, timeout=120
+    )
+    if not r.ok:
+        raise RuntimeError(f"attach stems to {job_id}: {r.status_code} {r.text[:300]}")
+    print("  stems attached")
+
+
+def fork(name):
+    """Another voice of a prepped part (<part>.us): a VoiceStudio job over the part's
+    media, hard-linked by the backend, so nothing is uploaded, extracted or separated
+    again. It takes the part's transcript and pair (the renders send their own lines)."""
+    base = base_part(name)
+    doc = load_json(part_dir(base) / "segments.json")
+    if not doc:
+        raise SystemExit(f"{name}: prep {base} first")
+    require_shared_media()
+    job_id = new_vs_job_id(name)
+    r = requests.post(f"{API}/dub/fork/{doc['job_id']}", json={"job_id": job_id}, timeout=300)
+    if not r.ok:
+        raise RuntimeError(f"fork {doc['job_id']} as {job_id}: {r.status_code} {r.text[:300]}")
+    marker = JOBS / doc["job_id"] / "separator.json"
+    if marker.exists():  # Dub Anything's own record of which separator made the stems
+        shutil.copy2(marker, JOBS / job_id / "separator.json")
+    work = part_dir(name)
+    work.mkdir(parents=True, exist_ok=True)
+    src = langs(base)[0]
+    save_json(work / "segments.json", {**doc, "job_id": job_id}, indent=2)
+    if (part_dir(base) / f"{src}.srt").exists():
+        shutil.copy2(part_dir(base) / f"{src}.srt", work / f"{src}.srt")
+    print(
+        f"{name}: job {job_id}, forked from {doc['job_id']}; transcript from {base} ({len(doc['segments'])} segments)"
+    )
 
 
 def ensure_voice(key):
@@ -1359,6 +1421,9 @@ def main():
         "(a script's lines bring their own: core.line_refs)",
     )
     a.set_defaults(fn=cmd_prep)
+    f = sub.add_parser("fork")
+    f.add_argument("name", help="the voice's copy of a prepped part, <part>.us")
+    f.set_defaults(fn=lambda args: fork(args.name))
     b = sub.add_parser("generate")
     b.add_argument("name")
     b.add_argument("--timing", default="concise", choices=["concise", "stretch_video", "strict_slot", "smart_fit"])
@@ -1437,8 +1502,8 @@ def main():
     )
     b.set_defaults(fn=cmd_generate)
     args = p.parse_args()
-    if args.fn is cmd_prep and args.subtitles_only:
-        return cmd_prep(args)  # ffmpeg only: no model, so no GPU lock
+    if (args.fn is cmd_prep and args.subtitles_only) or args.cmd == "fork":
+        return args.fn(args)  # ffmpeg, or links: no model, so no GPU lock
     started = time.perf_counter()
     hold_gpu()  # both ask the backend to run models: transcription, or synthesis
     if args.fn is not cmd_generate:

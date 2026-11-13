@@ -119,6 +119,8 @@ class PrepReportTests(unittest.TestCase):
                 patch.object(core, "WORK", root / "work"),
                 patch.object(dub, "requests", requests),
                 patch.object(dub, "wait_task"),
+                patch.object(dub, "require_shared_media"),
+                patch.object(dub, "separate"),
                 patch.object(dub, "ensure_diarizer"),
                 patch.object(dub, "sse", return_value=iter([("error", event)])),
                 patch.dict(core.os.environ, {core.RESULT_ENV: str(reported)}),

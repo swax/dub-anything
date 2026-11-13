@@ -5,27 +5,29 @@ Part of [directing a dub](../directing.md): read its file formats and workflow o
 The backend's and the hardware's traps: stems, GPU memory, drivers, OCR pools, AMD and
 Apple GPUs. Directing's own are in [gotchas.md](gotchas.md).
 
-- **VoiceStudio reuses separated stems by video content.** `prep` copies the
-  stems of the newest job made from the same video, including stems that
-  `separate.py` swapped in. So after re-separating one job, a new job for the
-  same video (an A/B copy, say) starts with Roformer stems, not htdemucs, even
-  though VoiceStudio only runs htdemucs. Check `separator.json` in the new job
-  folder, and use `scripts/separate.py --restore` or copy the stems you want.
+- **VoiceStudio reuses separated stems by video content, but not for prep.**
+  An upload it separates copies the stems of the newest job made from the
+  same video, including stems `separate.py` swapped in. `dub.py prep` uploads
+  without separation, which neither reuses nor offers stems: every part is
+  separated by `separate.py`, recorded in `separator.json`. An A/B copy of a
+  part is a fork (`dub.py fork`), which shares the part's stems by hard link.
 - **A long-running backend can fill the GPU.** After many renders (other engines
   included), PyTorch's cache can hold almost all the VRAM while only OmniVoice
   is loaded (`GET /model/loaded` shows the free memory). Renders then slow to
   tens of seconds a line, and long per-line references fail with "Generation
   failed". `POST /system/flush-memory` on the backend releases it without
   unloading anything; `scripts/dub.py generate` calls it before and after each run.
-  Prepping a whole video fills it too: transcription, diarisation and
-  separation stay cached, and the first render then fails with "out of memory",
-  even in the flush itself. Only a restart (`scripts/backend.py restart`) frees
-  that; `dub_anything.py` restarts the backend before the first render after a prep, and
-  when a render runs out of memory. The prep-to-render restart flag is local to
-  the runner process: restarting the runner after prep loses it. In that case,
-  finish current GPU work, check the backend through this machine's approved
-  local access, and restart it before the first render; prepared parts and
-  existing takes are reused. With both voices, the backend keeps the
+  Prepping fills it too: transcription and diarisation stay loaded, and the
+  first render then failed with "out of memory", even in the flush itself.
+  Unloading them (`POST /system/flush-memory?unload_model=true`,
+  `backend.unload()`) hands most of it back: about 0.8 GB stays reserved,
+  steady across several preps. `dub_anything.py` unloads before the first
+  render after a prep and restarts the backend only if more than a gigabyte
+  stays reserved, and it restarts it when a render runs out of memory. The
+  prep-to-render flag is local to the runner process: restarting the runner
+  after prep loses it. In that case, finish current GPU work and unload the
+  backend's models (or restart it) before the first render; prepared parts
+  and existing takes are reused. With both voices, the backend keeps the
   American voice's engine loaded after its render, and the next part's actor
   render ran out of memory on a long per-line reference about one part in six;
   the restart cleared it each time. A program outside the dub using the GPU

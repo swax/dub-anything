@@ -36,8 +36,10 @@ from an affected part, preserve its exact materialized audio and provenance;
 rebuilding from newly separated stems can change the voice despite identical
 clip times.
 
-`prep` separates the voices and prints Whisper's rough transcript. It also
-switches VoiceStudio to pyannote when it's installed.
+`prep` uploads the part without letting VoiceStudio separate it, separates the
+voices with `separate.py` (Mel-Band Roformer), attaches those stems to the job,
+and only then has VoiceStudio transcribe and diarize them. It prints Whisper's
+rough transcript and switches VoiceStudio to pyannote when it's installed.
 
 In a sandbox, FFmpeg may be unable to write to Python's temporary directory even
 when Python can create it. If frame extraction reports a permission error, set
@@ -45,12 +47,15 @@ when Python can create it. If frame extraction reports a permission error, set
 the tools. This keeps temporary frames in the workspace; the extraction error
 is different from a timestamp past the video's end.
 
-For cleaner references, try `scripts/separate.py episode-01` (its own environment;
-see AGENTS.md). Residual music in the vocals can affect clones, transcripts,
-register measurements and level matching. Compare the vocals and background
-on your material before choosing a separator. Run separation before drafting
-and building voices. `--restore` restores htdemucs stems; changing stems under
-approved takes also changes their background and level measurements.
+Residual music in the vocals can affect clones, transcripts, register
+measurements and level matching. To compare another separator model, run
+`scripts/separate.py episode-01 --model <model>` (its own environment; see
+AGENTS.md) before drafting and building voices. Parts prepped before prep
+separated them may still have VoiceStudio's htdemucs stems; `--restore` puts
+those back. Changing stems under approved takes also changes their background
+and level measurements. An American-voice copy shares its part's stems by hard
+link: `separate.py` replaces a stem file, never rewrites it, so re-separating one
+leaves the other as it was.
 
 `draft.py` produces the first draft:
 

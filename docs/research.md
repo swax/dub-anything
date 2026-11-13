@@ -471,6 +471,18 @@ originals per part.
     pauses, then check an actual take. Do not expand an already complete
     translation merely to satisfy the prediction.
 
+28. **Separate each part once, and share it with the second voice.** VoiceStudio
+    separated every upload with htdemucs, and `separate.py` then replaced those
+    stems with Roformer's, so the htdemucs pass only spent GPU time; the
+    American voice's job uploaded and extracted the part again. The pinned fork
+    now uploads without separating, takes the client's stems, and forks a job
+    over the same hard-linked media. VoiceStudio's transcription and
+    diarisation run on the Roformer vocals. On a 35-second test clip, prep took
+    35 s with the Roformer pass at 3 s, and a fork took no GPU time. Prep's
+    models no longer need a backend restart: unloading them leaves about
+    0.8 GB reserved, unchanged after four preps in a row. A render over attached
+    stems mixed their background in as before.
+
 ## What the pipeline does now
 
 `dub.py generate` renders new parts with per-line references, fill and `dips` by
