@@ -2,9 +2,9 @@
 
 Usage: scripts/assemble.py <stem> [--voice actor|american] [--parts 1-4] [--out FILE] [--sub FILE.srt:lang[:title]] ...
 
-<stem> is a split video (videos/<stem>-parts/parts.json from split.py) or a
-single prepped clip (work/<stem>). --voice american assembles the parts' American
-renders (work/<part>.us, see core.voice_part). The result has:
+<stem> is a job or a split video (its parts.json from split.py: core.split_dir) or a
+single prepped clip. --voice american assembles the parts' American renders
+(<part>.us, see core.voice_part). The result has:
   - the source video (stream-copied when starting at 0, so no seams at part cuts)
   - audio 1: the dub (default), audio 2: the original soundtrack
   - soft subtitles: the dub's text and the corrected original from script.json
@@ -40,13 +40,13 @@ import sys
 import ass
 import subtitles
 from core import (
-    ROOT,
+    split_dir,
     VOICE_LABEL,
-    WORK,
     base_part,
     load_json,
     original_audio_language,
     out_dir,
+    part_dir,
     report_result,
     said,
     srt_time,
@@ -70,7 +70,7 @@ def language_pair(parts):
     for filename in ("segments.json", "signs.json"):
         for part in parts:
             for name in (part["name"], base_part(part["name"])):
-                doc = load_json(WORK / name / filename)
+                doc = load_json(part_dir(name) / filename)
                 if doc:
                     return pair_of(doc)
     return PAIR
@@ -129,12 +129,12 @@ def main():
     )
     args = ap.parse_args()
 
-    manifest = ROOT / "videos" / f"{args.stem}-parts" / "parts.json"
+    manifest = split_dir(args.stem) / "parts.json"
     if manifest.exists():
         pj = load_json(manifest)
         source, parts = pathlib.Path(pj["video"]), pick(pj["parts"], args.parts)
     else:
-        doc = load_json(WORK / args.stem / "segments.json")
+        doc = load_json(part_dir(args.stem) / "segments.json")
         source = pathlib.Path(doc["video"])
         parts = [{"name": args.stem, "start": 0.0, "end": float(probe(source)["format"]["duration"])}]
     parts = [{**p, "name": voice_part(p["name"], args.voice)} for p in parts]
@@ -144,8 +144,8 @@ def main():
     dubs, dubbed, original, signs, subtitle_layout = [], [], [], [], []
     for p in parts:
         # A part left as it is needs no prep: its own file stands in for the job's.
-        doc = load_json(WORK / p["name"] / "segments.json") or {"video": p.get("file", source)}
-        script = load_json(WORK / p["name"] / "script.json")
+        doc = load_json(part_dir(p["name"]) / "segments.json") or {"video": p.get("file", source)}
+        script = load_json(part_dir(p["name"]) / "script.json")
         if args.subtitles:
             if script is None:
                 raise SystemExit(f"{p['name']}: no script.json yet")
@@ -171,7 +171,7 @@ def main():
         ]
 
     dubbed, original = subtitles.timed(dubbed, tgt, t1 - t0), subtitles.timed(original, src, t1 - t0)
-    first_doc = load_json(WORK / parts[0]["name"] / "segments.json") or {"video": parts[0].get("file", source)}
+    first_doc = load_json(part_dir(parts[0]["name"]) / "segments.json") or {"video": parts[0].get("file", source)}
     dest = out_dir(first_doc)
     suffix = f".p{args.parts}" if args.parts else ""
     variant = "" if args.voice == "actor" else f".{args.voice}"

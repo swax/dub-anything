@@ -19,16 +19,16 @@ reads the sheets and keeps what the viewer needs.
    from cut to cut, its box at its first and last sighting (a pan moves it),
    and the reading seen most often.
 4. The reader misreads stylised and vertical text: each candidate gets a sheet,
-   work/<clip>/signs/NN.jpg, with the frame (its box drawn) and the text
+   <part>/signs/NN.jpg, with the frame (its box drawn) and the text
    enlarged. Read the sheets, not just the OCR.
 
-Writes work/<clip>/signs.json ({"cuts": [...], "candidates": [{id, start, end,
+Writes <part>/signs.json ({"cuts": [...], "candidates": [{id, start, end,
 box, box_end, text, frames}]}; boxes are [x0, y0, x1, y1] as fractions of the
 picture) and prints the candidates.
 
 --preview draws the script's signs and dialogue (ass.py, as delivered) into a
 frame from the middle of each sign, or of the signs given by number (1 is the
-first), and tiles them in work/<clip>/signs/preview-N.jpg: check that each
+first), and tiles them in <part>/signs/preview-N.jpg: check that each
 sits where it should and nothing collides. No GPU.
 """
 
@@ -44,6 +44,7 @@ import sys
 import numpy as np
 
 import ass
+from core import part_dir, part_name
 import subs
 from languages import LANGUAGES, pair_of
 
@@ -303,7 +304,7 @@ def preview(work, video, w, h, which=None, target=None):
     script = json.loads((work / "script.json").read_text(encoding="utf-8"))
     signs = sorted(script.get("signs", []), key=lambda s: s["start"])
     if not signs:
-        raise SystemExit(f"{work.name}: no signs in script.json")
+        raise SystemExit(f"{part_name(work)}: no signs in script.json")
     pick = [(k, s) for k, s in enumerate(signs, 1) if not which or k in which]
     tgt = target or pair(work)[1]
     dialogue = [
@@ -371,7 +372,7 @@ def main():
     )
     args = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
-    work = ROOT / "work" / args.clip
+    work = part_dir(args.clip)
     doc = context(work)
     video = args.video or doc.get("video")
     if not video:

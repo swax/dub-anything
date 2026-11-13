@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 
-from core import WORK, langs, out_dir, whisper_setup
+from core import langs, out_dir, part_dir, whisper_setup
 
 whisper_setup()  # VoiceStudio's downloaded Whisper + cuDNN 8
 from whisper_safe import WhisperModel, hold_gpu_for_whisper  # noqa: E402
@@ -17,10 +17,10 @@ from whisper_safe import WhisperModel, hold_gpu_for_whisper  # noqa: E402
 sys.stdout.reconfigure(encoding="utf-8")
 name = sys.argv[1]
 tag = f".{sys.argv[2]}" if len(sys.argv) > 2 else ""
-doc = json.loads((WORK / name / "segments.json").read_text(encoding="utf-8"))
+doc = json.loads((part_dir(name) / "segments.json").read_text(encoding="utf-8"))
 tgt = langs(name)[1]
 mp4 = out_dir(doc) / f"{name}.{tgt}{tag}.mp4"
-script = json.loads((WORK / name / "script.json").read_text(encoding="utf-8"))
+script = json.loads((part_dir(name) / "script.json").read_text(encoding="utf-8"))
 
 wav = pathlib.Path(tempfile.gettempdir()) / f"qa-{name}.wav"
 subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(mp4), "-ac", "1", "-ar", "16000", str(wav)], check=True)

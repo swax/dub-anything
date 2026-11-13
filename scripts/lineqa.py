@@ -17,13 +17,13 @@ without accents, as Whisper writes "esta" or "está"), Japanese by its reading i
 kana (languages/kana.py: kanji or kana, katakana or hiragana, digits or kanji
 numerals), where a take with English in it (the actor's original leaking from
 the per-line reference) is flagged too.
---reroll writes the flagged lines to work/<name>/reroll.json;
+--reroll writes the flagged lines to <part>/reroll.json;
 the next `dub.py generate` gives them fresh takes. That fixes random glitches,
 but a word a voice can't say needs rewording. A fresh take can also come out
-worse, so each take a re-roll replaces is kept (work/<name>/takes/), and the
+worse, so each take a re-roll replaces is kept (<part>/takes/), and the
 next check puts the best one back if the new take transcribes worse; the next
 `generate` then re-mixes it without synthesizing anything.
-What Whisper heard in each take is kept by the take's hash (work/<name>/heard.json),
+What Whisper heard in each take is kept by the take's hash (<part>/heard.json),
 so a check after a round of fresh takes only listens to the takes that changed;
 with none changed, Whisper isn't even loaded. On the CPU it listens in int8 (Ear),
 and those hearings are kept apart from float32's and the GPU's.
@@ -44,7 +44,7 @@ import time
 
 import soundfile as sf
 
-from core import WORK, langs, line_id, load_json, report_result, save_json, take_wav, whisper_setup
+from core import langs, line_id, load_json, part_dir, report_result, save_json, take_wav, whisper_setup
 from languages import LANGUAGES
 
 whisper_setup()
@@ -110,7 +110,7 @@ class Ear:
 
 
 def check(name, ear, show_all, reroll, only=None, observations=None):
-    work = WORK / name
+    work = part_dir(name)
     segments = json.loads((work / "segments.json").read_text(encoding="utf-8"))
     job = segments["job_id"]
     tgt = langs(name)[1]
@@ -344,7 +344,7 @@ def main():
             print(f"=== {name}")
         from dub import selected_indices
 
-        lines = load_json(WORK / name / "script.json")["lines"]
+        lines = load_json(part_dir(name) / "script.json")["lines"]
         summary[name] = check(
             name, ear, args.all, args.reroll, selected_indices(args.only, len(lines)), observations=args.observations
         )

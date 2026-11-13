@@ -11,6 +11,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import core
 import lineqa
 
 
@@ -43,7 +45,7 @@ class PartialCheckTests(unittest.TestCase):
                 (root / (lid + ".wav")).write_bytes(lid.encode())
             ear = Mock(tag="fake", return_value="Hello.", load_s=0.0, hear_s=0.0)
             with (
-                patch.object(lineqa, "WORK", root),
+                patch.object(core, "WORK", root),
                 patch.object(lineqa, "langs", return_value=("ja", "en")),
                 patch.object(lineqa, "line_id", side_effect=lambda line: "L" + str(line["start"])),
                 patch.object(

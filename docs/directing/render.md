@@ -63,7 +63,7 @@ louder than the film mix.
 `--steps` defaults to 32, OmniVoice's quality preset; VoiceStudio's own default
 is 16. `--effect` picks the voice processing. The default is `broadcast`;
 compare alternatives on your source. `dub.py` records what each line was made
-with (`work/<clip>/rendered.json`), so changing steps, effect or instruct
+with (`<part>/rendered.json`), so changing steps, effect or instruct
 re-synthesizes exactly the affected lines.
 
 By default (the script's `render` block) each take follows the actor's own
@@ -255,7 +255,7 @@ ranks complete, source-checked three-to-five-second phrases near four seconds.
 It needs at least eight clean phrases for a speaker-relative baseline. Pitch,
 pitch range, spectral balance, level, level range and a rough source-text rate
 contribute separate distances; large outliers receive an extra penalty. An
-optional `--benchmark work/voices/approved.wav` compares candidates with a
+optional `--benchmark work/jobs/<slug>/voices/approved.wav` compares candidates with a
 listener-approved reference instead of treating the statistical center as the
 desired performance. The report is a shortlist, not an emotion verdict.
 
@@ -327,7 +327,7 @@ every part in each voice and delivers both tracks, the actor's playing by
 default. In trials, `"american"` came out closer to the actors than the clones on an
 animated series. On a live-action drama it stayed less like the actors than the
 clones, and conversion cost some of the native accent. Record the choice in
-`work/NOTES.md`; the job and each part's `render` block keep it, so later parts
+the job's `NOTES.md`; the job and each part's `render` block keep it, so later parts
 follow it and approved parts don't change. Two things that look like options
 aren't. OmniVoice's `american accent` instruct tag doesn't change the accent
 while the reference carries the actor's, which per-line references always do.

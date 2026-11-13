@@ -1,8 +1,12 @@
 """Drive VoiceStudio's dubbing backend (http://127.0.0.1:3900) headlessly.
 
+<part>/ is a part's work folder (core.part_dir): work/jobs/<slug>/parts/NN for a
+job's part <slug>-NN, work/<name> for a clip prepped by hand. Its VoiceStudio job
+folder is named for it (core.new_vs_job_id).
+
 prep <video> [--speakers N] [--source ja --target en]
                               upload, separate vocals, transcribe + diarize;
-                              writes work/<name>/segments.json (with the language
+                              writes <part>/segments.json (with the language
                               pair, Japanese -> English by default) and prints the
                               transcript. A voice variant (<part>.us) is the same
                               audio as its prepped part: only uploaded, with the
@@ -10,11 +14,11 @@ prep <video> [--speakers N] [--source ja --target en]
 prep <video> --subtitles-only [--source ja --target en]
                               for subtitles alone: no backend, no voices. Writes
                               the audio into a job folder of VoiceStudio's shape
-                              (local_<id>/audio_hq.wav, no transcript) for
+                              (<part>-local/audio_hq.wav, no transcript) for
                               separate.py to separate and draft.py to transcribe
-generate <name>               reads work/<name>/script.json (hand-directed lines:
+generate <name>               reads <part>/script.json (hand-directed lines:
                               start/end/voice/text, optional instruct/effect;
-                              voices from work/voices.json) or else <target>.json
+                              voices from the job's voices.json) or else <target>.json
                               ({segment_id: text}), synthesizes cloned speech in
                               the part's target language, exports MP4 + SRT. By
                               default (the script's "render" block) each line's
@@ -46,7 +50,7 @@ from core import (
     HF_CACHE,
     JOBS,
     SPEED_EXPONENT,
-    WORK,
+    active_job,
     actor_spans,
     base_part,
     fallback_voice,
@@ -56,7 +60,11 @@ from core import (
     line_id,
     line_refs,
     load_json,
+    load_voices,
+    new_vs_job_id,
     out_dir,
+    part_dir,
+    profiles_file,
     reference_settings,
     reference_signature,
     report_result,
@@ -351,13 +359,13 @@ def emo_refs(work, job_id, lines, ids, alpha):
 
 def prep_subtitles(video, work, src, tgt):
     """A part to subtitle, not dub: no voices are cloned, so nothing needs VoiceStudio.
-    Its job folder (named local_..., beside VoiceStudio's own) holds the audio as
+    Its job folder (<part>-local, beside VoiceStudio's own) holds the audio as
     VoiceStudio would (audio_hq.wav); separate.py adds the stems and draft.py
     transcribes, and every tool that reads a part's vocals finds them there."""
     for code in (src, tgt):
         if code not in LANGUAGES:
             raise SystemExit(f"no languages/{code}.py: the scripts know {', '.join(sorted(LANGUAGES))}")
-    job_id = "local_" + hashlib.sha1(str(video.resolve()).encode()).hexdigest()[:8]
+    job_id = re.sub(r"[^A-Za-z0-9_-]", "-", video.stem)[:56] + "-local"
     folder = JOBS / job_id
     folder.mkdir(parents=True, exist_ok=True)
     print(f"{video.name}: audio only, for subtitles ({NAMES[src]} -> {NAMES[tgt]}); job {job_id}")
@@ -376,12 +384,12 @@ def prep_subtitles(video, work, src, tgt):
 
 def cmd_prep(args):
     video = pathlib.Path(args.video)
-    work = WORK / video.stem
+    work = part_dir(video.stem)
     work.mkdir(parents=True, exist_ok=True)
     if args.subtitles_only:
         return prep_subtitles(video, work, args.source, args.target)
     base = base_part(video.stem)
-    variant = base != video.stem and (WORK / base / "segments.json").exists()
+    variant = base != video.stem and (part_dir(base) / "segments.json").exists()
     if variant:
         args.source, args.target = langs(base)
     if (args.source, args.target) not in PAIRS:
@@ -392,7 +400,8 @@ def cmd_prep(args):
         r = requests.post(
             f"{API}/dub/upload",
             files={"video": (video.name, f, "video/mp4")},
-            data={"source_lang": args.source, "input_type": "video"},
+            # Named for the part, so VoiceStudio's folder says whose it is.
+            data={"source_lang": args.source, "input_type": "video", "job_id": new_vs_job_id(video.stem)},
             timeout=300,
         )
     r.raise_for_status()
@@ -404,10 +413,10 @@ def cmd_prep(args):
     if variant:
         # Another voice of a prepped part: same audio, so its transcript (the renders
         # send their own lines) instead of transcribing and diarizing again.
-        doc = {**load_json(WORK / base / "segments.json"), "job_id": job_id, "video": str(video)}
+        doc = {**load_json(part_dir(base) / "segments.json"), "job_id": job_id, "video": str(video)}
         save_json(work / "segments.json", doc, indent=2)
-        if (WORK / base / f"{args.source}.srt").exists():
-            shutil.copy2(WORK / base / f"{args.source}.srt", work / f"{args.source}.srt")
+        if (part_dir(base) / f"{args.source}.srt").exists():
+            shutil.copy2(part_dir(base) / f"{args.source}.srt", work / f"{args.source}.srt")
         print(f"  transcript from {base} ({len(doc['segments'])} segments)")
         return
 
@@ -459,13 +468,13 @@ def cmd_prep(args):
 
 
 def ensure_voice(key):
-    """Resolve a voice key from work/voices.json to a profile id, building a
+    """Resolve a voice key from the job's voices.json to a profile id, building a
     VoiceStudio voice profile from hand-picked clean clips when needed."""
-    spec = load_json(WORK / "voices.json", {})[key]
+    spec = load_voices()[key]
     if "profile" in spec:
         return spec["profile"]
     sig = voice_sig(key)
-    cache_path = WORK / "profiles.json"
+    cache_path = profiles_file()
     cache = load_json(cache_path, {})
     old = cache.get(key)
     if old and old["sig"] == sig and requests.get(f"{API}/profiles/{old['id']}", timeout=30).ok:
@@ -476,7 +485,7 @@ def ensure_voice(key):
         r = requests.post(
             f"{API}/profiles",
             files={"ref_audio": (ref.name, f, "audio/wav")},
-            data={"name": f"dub-{key}", "ref_text": spec.get("ref_text", "")},
+            data={"name": f"dub-{active_job() or 'work'}-{key}", "ref_text": spec.get("ref_text", "")},
             timeout=300,
         )
     if r.status_code >= 400:
@@ -510,7 +519,7 @@ def seeded_voice(work, key, seed):
     profile to work around that: upload the identical reference with a stored seed.
     Old profiles and their receipts remain available for restoring earlier takes.
     """
-    spec = load_json(WORK / "voices.json", {})[key]
+    spec = load_voices()[key]
     if "clips" not in spec:
         raise ValueError("seeded candidates require an actor voice with explicit reference clips")
     ref = voice_wav(key)
@@ -780,7 +789,7 @@ def render_mode(work, script, args, pair=PAIR):
 
 
 def cmd_generate(args):
-    work = WORK / args.name
+    work = part_dir(args.name)
     path = getattr(args, "task_outcome", None)
     args._generation = None
     if getattr(args, "only", None) is None:
@@ -811,7 +820,7 @@ def cmd_generate(args):
 
 
 def _cmd_generate(args):
-    work = WORK / args.name
+    work = part_dir(args.name)
     doc = json.loads((work / "segments.json").read_text(encoding="utf-8"))
     if doc.get("subtitles_only"):
         raise SystemExit(f"{args.name} was prepped for subtitles only: prep a dub job to render voices")
@@ -931,7 +940,7 @@ def _cmd_generate(args):
                     ids.append(s["id"])
             return segments, ids, settings, None
         # Hand-directed lines: own timing, speaker and text per line.
-        voices = load_json(WORK / "voices.json", {})
+        voices = load_voices()
         for line_index, line in enumerate(script["lines"]):
             # The take keeps its line's id (line_id), whatever text the engine gets.
             seg = {

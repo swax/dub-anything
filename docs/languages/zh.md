@@ -39,7 +39,7 @@ What differs when Chinese is the source. Read beside
   differently by recognisers. Use the picture and story to settle spelling;
   keep unresolved names original with translated captions and a `listen` note.
   Translate titles and forms of address for their relationship in the scene,
-  and keep those choices in `work/NOTES.md`.
+  and keep those choices in the job's `NOTES.md`.
 - **QA.** Rendered English takes use the same word, number and negation checks
   as the other pairs into English. Review each line independently and hand
   uncertain pronunciation, voice likeness and acting to the listener.

@@ -36,7 +36,8 @@ import dub_anything as runner  # noqa: E402
 import edges  # noqa: E402
 import fit  # noqa: E402
 import tails  # noqa: E402
-from core import WORK, base_part, fit_rows, load_json  # noqa: E402
+import core  # noqa: E402
+from core import base_part, fit_rows, load_json, load_voices, part_dir  # noqa: E402
 
 MUST_FIT = {"OVER", "OVER?"}
 SHORT_WINDOW = 1.0  # s; "risk" on a window shorter than this is as good as OVER?
@@ -45,11 +46,8 @@ MUST_READ = {"FAST", "LONG", "SPLIT?"}  # docs/directing/subtitles.md: fix every
 
 def job_of(name):
     """The dub_anything job the part belongs to, or None for a part made by hand."""
-    for path in sorted(runner.JOB_DIR.glob("*/job.json")):
-        job = load_json(path)
-        if job and any(p["name"] == name for p in runner.parts(job)):
-            return job
-    return None
+    slug = core.job_of(base_part(name))
+    return load_json(core.job_dir(slug) / "job.json") if slug else None
 
 
 def fit_must(row):
@@ -67,7 +65,7 @@ def show(rows, show_all):
 
 def check(name, apply=True, show_all=False):
     """Print one part's report; return how many things must be fixed, or None if it can't be checked."""
-    work = WORK / name
+    work = part_dir(name)
     if base_part(name) != name:
         print(f"== {name}: a voice's copy, made from {base_part(name)}'s script: check that part")
         return None
@@ -84,7 +82,7 @@ def check(name, apply=True, show_all=False):
         print("  left original: nothing to check")
         return 0
 
-    cast = None if subs else load_json(WORK / "voices.json", {})
+    cast = None if subs else load_voices()
     problems = runner.ready_problems(script, cast, american="american" in voices)
     if problems:
         print(f"structure: {len(problems)} to fix")
@@ -164,13 +162,13 @@ def main():
         blocked += must != 0
         if must is None:
             continue
-        script = load_json(WORK / name / "script.json")
+        script = load_json(part_dir(name) / "script.json")
         if must:
             print(f"next: fix the {must} marked !, then scripts/check.py {name}" + (" --ready" if args.ready else ""))
         elif args.ready and script is not None:
             if script["lines"] and not script.get("ready"):
                 script["ready"] = True
-                runner.write_json(WORK / name / "script.json", script)
+                runner.write_json(part_dir(name) / "script.json", script)
             print("ready: it renders when dub_anything.py run gets to it")
         elif script is not None and script["lines"] and not script.get("ready"):
             print(f"next: nothing to fix; review the rest, then scripts/check.py {name} --ready")

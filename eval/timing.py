@@ -21,7 +21,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
-from core import FILL_SPEED, FILL_TOL, WORK, actor_ends, langs, line_id, load_json, speech_length, take_wav
+from core import FILL_SPEED, FILL_TOL, actor_ends, langs, line_id, load_json, part_dir, speech_length, take_wav
 
 
 def main():
@@ -29,7 +29,7 @@ def main():
         raise SystemExit(__doc__)
     slow, fast = FILL_SPEED
     for name in sys.argv[1:]:
-        work = WORK / name
+        work = part_dir(name)
         lines = load_json(work / "script.json")["lines"]
         job = load_json(work / "segments.json")["job_id"]
         rendered = load_json(work / "rendered.json", {})

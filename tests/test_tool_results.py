@@ -60,7 +60,7 @@ class ReportResultTests(unittest.TestCase):
 class ToolTests(unittest.TestCase):
     def run_tool(self, root, body):
         child = [sys.executable, "-c", f"import sys; sys.path.insert(0, 'scripts'); import core; {body}"]
-        with patch.object(runner, "JOB_DIR", root), contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(core, "WORK", root), contextlib.redirect_stdout(io.StringIO()):
             return runner.tool({"slug": "sample"}, "step", child, "step")
 
     def test_returns_the_report_and_drops_an_earlier_attempts(self):
@@ -82,7 +82,7 @@ class PrepareStepTests(unittest.TestCase):
             job = {"slug": "sample", "voices": ["actor"]}
             part = {"name": "sample-01", "file": "sample-01.mp4"}
             with (
-                patch.object(runner, "WORK", work),
+                patch.object(core, "WORK", work),
                 patch.object(runner, "save_job"),
                 patch.object(runner, "tool", return_value=tool_result),
                 contextlib.redirect_stdout(io.StringIO()),
@@ -116,7 +116,7 @@ class PrepReportTests(unittest.TestCase):
                 video=str(video), subtitles_only=False, source="ja", target="en", segment_refs=False, speakers=None
             )
             with (
-                patch.object(dub, "WORK", root / "work"),
+                patch.object(core, "WORK", root / "work"),
                 patch.object(dub, "requests", requests),
                 patch.object(dub, "wait_task"),
                 patch.object(dub, "ensure_diarizer"),

@@ -35,7 +35,7 @@ import torch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import draft
 import register as R
-from core import WORK, langs, line_id, load_json, speech_length, take_wav
+from core import langs, line_id, load_json, part_dir, speech_length, take_wav
 from gpulock import hold_gpu
 from faster_whisper.audio import decode_audio
 
@@ -72,9 +72,11 @@ def main():
     for p, clip in enumerate(origs):
         vocals[p] = R.vocals(clip)
         spans[p] = draft.vad_spans(vocals[p])
-        lines += [(p, line) for line in load_json(WORK / clip / "script.json")["lines"]]
+        lines += [(p, line) for line in load_json(part_dir(clip) / "script.json")["lines"]]
     vmaps = {
-        name: [{round(line["start"], 2): line for line in load_json(WORK / c / "script.json")["lines"]} for c in clips]
+        name: [
+            {round(line["start"], 2): line for line in load_json(part_dir(c) / "script.json")["lines"]} for c in clips
+        ]
         for name, clips in variants.items()
     }
     keep = [k for k, (p, line) in enumerate(lines) if all(round(line["start"], 2) in m[p] for m in vmaps.values())]
@@ -112,7 +114,7 @@ def main():
         f"{'|end|':>5s} {'PESQ':>4s} {'SDR':>5s} {'floor':>6s} {f'P({tgt})':>5s}   per character arousal"
     )
     for name, clips in variants.items():
-        jobs = [load_json(WORK / c / "segments.json")["job_id"] for c in clips]
+        jobs = [load_json(part_dir(c) / "segments.json")["job_id"] for c in clips]
         take_lines = {k: vmaps[name][lines[k][0]][round(lines[k][1]["start"], 2)] for k in keep}
         feats, sims, ends, q = {}, [], [], []
         for k in keep:

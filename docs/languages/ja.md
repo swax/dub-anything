@@ -67,7 +67,7 @@ unclear acknowledgment rather than guessing its polarity.
 - **Give each character a Japanese voice.** Japanese marks who is talking
   through first-person pronouns (俺, 僕, 私, あたし), sentence endings (だ, です,
   じゃん, よ, ね) and politeness, which English mostly leaves to the delivery.
-  Pick them per character once and keep them in `work/NOTES.md`. Narration
+  Pick them per character once and keep them in the job's `NOTES.md`. Narration
   reads like a Japanese documentary's: plain form, questions in 〜なのか.
   Names go in katakana, spelled as on screen when a caption shows them.
 - **Spell numbers in kana** (はちじゅう年, さんじゅう年代). The clones misread

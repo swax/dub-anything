@@ -1,7 +1,7 @@
 """Compare each generated clip's speech length with its script window,
 and with how long the actor actually speaks in it.
 
-Usage: scripts/fit.py <name> [--only-flags]   (reads work/<name>/script.json and the job's seg_<lang>_L*.wav)
+Usage: scripts/fit.py <name> [--only-flags]   (reads <part>/script.json and the job's seg_<lang>_L*.wav)
 Lines not rendered yet get an estimate (~): the length OmniVoice itself will give
 them, computed with its own rule from the reference the render will use (the
 line's own original, or the voice's clips for the lines listed as falling back).
@@ -32,12 +32,23 @@ import argparse
 import statistics
 
 import subtitles
-from core import WORK, _omnivoice, fallback_voice, fit_rows, langs, load_json, said, voice_clips
+from core import (
+    _omnivoice,
+    fallback_voice,
+    fit_rows,
+    langs,
+    load_json,
+    load_voices,
+    part_dir,
+    said,
+    script_files,
+    voice_clips,
+)
 
 
 def reading_rows(name):
     """The subtitles' reading-speed rows, each with its tag (L00 for a line, C00 for a caption)."""
-    script = load_json(WORK / name / "script.json")
+    script = load_json(part_dir(name) / "script.json")
     lines, captions = script["lines"], script.get("captions", [])
     rows = subtitles.rows(lines + captions, langs(name)[1])
     for row in rows:
@@ -58,10 +69,10 @@ def pace_warnings(name, tolerance=0.15):
     part of every per-line reference. A clip said faster than the speaker usually
     talks (a read-out intro, an excited burst) makes those takes run short."""
     weight = _omnivoice()[0].calculate_total_weight
-    voices = load_json(WORK / "voices.json", {})
+    voices = load_voices()
     src = langs(name)[0]  # a voice's lines are all its show's, in one language
-    scripts = [load_json(p) for p in WORK.glob("*/script.json")]
-    script = load_json(WORK / name / "script.json")
+    scripts = [load_json(p) for _, p in script_files()]
+    script = load_json(part_dir(name) / "script.json")
     references = {}
     for line in script["lines"]:
         selected = fallback_voice(line, script.get("render", {}), voices)
@@ -92,7 +103,7 @@ def pace_warnings(name, tolerance=0.15):
 
 def american(name, voice=None):
     """Whether the part is estimated in the American voice (IndexTTS): no reference pace applies."""
-    return (voice or load_json(WORK / name / "script.json").get("render", {}).get("voice")) == "american"
+    return (voice or load_json(part_dir(name) / "script.json").get("render", {}).get("voice")) == "american"
 
 
 def row_text(row):
@@ -122,7 +133,7 @@ def main():
     ap.add_argument("--read", action="store_true", help="check the subtitles' reading speed, not the dub's length")
     args = ap.parse_args()
 
-    if args.read or load_json(WORK / args.name / "segments.json", {}).get("subtitles_only"):
+    if args.read or load_json(part_dir(args.name) / "segments.json", {}).get("subtitles_only"):
         for row in reading_rows(args.name):
             if not args.only_flags or row["flag"]:
                 print(reading_text(row))

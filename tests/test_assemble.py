@@ -12,6 +12,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+
+import core
 import ass
 import assemble
 import deliver
@@ -61,8 +63,8 @@ class AssemblyLayoutTests(unittest.TestCase):
                     (folder / "script.json").write_text(json.dumps(script), encoding="utf-8")
                     out = root / (voice + ".mkv")
                     with (
-                        patch.object(assemble, "ROOT", root),
-                        patch.object(assemble, "WORK", root / "work"),
+                        patch.object(core, "ROOT", root),
+                        patch.object(core, "WORK", root / "work"),
                         patch.object(assemble, "out_dir", return_value=root),
                         patch.object(
                             assemble,
@@ -99,8 +101,8 @@ class AssemblyLayoutTests(unittest.TestCase):
             styled, forced = out.with_suffix(".en.ass"), out.with_suffix(".signs.ass")
             forced.write_text("stale", encoding="utf-8")
             with (
-                patch.object(assemble, "ROOT", root),
-                patch.object(assemble, "WORK", root / "work"),
+                patch.object(core, "ROOT", root),
+                patch.object(core, "WORK", root / "work"),
                 patch.object(assemble, "out_dir", return_value=root),
                 patch.object(
                     assemble, "probe", return_value={"streams": [{"codec_type": "video", "width": 1280, "height": 720}]}

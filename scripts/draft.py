@@ -9,7 +9,7 @@ Usage: scripts/draft.py <name> [<name> ...] [--cast key,key,...] [--recast]   (a
    to the true attack when the VAD missed a soft onset (see edges.py). Speech
    that no phrase covers is re-transcribed on its own, which recovers lines
    the full pass skips.
-3. Each phrase is scored against the show's cast in work/voices.json (WeSpeaker
+3. Each phrase is scored against the show's cast in its job's voices.json (WeSpeaker
    embeddings, the model that ships with pyannote): the voices built from the
    show's own parts (<show>-NN), or every voice while the show has none yet;
    --cast picks them by hand. A voice is represented by
@@ -25,7 +25,7 @@ Usage: scripts/draft.py <name> [<name> ...] [--cast key,key,...] [--recast]   (a
    a phrase detected as the target language that fails this keeps its source
    transcript, tagged [English?] with the English reading, to re-listen.
    (Whisper's detection calls short Spanish over music English.)
-6. When subs.py has read the video's burned-in captions (work/<name>/subs.json),
+6. When subs.py has read the video's burned-in captions (<part>/subs.json),
    each phrase is shown with the captions on screen during it: the
    broadcaster's own text, often with the speaker's name or colour. Phrases
    during a song (♪ captions) are marked to keep the original.
@@ -41,7 +41,7 @@ Usage: scripts/draft.py <name> [<name> ...] [--cast key,key,...] [--recast]   (a
 suggests the speakers again: for a new show, draft the first parts, build their
 voices (cast.py), then recast them without transcribing again.
 
-Prints the draft and writes work/<name>/draft.json ({"lines": [...]} with start,
+Prints the draft and writes <part>/draft.json ({"lines": [...]} with start,
 end, voice, the transcript under the source language's code ("ja", "en" or "es"),
 text="" plus score fields). The director still decides: fix mishearings, confirm
 the cast, merge or split lines, then write script.json.
@@ -57,7 +57,20 @@ import sys
 import numpy as np
 
 import edges
-from core import HF_CACHE, JOBS, VOICE_SUFFIX, WORK, langs, load_json, voice_clips, whisper_setup
+from core import (
+    HF_CACHE,
+    JOBS,
+    VOICE_SUFFIX,
+    base_part,
+    job_of,
+    langs,
+    load_json,
+    load_voices,
+    part_dir,
+    script_files,
+    voice_clips,
+    whisper_setup,
+)
 from gpulock import hold_gpu
 from languages import LANGUAGES, NAMES
 
@@ -233,12 +246,12 @@ def cast_centroids(embed, keys, exclude=None, per_voice=30):
     act as a registry that grows with each part (longest lines first, up to
     `per_voice`). A character's extra references (register.py) count as the
     character."""
-    voices, audio, samples = load_json(WORK / "voices.json", {}), {}, {}
+    voices, audio, samples = load_voices(), {}, {}
     base = {k: s.get("register_of", k) for k, s in voices.items()}
 
     def vocals(clip):
         if clip not in audio:
-            seg = load_json(WORK / clip / "segments.json")
+            seg = load_json(part_dir(clip) / "segments.json")
             wav = JOBS / seg["job_id"] / "vocals.wav" if seg else None
             audio[clip] = decode_audio(str(wav), sampling_rate=SR) if wav and wav.exists() else None
         return audio[clip]
@@ -247,14 +260,14 @@ def cast_centroids(embed, keys, exclude=None, per_voice=30):
     for key in voices:
         if base[key] in wanted and voices[key].get("clips"):
             samples.setdefault(base[key], []).extend(voice_clips(voices[key]))
-    for script in sorted(WORK.glob("*/script.json")):
+    for name, script in script_files():
         # Another voice's copy of a part (<part>.us) repeats the director's lines.
-        if script.parent.name == exclude or any(s and script.parent.name.endswith(s) for s in VOICE_SUFFIX.values()):
+        if name == exclude or any(s and name.endswith(s) for s in VOICE_SUFFIX.values()):
             continue
         for line in load_json(script).get("lines", []):
             who = base.get(line.get("voice"))
             if who in wanted and line["end"] - line["start"] >= 1.0:
-                samples.setdefault(who, []).append((script.parent.name, line["start"], line["end"]))
+                samples.setdefault(who, []).append((name, line["start"], line["end"]))
     cents = {}
     for key, items in samples.items():
         vecs = [
@@ -278,12 +291,12 @@ def show_of(name):
 
 def show_cast(name):
     """The voices built from this show's own parts: a new show's drafts shouldn't be
-    scored against every other show's cast once it has a cast of its own."""
-    return {
-        k
-        for k, s in load_json(WORK / "voices.json", {}).items()
-        if s.get("from") and show_of(s["from"]) == show_of(name)
-    }
+    scored against every other show's cast once it has a cast of its own. A job's
+    cast is its show's, borrowed voices (an earlier episode's) included."""
+    if job_of(base_part(name)):
+        part_dir(name)  # makes the part's job the active one
+        return set(load_voices())
+    return {k for k, s in load_voices().items() if s.get("from") and show_of(s["from"]) == show_of(name)}
 
 
 def on_screen(subs, p):
@@ -333,7 +346,7 @@ def main():
 
 
 def draft(name, cast, model, embed_once):
-    work = WORK / name
+    work = part_dir(name)
     job = load_json(work / "segments.json")["job_id"]
     src, tgt = langs(name)
     audio = decode_audio(str(JOBS / job / "vocals.wav"), sampling_rate=SR)

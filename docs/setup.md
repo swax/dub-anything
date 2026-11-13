@@ -421,5 +421,5 @@ VoiceStudio's:
 
 The commands are in [AGENTS.md](../AGENTS.md).
 
-Voice profiles are rebuilt automatically from `work/voices.json` on first use.
-Profile ids are machine-specific and cached in `work/profiles.json`.
+Voice profiles are rebuilt automatically from each job's `voices.json` on first use.
+Profile ids are machine-specific and cached in the job's `profiles.json`.

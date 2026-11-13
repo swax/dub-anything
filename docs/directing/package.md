@@ -66,7 +66,7 @@ two near its middle.
 
 Every delivered dub or subtitle job needs a recorded storage outcome. While
 the listener is reviewing it, keep the takes and evidence, record cleanup as
-pending in `work/NOTES.md`, and report the retained size. After acceptance or
+pending in the job's `NOTES.md`, and report the retained size. After acceptance or
 an explicit cleanup request, finish the authorized cleanup in the same task.
 The delivery flag alone does not establish listener acceptance. An idle
 machine does not establish that an unfinished job has been abandoned.
@@ -75,7 +75,7 @@ machine does not establish that an unfinished job has been abandoned.
    any move into the user's library, and verify it against its delivery proof
    when available. Keep an original source or a verified delivery containing
    the copied original video and audio. Preserve scripts, transcripts, states,
-   reports, notes, shared `work/voices/*.wav`, VoiceStudio voice profiles and
+   reports, notes, the job's `voices/*.wav` (later jobs may borrow them), VoiceStudio voice profiles and
    references, and requested review pages, clips and experiments. Check that
    shared voice references have been materialized before retiring their source
    jobs. Check retained jobs' persisted paths and voice profiles too: cached
@@ -86,9 +86,12 @@ machine does not establish that an unfinished job has been abandoned.
    touching their files.
 2. **Stage the job's disposable bulk.** Run
    `scripts/dub_anything.py cleanup <slug>` after checking its inputs. It moves
-   the linked VoiceStudio jobs, their `exports/` history, split parts and renders,
-   per-line references and kept takes, the workspace input video and job logs
-   into `videos/_to-delete/<slug>/`. Keep a manifest outside that folder. If
+   the job's VoiceStudio folders (every `dub_jobs/<slug>-...`, with their
+   `exports/` history), `media/split/` (split parts and renders), per-line
+   references and kept takes, the `media/` input video and job logs into
+   `videos/_to-delete/<slug>/`. The job's folder keeps its scripts, cast, notes,
+   report and `scratch/`; review `scratch/` for experiments worth keeping before
+   deleting it. Keep a manifest outside that folder. If
    the workspace input is the only retained source, restore it from the holding
    folder before deletion. Preserve requested experiments and provenance logs
    separately. Do not use `--force` on an unfinished job without the user's

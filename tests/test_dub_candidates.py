@@ -16,6 +16,8 @@ import numpy as np
 import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import core
 import dub
 
 
@@ -41,7 +43,7 @@ class SeededProfileTests(unittest.TestCase):
                 return SimpleNamespace(ok=True, json=lambda: profiles[url.rsplit("/", 1)[-1]])
 
             with (
-                patch.object(dub, "WORK", root),
+                patch.object(core, "WORK", root),
                 patch.object(dub, "voice_wav", return_value=wav),
                 patch.object(dub, "voice_sig", return_value="same actor spec"),
                 patch.object(dub.requests, "post", side_effect=post),
@@ -130,7 +132,7 @@ class IncrementalRenderTests(unittest.TestCase):
             "cast_lines": False,
         }
         with (
-            patch.object(dub, "WORK", self.root),
+            patch.object(core, "WORK", self.root),
             patch.object(dub, "langs", return_value=("ja", "en")),
             patch.object(dub, "line_id", side_effect=lambda line: "L" + str(line["start"])),
             patch.object(dub, "take_wav", side_effect=lambda job, lid, target, kind="seg": self.root / (lid + ".wav")),

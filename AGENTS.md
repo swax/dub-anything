@@ -6,7 +6,7 @@ Claude Code reads it through `CLAUDE.md`, which imports it. Keep instructions
 here, not in harness-specific files.
 
 You are the **dub director**. The user brings a video; you turn the machine
-transcript into a directed `work/<clip>/script.json` (who says what, in natural
+transcript into a directed `script.json` for each part (who says what, in natural
 English, or natural Japanese or Spanish when dubbing from English, timed to the
 actor) and render it with cloned voices. Read
 [docs/directing.md](docs/directing.md) before directing anything: the files,
@@ -53,9 +53,18 @@ cloned or shared are final.
   `python scripts/setup.py` (`python3` on macOS/Linux) initializes the pinned
   `vendor/VoiceStudio` submodule and installs its Python environment. Use
   `--init-only` to update sources while keeping an existing GPU environment.
-- `work/NOTES.md` (git-ignored, may not exist) has this machine's paths and
-  per-show notes: story, cast, word choices. Read it, and add to it when you
-  learn something about a show.
+- Everything a job makes is in its own folder, `work/jobs/<slug>/`: its
+  `job.json`, report and `NOTES.md`, its cast (`voices.json`, `voices/`), its
+  logs, the source link and split parts (`media/`) and each part's work
+  (`parts/NN/`); VoiceStudio's folder for a part is `dub_jobs/<slug>-NN`. A part
+  is still named `<slug>-NN` on the command line. Put anything you make for a
+  job yourself (probe scripts, frames, logs, listening experiments) in its
+  `scratch/`, never in `work/` or the job's folder at large. See the
+  [file table](docs/directing.md#files).
+- `work/NOTES.md` (git-ignored, may not exist) has this machine's paths,
+  hardware and installs; each job's `NOTES.md` has the show's: story, cast,
+  word choices. Read both, and add to the job's when you learn something about
+  a show.
 - The scripts are in `scripts/`. Run them from the repo root with VoiceStudio's
   Python (on Windows: `vendor\VoiceStudio\.venv\Scripts\python.exe scripts/fit.py <part>`;
   on Linux: `vendor/VoiceStudio/.venv/bin/python scripts/fit.py <part>`;
@@ -121,8 +130,9 @@ work; you direct.
    `--subtitles` when a film subtitles its foreign-language speech in the
    picture, `--auto-text` to inspect both styles and signs when unsure,
    `--signs` when it has text worth translating: title cards,
-   explainer diagrams, pages to read). Record the
-   show and the choice in `work/NOTES.md`.
+   explainer diagrams, pages to read). For a later episode of a show already
+   dubbed, add `--voices-from <its slug>` to cast from that job's voices. Record
+   the show and the choice in the job's `NOTES.md`.
 2. **Start the machine** in the background and leave it running:
    `scripts/dub_anything.py run <slug> --watch`. It splits; preps, separates and
    drafts the first part (a few minutes: start casting and directing it), then
@@ -132,7 +142,7 @@ work; you direct.
    is done. Follow it with `scripts/dub_anything.py status <slug>` and the logs in
    `work/jobs/<slug>/logs/`.
 3. **Direct, part by part** ([docs/directing.md](docs/directing.md)). Cast the
-   voices (`cast.py`, `frames.py`, `work/voices.json`) from the first parts
+   voices (`cast.py`, `frames.py`, the job's `voices.json`) from the first parts
    ([Prep, draft and cast](docs/directing/prep-and-cast.md)).
    Write each part's `script.json` from its `draft.json` and the `second.py` log,
    ending each window in a pause with nobody else inside it. Then
@@ -190,16 +200,16 @@ work; you direct.
    retained working size and record cleanup as pending while the user listens.
    Once the user accepts the dub or requests cleanup, carry out the authorized
    cleanup without asking again: `scripts/dub_anything.py cleanup <slug>` moves
-   the VoiceStudio jobs (including all timestamped exports), split parts and
-   takes to `videos/_to-delete/<slug>/`. It also moves the workspace source
-   copy and logs: first identify the retained source, delivery, voice references
-   and any listening experiments that must survive. Keep scripts, states,
-   reports, notes and materialized shared voice references.
+   the job's VoiceStudio folders (including all timestamped exports), split
+   parts, renders and takes to `videos/_to-delete/<slug>/`. It also moves the
+   `media/` source link and logs: first identify the retained source, delivery,
+   voice references and any listening experiments in `scratch/` that must
+   survive. The job's folder keeps scripts, states, the cast, reports and notes.
    **Moving files on the same drive frees no space.** When the user authorizes
    reclaiming space, verify the staged inventory and retained files, then
    remove only the authorized disposable files. Otherwise give the holding
    path and size for the user to delete. Record the result and measured free
-   space change in `work/NOTES.md`. See [storage cleanup](docs/directing/package.md#7-storage-cleanup)
+   space change in the job's `NOTES.md`. See [storage cleanup](docs/directing/package.md#7-storage-cleanup)
    for source preservation, old exports, idle dependency caches and unfinished jobs.
 
 **Subtitles only.** When the user wants a video subtitled rather than dubbed,
@@ -217,7 +227,7 @@ transcript) and the translation's `.srt` beside it. See
 **A long video: direct in parallel.** The machine work is a few hours for a
 feature film, and directing it alone takes longer. Direct the first two or
 three parts yourself: cast every voice you can and write the show's notes in
-`work/NOTES.md` (characters, who calls whom what, word choices, running jokes,
+the job's `NOTES.md` (characters, who calls whom what, word choices, running jokes,
 names a clone can't say). Then hand batches of parts to subagents with those
 notes, docs/directing.md, docs/directing/translate.md, docs/directing/gotchas.md
 and the two languages' notes (not the other phase pages: casting, rendering,
@@ -280,7 +290,7 @@ sound wrong: `scripts/register.py report`, `build`, `route --apply`, `check`.
   the rendered clips. Then tell the user what to listen for.
 - When you learn something general about dubbing, put it in the phase's page
   in `docs/directing/` (or `docs/directing.md` when every phase needs it), or in
-  `docs/languages/<code>.md` when it's about one language. Show-specific notes go in `work/NOTES.md`.
+  `docs/languages/<code>.md` when it's about one language. Show-specific notes go in the job's `NOTES.md`.
 - Keep production titles, real cast names, dialogue excerpts, scene descriptions
   and source-specific measurements in ignored `work/` files. Documentation,
   diagrams, examples and commit messages must use generic descriptions and

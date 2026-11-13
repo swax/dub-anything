@@ -11,6 +11,8 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+
+import core
 import lineqa
 
 
@@ -43,7 +45,7 @@ class KeptTakeTests(unittest.TestCase):
             (work / "takes" / "kept.json").write_text(json.dumps(kept), encoding="utf-8")
             output = io.StringIO()
             with (
-                patch.object(lineqa, "WORK", root),
+                patch.object(core, "WORK", root),
                 patch.object(lineqa, "langs", return_value=("en", lang)),
                 patch.object(lineqa, "line_id", return_value="line"),
                 patch.object(lineqa, "take_wav", return_value=wav),
@@ -124,7 +126,7 @@ class EarTests(unittest.TestCase):
                     (work / "heard.json").write_text(json.dumps(heard), encoding="utf-8")
                     ear = self.ear(on_gpu)
                     with (
-                        patch.object(lineqa, "WORK", root),
+                        patch.object(core, "WORK", root),
                         patch.object(lineqa, "langs", return_value=("ja", "en")),
                         patch.object(lineqa, "line_id", return_value="line"),
                         patch.object(lineqa, "take_wav", return_value=wav),

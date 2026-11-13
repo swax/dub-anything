@@ -301,13 +301,13 @@ class ObservationStore:
         started = time.perf_counter()
         self.folder, self.part, self.work = Path(folder), part, Path(work)
         self.segments, self.script = segments, script
-        self.voices = load(core.WORK / "voices.json", {})
+        self.voices = core.load_voices()
         keys = {l["voice"] for l in script["lines"]}
         keys.update(script.get("render", {}).get("fallback_voices", {}).values())
         keys.update(l["fallback_voice"] for l in script["lines"] if l.get("fallback_voice"))
         self.voice_inputs = {}
         for key in keys:
-            reference = core.WORK / "voices" / (key + ".wav")
+            reference = core.voice_path(key)
             self.voice_inputs[key] = {
                 "specification": self.voices.get(key),
                 "sha256": sha(reference) if reference.exists() else None,

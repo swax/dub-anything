@@ -76,7 +76,7 @@ Whisper still mishears. Re-listen to stretches that look garbled with
 clip's separated vocals with word times and prints where the VAD hears speech, and a
 focused pass often gets what the full pass missed. Correct remaining errors
 using surrounding dialogue, on-screen text and consistent terminology.
-Keep source excerpts in `work/NOTES.md`.
+Keep source excerpts in the job's `NOTES.md`.
 
 `scripts/draft.py --model` and `scripts/asr_words.py --model` accept
 faster-whisper models. Compare recognisers on your own corrected samples;
@@ -93,7 +93,7 @@ picture. They are the best transcript there is: the exact words, the names
 spelled right, a bracketed name when the speaker isn't obvious, "≪" for a
 voice off screen, and often a colour of their own for each main character.
 `scripts/subs.py <clip>` reads them (OCR over sampled frames) into
-`work/<clip>/subs.json`. Run it before `draft.py`, which then prints the
+`<part>/subs.json`. Run it before `draft.py`, which then prints the
 captions on screen under each phrase and lists captions no phrase covers.
 Caption times follow the display, not the speech, so windows still come from
 the VAD. The OCR misreads a character now and then (a kana for its katakana

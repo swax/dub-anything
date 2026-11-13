@@ -11,6 +11,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import core
 import signs
 
 
@@ -21,6 +23,7 @@ class OriginalAudioSignsTests(unittest.TestCase):
             work = root / "work/sample-01"
             with (
                 patch.object(signs, "ROOT", root),
+                patch.object(core, "WORK", root / "work"),
                 patch.object(
                     sys, "argv", ["signs.py", work.name, "--video", "opening.mp4", "--source", "en", "--target", "es"]
                 ),
@@ -41,6 +44,7 @@ class OriginalAudioSignsTests(unittest.TestCase):
             self.assertFalse((work / "segments.json").exists())
             with (
                 patch.object(signs, "ROOT", root),
+                patch.object(core, "WORK", root / "work"),
                 patch.object(sys, "argv", ["signs.py", work.name, "--preview"]),
                 patch.object(sys, "stdout", Mock()),
                 patch.object(signs.subs, "size", return_value=(1280, 720)),
@@ -53,6 +57,7 @@ class OriginalAudioSignsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with (
                 patch.object(signs, "ROOT", Path(tmp)),
+                patch.object(core, "WORK", Path(tmp) / "work"),
                 patch.object(sys, "argv", ["signs.py", "sample-01", "--video", "opening.mp4"]),
                 patch.object(sys, "stdout", Mock()),
                 contextlib.redirect_stderr(io.StringIO()),

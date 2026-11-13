@@ -211,10 +211,14 @@ directed scripts by hand. With VoiceStudio's Python
 ```powershell
 & $py scripts\dub_anything.py new D:\videos\my-video.mkv --voices both   # a job named my_video
 & $py scripts\dub_anything.py run my_video --watch   # prep, then render each part marked ready
-# write work\my_video-NN\script.json for each part, then:
+# write work\jobs\my_video\parts\NN\script.json for each part, then:
 & $py scripts\dub_anything.py ready my_video 01
 & $py scripts\dub_anything.py status my_video
 ```
+
+Everything the job makes, from the split parts to the cast and each part's
+script, stays in `work\jobs\my_video\`, and VoiceStudio's folders for it are
+named `my_video-01`, `my_video-02` and so on.
 
 <details>
 <summary>Or one step at a time</summary>

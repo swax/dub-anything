@@ -18,7 +18,7 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
 
 import draft
-from core import JOBS, WORK, langs, load_json, said
+from core import JOBS, langs, load_json, part_dir, said
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -50,9 +50,9 @@ def main():
     cast = draft.cast_centroids(embed, set(args.cast.split(",")) if args.cast else None)
     items = []
     for name in args.names:
-        job = load_json(WORK / name / "segments.json")["job_id"]
+        job = load_json(part_dir(name) / "segments.json")["job_id"]
         audio = draft.decode_audio(str(JOBS / job / "vocals.wav"), sampling_rate=draft.SR)
-        for i, line in enumerate(load_json(WORK / name / "draft.json")["lines"]):
+        for i, line in enumerate(load_json(part_dir(name) / "draft.json")["lines"]):
             if line["end"] - line["start"] >= args.min and not line.get("suspect") and not line.get("song"):
                 v = embed(audio[int(line["start"] * draft.SR) : int(line["end"] * draft.SR)])
                 items.append((name, i, line, v))

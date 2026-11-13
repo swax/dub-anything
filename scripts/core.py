@@ -25,6 +25,183 @@ ROOT = HERE.parent  # the repo: work/, videos/, vendor/
 WORK = ROOT / "work"
 
 
+# ---- where a job's work lives ----
+#
+# A job (dub_anything.py new) keeps everything it makes in one folder, work/jobs/<slug>/:
+#   job.json, report.md, NOTES.md      what the job is, where it stands, the show's notes
+#   voices.json, voices/, profiles.json   its cast (job.json's "voices_from" borrows others')
+#   logs/, scratch/                     the runner's logs; the director's own scripts and probes
+#   media/<slug>.<ext>                  a link to the source video
+#   media/split/                        its parts (<slug>-NN.mp4, parts.json); renders in dubbed/
+#   parts/NN/, parts/NN.us/             each part's work: script, draft, state, refs, takes
+# and VoiceStudio's folder for a part is named after it (<slug>-NN, <slug>-NN-us). A part
+# is still named <slug>-NN on every command line; part_dir finds its folder. A clip prepped
+# by hand, outside a job, keeps the older layout: work/<name> and the shared work/voices.json.
+PART_NAME = re.compile(r"(?P<slug>[a-z0-9_]+)-(?P<nn>\d+)(?P<suffix>(?:\.[a-z]+)?)")
+_job = {"slug": None}
+
+
+def job_dir(slug):
+    return WORK / "jobs" / slug
+
+
+def job_of(name):
+    """The job a part belongs to (its name's slug, when that job exists), else None."""
+    m = PART_NAME.fullmatch(name)
+    return m["slug"] if m and (job_dir(m["slug"]) / "job.json").exists() else None
+
+
+def use_job(slug):
+    """Name the job whose cast this process reads and writes (None: none). Without
+    this, it is the job of the first part a tool looks up, or $DUB_JOB."""
+    _job["slug"] = slug
+
+
+def active_job():
+    slug = _job["slug"] or os.environ.get("DUB_JOB")
+    return slug if slug and (job_dir(slug) / "job.json").exists() else None
+
+
+def adopt_job(words):
+    """For a tool given voice keys rather than parts: make active the job of the first
+    part named in `words`, else the one job whose cast has every key in it. Returns it."""
+    if active_job():
+        return active_job()
+    for word in words:
+        if job_of(word):
+            use_job(job_of(word))
+            return job_of(word)
+    owners = [
+        d.name
+        for d in sorted((WORK / "jobs").glob("*"))
+        if (d / "job.json").exists() and words and set(words) <= set(load_json(d / "voices.json", {}))
+    ]
+    if len(owners) == 1:
+        use_job(owners[0])
+        return owners[0]
+    return None
+
+
+def part_dir(name):
+    """A part's work folder: work/jobs/<slug>/parts/NN[.us] for a job's part,
+    work/<name> for a clip prepped by hand."""
+    slug = job_of(name)
+    if not slug:
+        return WORK / name
+    if not _job["slug"]:
+        _job["slug"] = slug
+    m = PART_NAME.fullmatch(name)
+    return job_dir(slug) / "parts" / (m["nn"] + m["suffix"])
+
+
+def part_name(folder):
+    """The part a work folder belongs to, as part_dir names it."""
+    folder = pathlib.Path(folder)
+    if folder.parent.name == "parts" and (folder.parent.parent / "job.json").exists():
+        return f"{folder.parent.parent.name}-{folder.name}"
+    return folder.name
+
+
+def part_names(slug=None):
+    """The parts with a work folder, by name: the job's (the active one by default),
+    or without a job every clip prepped by hand in work/."""
+    slug = slug or active_job()
+    if slug:
+        folders = (job_dir(slug) / "parts").glob("*")
+        return sorted(f"{slug}-{d.name}" for d in folders if d.is_dir())
+    return sorted(d.name for d in WORK.glob("*") if (d / "segments.json").exists() or (d / "script.json").exists())
+
+
+def script_files():
+    """(name, script.json) of every directed part of the active job (see part_names)."""
+    return [(n, part_dir(n) / "script.json") for n in part_names() if (part_dir(n) / "script.json").exists()]
+
+
+def split_dir(slug):
+    """Where split.py puts a video's parts: the job's media/split, or for a video
+    split by hand, videos/<stem>-parts."""
+    if (job_dir(slug) / "job.json").exists():
+        return job_dir(slug) / "media" / "split"
+    return ROOT / "videos" / f"{slug}-parts"
+
+
+def cast_dir(slug=None):
+    """The folder holding a cast: voices.json, voices/<key>.wav, profiles.json."""
+    slug = slug or active_job()
+    return job_dir(slug) if slug else WORK
+
+
+def voices_file():
+    return cast_dir() / "voices.json"
+
+
+def voices_dir():
+    return cast_dir() / "voices"
+
+
+def profiles_file():
+    return cast_dir() / "profiles.json"
+
+
+def borrowed_casts(slug=None):
+    """The jobs whose casts this one borrows (job.json "voices_from"), nearest last."""
+    slug = slug or active_job()
+    return load_json(job_dir(slug) / "job.json", {}).get("voices_from", []) if slug else []
+
+
+def load_voices():
+    """The cast the active job can use: its own voices.json over those it borrows.
+    Only its own is ever written (update_voices)."""
+    voices = {}
+    for other in borrowed_casts():
+        voices.update(load_json(cast_dir(other) / "voices.json", {}))
+    voices.update(load_json(voices_file(), {}))
+    return voices
+
+
+def voice_home(key):
+    """The cast folder a voice's entry comes from: the job's own, or a borrowed one."""
+    if key in load_json(voices_file(), {}):
+        return cast_dir()
+    for other in reversed(borrowed_casts()):
+        if key in load_json(cast_dir(other) / "voices.json", {}):
+            return cast_dir(other)
+    return cast_dir()
+
+
+def voice_path(key):
+    """Where a voice's reference audio is (voice_wav builds it): the job's voices/<key>.wav,
+    or the borrowed cast's file, when it has one."""
+    home = voice_home(key) / "voices" / f"{key}.wav"
+    return home if home.exists() else voices_dir() / f"{key}.wav"
+
+
+def segments_of(name):
+    """A part's segments.json (the VoiceStudio job id, the machine transcript), or None."""
+    return load_json(part_dir(name) / "segments.json")
+
+
+def vs_job(name):
+    """A part's VoiceStudio job folder (stems, takes, renders)."""
+    return JOBS / segments_of(name)["job_id"]
+
+
+def vocals_wav(name):
+    """A part's separated voices."""
+    return vs_job(name) / "vocals.wav"
+
+
+def new_vs_job_id(name):
+    """The id to give a part's new VoiceStudio job: its name, so the folder says
+    whose it is (letters, digits, - and _ only), numbered if one is there already."""
+    base = re.sub(r"[^A-Za-z0-9_-]", "-", name)[:56]
+    job_id, n = base, 1
+    while (JOBS / job_id).exists():
+        n += 1
+        job_id = f"{base}-{n}"
+    return job_id
+
+
 def default_data_dir():
     """Default location for VoiceStudio / OmniVoice data (same as backend/core/config.py)."""
     if os.environ.get("OMNIVOICE_DATA_DIR"):
@@ -146,7 +323,7 @@ def langs(name):
     from the part a voice's copy (<part>.us) was made from."""
     if name not in _langs:
         for n in (name, base_part(name)):
-            seg = load_json(WORK / n / "segments.json")
+            seg = segments_of(n)
             if seg:
                 _langs[name] = pair_of(seg)
                 break
@@ -195,7 +372,7 @@ def fallback_voice(line, mode, voices=None):
         raise ValueError("fallback_voice must name a voice in voices.json")
     if selected == original:
         return selected
-    voices = load_json(WORK / "voices.json", {}) if voices is None else voices
+    voices = load_voices() if voices is None else voices
 
     def family(key):
         seen = set()
@@ -265,7 +442,7 @@ def end_dip(db, start, end):
 
 def source_check_keys(work, lines, dips=False, cast_lines=False):
     """Source-check cache keys shared by eligibility and diagnostic reports."""
-    src = langs(work.name)[0]
+    src = langs(part_name(work))[0]
     rivals = hashlib.sha1(
         "|".join(f"{v}:{voice_sig(v)}" for v in sorted({line["voice"] for line in lines})).encode()
     ).hexdigest()[:8]
@@ -297,7 +474,7 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
     again. Lines cast in other parts aren't in the key, so a decision stays put
     while the show's other parts are directed. Whisper listens in the part's source
     language, and the line's original words are its field named for it."""
-    src = langs(work.name)[0]
+    src = langs(part_name(work))[0]
     cache_path = work / "refs" / "clean.json"
     cache = load_json(cache_path, {})
     keys = source_check_keys(work, lines, dips, cast_lines)
@@ -320,18 +497,22 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
             hold_gpu("window check")
         model = draft.WhisperModel("Systran/faster-whisper-large-v3", device="auto", compute_type="default")
         embed = draft.embedder()
-        voices = load_json(WORK / "voices.json", {})
+        voices = load_voices()
         who = lambda v: voices[v].get("register_of", v)  # noqa: E731
         cast = (
             {
-                v: embed(draft.decode_audio(str(WORK / "voices" / f"{v}.wav"), sampling_rate=sr))
+                v: embed(draft.decode_audio(str(voice_path(v)), sampling_rate=sr))
                 for v in {line["voice"] for line in lines}
             }
             if embed
             else {}
         )
         # Exclude this part's own lines: a line mustn't vouch for itself.
-        cents = draft.cast_centroids(embed, {who(v) for v in cast}, exclude=work.name) if (cast_lines and embed) else {}
+        cents = (
+            draft.cast_centroids(embed, {who(v) for v in cast}, exclude=part_name(work))
+            if (cast_lines and embed)
+            else {}
+        )
         review_path = work / "refs" / "source-review.json"
         reviews = load_json(review_path, {})
         source_stat = (JOBS / job_id / "vocals.wav").stat()
@@ -374,7 +555,7 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
 
 
 def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=False, prefix=True, notes=None):
-    """Per-line references: the voice's own clips (work/voices/<key>.wav), a 0.3 s
+    """Per-line references: the voice's own clips (voice_path: voices/<key>.wav), a 0.3 s
     pause, then this line's original from the job's separated vocals, with the
     line's original words (`ja`, or the field of the part's source language) after
     the voice's transcript. OmniVoice copies its reference's
@@ -393,8 +574,8 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
     import numpy as np
     import soundfile as sf
 
-    voices = load_json(WORK / "voices.json", {})
-    src = langs(work.name)[0]
+    voices = load_voices()
+    src = langs(part_name(work))[0]
     vocals, sr = sf.read(JOBS / job_id / "vocals.wav", dtype="float32")
     (work / "refs").mkdir(exist_ok=True)
     refs = {}
@@ -438,7 +619,7 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
             raise ValueError("ref_prefix must be true or false")
         transcript = said(line, src)
         if with_prefix:
-            base_path = WORK / "voices" / f"{line['voice']}.wav"
+            base_path = voice_path(line["voice"])
             base, base_sr = sf.read(base_path, dtype="float32")
             if base_sr != sr or base.shape[1:] != own.shape[1:]:
                 note(k, "line ref skipped", f"{base_path.name} isn't in the vocals' format")
@@ -556,9 +737,11 @@ def report_result(**fields):
 
 
 def update_voices(change):
-    """Apply change(voices) to work/voices.json under a lock and write it back:
-    directors working on a show in parallel may add voices at the same time."""
-    path = WORK / "voices.json"
+    """Apply change(voices) to the active job's voices.json (voices_file) under a lock
+    and write it back: directors working on a show in parallel may add voices at the
+    same time. A borrowed cast is read, never written."""
+    path = voices_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
     with open(path.with_suffix(".lock"), "a+") as lock:
         while True:
             try:
@@ -584,8 +767,8 @@ def update_voices(change):
 
 
 def voice_sig(key):
-    """Fingerprint of a voice's spec in work/voices.json (clips, text, source)."""
-    spec = load_json(WORK / "voices.json", {})[key]
+    """Fingerprint of a voice's spec in voices.json (clips, text, source)."""
+    spec = load_voices()[key]
     return hashlib.sha1(json.dumps(spec, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -597,22 +780,25 @@ def voice_clips(spec):
 
 
 def voice_wav(key, rebuild=False):
-    """work/voices/<key>.wav: the voice's clips from voices.json joined with 0.3 s
-    pauses. Built when missing, when rebuild is set, or when the voice's entry no
-    longer matches the profile it was last uploaded as."""
+    """voices/<key>.wav in the job's cast folder: the voice's clips from voices.json
+    joined with 0.3 s pauses. Built when missing, when rebuild is set, or when the
+    voice's entry no longer matches the profile it was last uploaded as. A voice
+    borrowed from another job's cast is that job's file, as it was built there."""
     import numpy as np
     import soundfile as sf
 
-    spec = load_json(WORK / "voices.json", {})[key]
-    ref = WORK / "voices" / f"{key}.wav"
-    uploaded = load_json(WORK / "profiles.json", {}).get(key, {})
+    spec = load_voices()[key]
+    ref = voice_path(key)
+    if ref.parent != voices_dir() and not rebuild:
+        return ref
+    ref = voices_dir() / f"{key}.wav"
+    uploaded = load_json(profiles_file(), {}).get(key, {})
     if ref.exists() and not rebuild and uploaded.get("sig") == voice_sig(key):
         return ref
     sources, parts = {}, []
     for clip, a, b in voice_clips(spec):
         if clip not in sources:
-            job = load_json(WORK / clip / "segments.json")["job_id"]
-            sources[clip] = sf.read(JOBS / job / "vocals.wav", dtype="float32")
+            sources[clip] = sf.read(vocals_wav(clip), dtype="float32")
         audio, sr = sources[clip]
         gap = np.zeros((int(0.3 * sr),) + audio.shape[1:], dtype="float32")
         parts += [audio[int(a * sr) : int(b * sr)], gap]
@@ -775,7 +961,7 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None, notes=N
     renders (the director's script in the American voice, with each line's
     "text_us"): its takes are ignored and every line is estimated. `notes`
     collects the per-line reference notes generate would print (line_refs)."""
-    work = WORK / name
+    work = part_dir(name)
     job = load_json(work / "segments.json")["job_id"]
     pair = langs(name)
     tgt = pair[1]
@@ -802,7 +988,7 @@ def fit_rows(name, overflow=0.3, predict=False, short=False, voice=None, notes=N
         or any("fallback_voice" in settings for settings in rendered.values())
     )
     if predict and not american:
-        voices = load_json(WORK / "voices.json", {})
+        voices = load_voices()
         todo = [
             k
             for k, i in enumerate(ids)

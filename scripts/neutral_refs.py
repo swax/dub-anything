@@ -94,11 +94,11 @@ def collect(voice, parts):
     import draft
     from languages import LANGUAGES
 
-    voices = core.load_json(core.WORK / "voices.json", {})
+    voices = core.load_voices()
     family = voices[voice].get("register_of", voice)
     pool, candidates = [], []
     for name in parts:
-        folder = core.WORK / name
+        folder = core.part_dir(name)
         script = core.load_json(folder / "script.json")
         if not script:
             continue
@@ -217,11 +217,11 @@ def main():
     if args.key:
         from voices import add
 
-        voices = core.load_json(core.WORK / "voices.json", {})
+        voices = core.load_voices()
         family = voices[args.voice].get("register_of", args.voice)
         from register import cer
 
-        job = core.load_json(core.WORK / picked["part"] / "segments.json")["job_id"]
+        job = core.load_json(core.part_dir(picked["part"]) / "segments.json")["job_id"]
         source = draft.decode_audio(str(core.JOBS / job / "vocals.wav"), sampling_rate=draft.SR)
         sample = source[int(picked["start"] * draft.SR) : int(picked["end"] * draft.SR)]
         draft.hold_gpu_for_whisper()

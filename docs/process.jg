@@ -240,7 +240,7 @@
     "width": 700,
     "height": 80
    },
-   "label": "work/voices.json  ·  the cast, one voice per character\nvoices.py: clean, complete phrases (8–10 s for a lead) + their exact text",
+   "label": "<job>/voices.json  ·  the cast, one voice per character\nvoices.py: clean, complete phrases (8–10 s for a lead) + their exact text",
    "shape": "document",
    "nodeColor": "#00897B",
    "labelColor": "#ffffff",
@@ -282,7 +282,7 @@
     "width": 440,
     "height": 210
    },
-   "label": "work/<part>/script.json  ·  the directed part\nper line: start · end · voice\nja (or en, es…): the corrected original\ntext: the dub · optional: text_us, listen…\ncaptions: speech kept in the original\nsigns: text in the picture, translated\n\"ready\": true  →  it renders",
+   "label": "<part>/script.json  ·  the directed part\nper line: start · end · voice\nja (or en, es…): the corrected original\ntext: the dub · optional: text_us, listen…\ncaptions: speech kept in the original\nsigns: text in the picture, translated\n\"ready\": true  →  it renders",
    "shape": "document",
    "nodeColor": "#00897B",
    "labelColor": "#ffffff",

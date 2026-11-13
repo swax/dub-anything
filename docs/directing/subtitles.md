@@ -10,7 +10,7 @@ cloned or rendered, so the VoiceStudio backend isn't needed, and `run` doesn't
 start it:
 
 - **Prep** (`dub.py prep --subtitles-only`) only takes each part's audio out
-  into a job folder of VoiceStudio's shape (`local_<id>` beside its own jobs).
+  into a job folder of VoiceStudio's shape (`<part>-local` beside its own jobs).
   `separate.py` then separates it (Roformer's are its only stems), and
   `draft.py` transcribes it as for a dub, without suggesting speakers.
   `asr_words.py`, `second.py`, `subs.py`, `signs.py` and `frames.py` work as

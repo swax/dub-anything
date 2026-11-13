@@ -8,7 +8,7 @@ It runs on the CPU, so it can run beside GPU work (drafting, rendering).
 
 Runs the two recognisers the part's source language names (its segments.json's
 source_lang; SECOND_OPINIONS in languages/<code>.py) over each line of
-work/<clip>/draft.json (or script.json with --script) on the separated vocals,
+<part>/draft.json (or script.json with --script) on the separated vocals,
 and compares them with the line's original (`ja`, or the field of the source
 language) as the language's module says (units): Japanese as kana, so spelling
 choices don't count, Chinese character by character, English and Spanish word
@@ -26,7 +26,6 @@ Spanish, ~320 MB for Korean) download to VoiceStudio's model cache on first use.
 import argparse
 import json
 import os
-import pathlib
 import sys
 
 import numpy as np
@@ -35,11 +34,10 @@ import soundfile as sf
 from huggingface_hub import snapshot_download
 from scipy.signal import resample_poly
 
-from core import default_cache_dir, default_data_dir
+from core import default_cache_dir, default_data_dir, part_dir
 from languages import LANGUAGES, pair_of
 
 # Same resolution as core.py.
-WORK = pathlib.Path(__file__).resolve().parents[1] / "work"
 JOBS = default_data_dir() / "dub_jobs"
 HF_CACHE = default_cache_dir()
 SR = 16000
@@ -154,7 +152,7 @@ def main():
 
 def source_lang(clip):
     """The language a part speaks, as dub.py prep recorded it (core.langs)."""
-    return pair_of(json.loads((WORK / clip / "segments.json").read_text(encoding="utf-8")))[0]
+    return pair_of(json.loads((part_dir(clip) / "segments.json").read_text(encoding="utf-8")))[0]
 
 
 def decode(rec, audio):
@@ -178,14 +176,14 @@ def decode(rec, audio):
 
 
 def check(clip, spans, recs, lang, script, show_all):
-    job = json.loads((WORK / clip / "segments.json").read_text(encoding="utf-8"))["job_id"]
+    job = json.loads((part_dir(clip) / "segments.json").read_text(encoding="utf-8"))["job_id"]
     x, sr = sf.read(JOBS / job / "vocals.wav", dtype="float32")
     x = resample_poly(x.mean(1) if x.ndim > 1 else x, SR, sr).astype(np.float32)
     if spans:
         lines = [{**dict(zip(("start", "end"), map(float, s.split(":")))), lang: ""} for s in spans]
     else:
         name = "script.json" if script else "draft.json"
-        lines = json.loads((WORK / clip / name).read_text(encoding="utf-8"))["lines"]
+        lines = json.loads((part_dir(clip) / name).read_text(encoding="utf-8"))["lines"]
     flagged = 0
     for i, line in enumerate(lines):
         a, b = max(0.0, line["start"] - PAD), line["end"] + PAD

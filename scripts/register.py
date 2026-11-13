@@ -23,7 +23,7 @@ Usage: scripts/register.py report [clip ...]            each reference against t
                                                         original's, and whether each extra reference
                                                         delivers its register
        scripts/register.py drop <voice>                 retire an extra reference that doesn't
-report and check default to every directed clip (work/*/script.json).
+report and check default to every directed part of the job (core.script_files).
 """
 
 import argparse
@@ -34,7 +34,21 @@ import sys
 import numpy as np
 
 import draft
-from core import JOBS, WORK, bare, langs, line_id, load_json, said, take_wav, update_voices, voice_clips
+from core import (
+    JOBS,
+    bare,
+    langs,
+    line_id,
+    load_json,
+    load_voices,
+    part_dir,
+    said,
+    script_files,
+    take_wav,
+    update_voices,
+    voice_clips,
+    voice_path,
+)
 from faster_whisper.audio import decode_audio
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 
@@ -50,7 +64,7 @@ _audio = {}
 def vocals(clip):
     """A clip's separated vocals at 16 kHz (None if its job is gone)."""
     if clip not in _audio:
-        wav = JOBS / load_json(WORK / clip / "segments.json", {}).get("job_id", "-") / "vocals.wav"
+        wav = JOBS / load_json(part_dir(clip) / "segments.json", {}).get("job_id", "-") / "vocals.wav"
         _audio[clip] = decode_audio(str(wav), sampling_rate=SR) if wav.exists() else None
     return _audio[clip]
 
@@ -129,14 +143,14 @@ def families(voices):
 
 
 def clips_of(args_clips):
-    return args_clips or sorted(p.parent.name for p in WORK.glob("*/script.json"))
+    return args_clips or sorted(name for name, _ in script_files())
 
 
 class Show:
     """Every directed line of the show, measured, grouped by character."""
 
     def __init__(self):
-        self.voices = load_json(WORK / "voices.json", {})
+        self.voices = load_voices()
         self.fam = families(self.voices)
         self.base = {k: b for b, ks in self.fam.items() for k in ks}
         self.lines = {}  # character -> [(clip, i, line, features)]
@@ -144,7 +158,7 @@ class Show:
         for clip in clips_of(None):
             if vocals(clip) is None:
                 continue
-            for i, line in enumerate(load_json(WORK / clip / "script.json")["lines"]):
+            for i, line in enumerate(load_json(part_dir(clip) / "script.json")["lines"]):
                 if line["end"] - line["start"] < MIN_LINE or line.get("voice") not in self.base:
                     continue
                 twin = (line["start"], line["end"], said(line, langs(clip)[0]), line["voice"])
@@ -201,7 +215,7 @@ def clean_lines(show, base):
         d = line["end"] - line["start"]
         if not 1.2 <= d <= 6.0 or re.search(r"(…|\.\.\.)\s*$", said(line, langs(clip)[0])):
             continue
-        script = load_json(WORK / clip / "script.json")
+        script = load_json(part_dir(clip) / "script.json")
         others = [x for x in script["lines"] + script.get("captions", []) if x is not line and x != line]
         if any(x["start"] < line["end"] + 0.3 and x["end"] > line["start"] - 0.3 for x in others):
             continue
@@ -277,7 +291,7 @@ def cmd_build(args):
     print(
         f"{key}: {total:.1f} s from {len(picked)} lines at arousal {level:+.1f} (target {target:+.1f}; "
         f"the character's own reference is {refs[base]:+.1f}). Written to voices.json; "
-        f"check work/voices/{key}.wav with asr_words.py after the first render."
+        f"check {voice_path(key)} with asr_words.py after the first render."
     )
 
 
@@ -295,7 +309,7 @@ def cmd_route(args):
     show = Show()
     refs = {b: show.refs(b) for b in show.fam if len(show.fam[b]) > 1 and b in show.norm}
     for clip in args.clips:
-        path = WORK / clip / "script.json"
+        path = part_dir(clip) / "script.json"
         script = load_json(path)
         changed = 0
         measured = {i: f for c, i, _, f in (x for ls in show.lines.values() for x in ls) if c == clip}
@@ -331,7 +345,7 @@ def cmd_check(args):
         for clip, i, line, f in ls:
             if clip not in wanted:
                 continue
-            wav = take_wav(load_json(WORK / clip / "segments.json")["job_id"], line_id(line), langs(clip)[1])
+            wav = take_wav(load_json(part_dir(clip) / "segments.json")["job_id"], line_id(line), langs(clip)[1])
             t = features(decode_audio(str(wav), sampling_rate=SR)) if wav.exists() else None
             if t:
                 pairs.append((arousal(f, show.norm[base]), t, line["voice"]))
@@ -366,12 +380,12 @@ def cmd_check(args):
 def cmd_drop(args):
     """Retire an extra reference: its lines go back to the character's own voice
     (whose cached takes, where they exist, come back without synthesis)."""
-    voices = load_json(WORK / "voices.json")
+    voices = load_voices()
     base = voices.get(args.voice, {}).get("register_of")
     if not base:
         raise SystemExit(f"{args.voice} is not an extra reference (no register_of)")
     for clip in clips_of(None):
-        path = WORK / clip / "script.json"
+        path = part_dir(clip) / "script.json"
         script = load_json(path)
         n = 0
         for line in script["lines"]:

@@ -19,7 +19,7 @@ import sys
 import numpy as np
 import soundfile as sf
 
-from core import JOBS, WORK, langs, line_id, load_json, take_wav
+from core import JOBS, langs, line_id, load_json, part_dir, take_wav
 from edges import HOP, SR, frames_db
 from faster_whisper.audio import decode_audio
 from faster_whisper.vad import VadOptions, get_speech_timestamps
@@ -47,8 +47,8 @@ def tail_ms(db, a, b, limit):
 def rows(name):
     """Each line's reverb tail: (i, line, original ms, capped, the take's ms or None),
     for lines whose tail can be measured. WET_MS or more is wet."""
-    lines = load_json(WORK / name / "script.json")["lines"]
-    job = load_json(WORK / name / "segments.json")["job_id"]
+    lines = load_json(part_dir(name) / "script.json")["lines"]
+    job = load_json(part_dir(name) / "segments.json")["job_id"]
     audio = decode_audio(str(JOBS / job / "vocals.wav"), sampling_rate=SR)
     db = frames_db(audio)
     onsets = [
@@ -100,7 +100,7 @@ def main():
         wet += flag
         if flag or args.all:
             print(row_text(*row))
-    lines = load_json(WORK / args.name / "script.json")["lines"]
+    lines = load_json(part_dir(args.name) / "script.json")["lines"]
     print(f"{args.name}: {wet} of {len(lines)} lines with a reverb tail of {WET_MS} ms or more")
 
 

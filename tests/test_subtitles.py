@@ -13,6 +13,8 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+
+import core
 import deliver
 import dub_anything as runner
 import subtitles
@@ -26,8 +28,7 @@ def new_job(root, *flags):
     work = root / "work"
     argv = ["dub_anything.py", "new", str(source), *flags]
     with (
-        patch.object(runner, "VIDEOS", root / "videos"),
-        patch.object(runner, "JOB_DIR", work / "jobs"),
+        patch.object(core, "WORK", work),
         patch.object(sys, "argv", argv),
         contextlib.redirect_stdout(io.StringIO()),
     ):
@@ -64,7 +65,7 @@ class SubtitleJobTests(unittest.TestCase):
             root = pathlib.Path(tmp)
             job = new_job(root, "--voices", "none")
             with (
-                patch.object(runner, "WORK", root / "work"),
+                patch.object(core, "WORK", root / "work"),
                 patch.object(runner, "tool", return_value=(True, "", {})) as tool,
                 contextlib.redirect_stdout(io.StringIO()),
             ):
@@ -79,7 +80,7 @@ class SubtitleJobTests(unittest.TestCase):
             script = {"lines": [{"start": 1, "end": 2, "ja": "はい", "text": "Yes."}], "ready": True}
             (root / "sample-01" / "script.json").write_text(json.dumps(script), encoding="utf-8")
             part = {"name": "sample-01"}
-            with patch.object(runner, "WORK", root):
+            with patch.object(core, "WORK", root):
                 self.assertTrue(runner.ready(part))
                 self.assertTrue(all(runner.finished(part, v) for v in []))
 

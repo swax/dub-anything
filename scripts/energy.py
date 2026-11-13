@@ -1,6 +1,6 @@
 """Print a per-second loudness bar chart of a clip's separated vocals vs background.
 
-Usage: scripts/energy.py <name>   (after `dub.py prep`; reads work/<name>/segments.json)
+Usage: scripts/energy.py <name>   (after `dub.py prep`; reads <part>/segments.json)
 """
 
 import json
@@ -9,9 +9,9 @@ import sys
 import numpy as np
 import soundfile as sf
 
-from core import JOBS, WORK
+from core import JOBS, part_dir
 
-job = json.loads((WORK / sys.argv[1] / "segments.json").read_text(encoding="utf-8"))["job_id"]
+job = json.loads((part_dir(sys.argv[1]) / "segments.json").read_text(encoding="utf-8"))["job_id"]
 rows = []
 for stem in ("vocals", "no_vocals"):
     audio, sr = sf.read(JOBS / job / f"{stem}.wav")

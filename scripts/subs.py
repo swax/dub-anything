@@ -30,7 +30,7 @@ third language (Finnish in a film set in Finland), drawn as white text with a
 dark outline over the bottom of the picture, without a box. Only that band is
 read, 2 frames a second.
 
-Writes work/<clip>/subs.json ({"events": [{start, end, text, color, x, y,
+Writes <part>/subs.json ({"events": [{start, end, text, color, x, y,
 name, off}]}; x/y are the caption's centre as fractions of the picture) and
 prints the events. `name` is a bracketed speaker label, `off` marks "≪".
 draft.py shows the captions beside each phrase when subs.json exists.
@@ -51,6 +51,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from core import part_dir
 from gpulock import hold_gpu
 from languages import LANGUAGES, pair_of
 
@@ -433,7 +434,7 @@ def main():
         ap.error("choose --auto or --open")
     args.fps = args.fps or (2 if args.open else 4)
     sys.stdout.reconfigure(encoding="utf-8")
-    work = ROOT / "work" / args.clip
+    work = part_dir(args.clip)
     seg = json.loads((work / "segments.json").read_text(encoding="utf-8"))
     video = seg["video"]
     video = pathlib.Path(video) if pathlib.Path(video).is_absolute() else ROOT / video

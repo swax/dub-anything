@@ -44,7 +44,7 @@ import sys
 
 import numpy as np
 
-from core import JOBS, WORK, end_dip, load_json
+from core import JOBS, end_dip, load_json, part_dir
 from faster_whisper.audio import decode_audio
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -134,12 +134,12 @@ SEARCH = 0.45  # how far past an edge to look for where the voice begins or ends
 def analyse(name, apply=False, min_shift=0.015):
     """The edge moves for a part, written to script.json with `apply`: (moved
     starts, tails at ends, shared boundaries) as (i, old, new, text[, cut, fix])."""
-    path = WORK / name / "script.json"
+    path = part_dir(name) / "script.json"
     script = load_json(path)
     lines = script["lines"]
     captions = script.get("captions", [])
     audio = decode_audio(
-        str(JOBS / load_json(WORK / name / "segments.json")["job_id"] / "vocals.wav"), sampling_rate=SR
+        str(JOBS / load_json(part_dir(name) / "segments.json")["job_id"] / "vocals.wav"), sampling_rate=SR
     )
     db = frames_db(audio)
     moved, tails, joins = [], [], []

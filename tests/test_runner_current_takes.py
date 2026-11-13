@@ -12,6 +12,8 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import core
 import dub_anything as runner
 
 
@@ -37,7 +39,7 @@ class CurrentTakeGateTests(unittest.TestCase):
         self.wav("Lfirst").write_bytes(b"first checked speech")
         self.wav("Lsecond").write_bytes(b"second checked speech")
         for patcher in (
-            patch.object(runner, "WORK", self.root),
+            patch.object(core, "WORK", self.root),
             patch.object(runner, "line_id", side_effect=lambda line: line["id"]),
             patch.object(runner, "langs", return_value=("ja", "en")),
             patch.object(runner, "take_wav", side_effect=lambda job, lid, target: self.wav(lid)),

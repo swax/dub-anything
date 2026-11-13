@@ -11,11 +11,11 @@ import sys
 import numpy as np
 import soundfile as sf
 
-from core import JOBS, WORK
+from core import JOBS, part_dir
 
 name = sys.argv[1]
-job = json.loads((WORK / name / "segments.json").read_text(encoding="utf-8"))["job_id"]
-lines = json.loads((WORK / name / "script.json").read_text(encoding="utf-8"))["lines"]
+job = json.loads((part_dir(name) / "segments.json").read_text(encoding="utf-8"))["job_id"]
+lines = json.loads((part_dir(name) / "script.json").read_text(encoding="utf-8"))["lines"]
 audio, sr = sf.read(JOBS / job / "vocals.wav", dtype="float32")
 mono = audio.mean(axis=1) if audio.ndim > 1 else audio
 hop = sr // 50

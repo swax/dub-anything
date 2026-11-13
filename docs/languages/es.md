@@ -104,7 +104,7 @@ the target").
   for Latin America, unless the user asks for Spain's: `ustedes`, never
   `vosotros`. Use the established Spanish names of characters and of the
   films and franchises a script mentions (their Latin American titles), and
-  record them in `work/NOTES.md`. People's names stay as they are, but a
+  record them in the job's `NOTES.md`. People's names stay as they are, but a
   nickname with a known Spanish form takes it. Latin American Spanish says
   `z` and `c` like `s`, so Whisper writing "casa" for "caza" is not a fault.
 - **Per-line references stay on.** Into Japanese the actor's English original

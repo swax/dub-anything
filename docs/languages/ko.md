@@ -47,7 +47,7 @@ language's notes ([en.md](en.md)). The code is `scripts/languages/ko.py`.
   ("<name> 팀장."); keep those calls in the actor's own audio with a caption,
   and leave a name the recognisers can't agree on out of the English rather
   than guess it ("a presidential candidate"). Titles translate: 본부장
-  "Director", 팀장 "Team Lead"; record the choices in `work/NOTES.md`.
+  "Director", 팀장 "Team Lead"; record the choices in the job's `NOTES.md`.
 - **Speech levels carry meaning.** A switch between polite speech (존댓말) and
   casual speech (반말) is a plot point as often as a habit: when a junior asks
   a senior to drop the formalities (말씀 편하게 하세요), the senior answers in

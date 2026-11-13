@@ -22,16 +22,31 @@ without changing the machine's CUDA/cuDNN dependencies.
 
 ## Files
 
-| Path | What |
-|---|---|
-| `videos/` | Source media (git-ignored). Split parts go in `videos/<stem>-parts/` and dubs in `.../dubbed/` |
-| `work/voices.json` | The cast: per character, clean clips of the actor plus their exact transcript |
-| `work/<clip>/script.json` | The directed dub, the real work product |
-| `work/<clip>/segments.json`, `ja.srt` | Raw machine transcript, the VoiceStudio job id and the language pair (`prep` overwrites them; the `.srt` is named for the source language) |
-| `work/NOTES.md` | Per-show notes: story, characters, running jokes, word choices |
+Everything a job makes is in one folder, `work/jobs/<slug>/` (`<slug>` is the
+name `dub_anything.py new` gave it):
 
-`work/` is git-ignored: it holds transcripts of the source and references to
-real voices.
+| Path in the job's folder | What |
+|---|---|
+| `job.json`, `report.md` | What the job is, where it stands; the report of what to listen for |
+| `NOTES.md` | The show's notes: story, characters, running jokes, word choices, decisions pending |
+| `voices.json`, `voices/<key>.wav`, `profiles.json` | The cast: per character, clean clips of the actor plus their exact transcript; the joined references; their VoiceStudio profiles |
+| `parts/NN/script.json` | Part `<slug>-NN`'s directed dub, the real work product |
+| `parts/NN/segments.json`, `ja.srt` | Raw machine transcript, the VoiceStudio job id and the language pair (`prep` overwrites them; the `.srt` is named for the source language) |
+| `parts/NN/` | The rest of the part's work: `draft.json`, `state.json`, `refs/`, `takes/`, `signs/`... `parts/NN.us/` is its American voice |
+| `media/` | A link to the source video; `media/split/` its parts and `parts.json`; `media/split/dubbed/` the renders |
+| `logs/` | The runner's logs, one per step |
+| `scratch/` | Your own scripts, probes, frames and listening experiments: never anywhere else in the repo |
+
+A part is still named `<slug>-NN` on every command line; the scripts find its
+folder (`core.part_dir`). The docs write a part's folder as `<part>/`.
+VoiceStudio keeps each part's stems and takes in its own data folder,
+`dub_jobs/<slug>-NN` (`<slug>-NN-us` for the American voice). `work/NOTES.md`
+holds only what is true of this machine (paths, hardware, installs). A clip
+prepped by hand, outside a job, keeps the older layout: `work/<name>/` and the
+shared `work/voices.json`.
+
+`work/` and `videos/` are git-ignored: they hold the source, transcripts of it
+and references to real voices.
 
 ### voices.json
 
@@ -48,11 +63,16 @@ real voices.
 `from` names a prepped clip. Its separated `vocals.wav` supplies the audio.
 A clip can also come from any other prepped part, written `["episode-03", 81.2,
 84.9]`, so a bit part can pool clean lines from every part it appears in.
-`dub.py` joins the clips (with 0.3 s gaps) into `work/voices/<key>.wav` and
+`dub.py` joins the clips (with 0.3 s gaps) into the job's `voices/<key>.wav` and
 creates a VoiceStudio profile on first use. Changing a voice's entry re-renders
 every line that voice speaks, in every part. To give a character a better
 voice without re-rendering parts already approved, add it under a new key
 (`speaker_1_v2`) and use that from then on.
+
+Each job has its own cast. A later episode can borrow an earlier one's:
+`dub_anything.py new <video> --voices-from <earlier slug>` lets its scripts use
+the earlier job's voices as they were built there, read-only. A new voice goes
+in the new job's own `voices.json`, under a key the borrowed cast doesn't use.
 
 A character can have a second reference in another register, built by
 `scripts/register.py build` (see "The reference sets the register" in [gotchas](directing/gotchas.md)). Its entry
@@ -257,7 +277,7 @@ The loop, in the order it runs:
 |---|---|
 | `scripts/dub_anything.py new\|run\|status\|ready\|report\|cleanup` | A whole dub (or with `--voices none`, subtitles): runs every machine step below in order, renders each part when its script is ready, QA rounds, delivery, the report |
 | `scripts/split.py <video>` | Cut a long video into ~N-minute parts at pauses in speech (frame-accurate) |
-| `scripts/dub.py prep <video> [--source en\|es\|ko\|zh --target ja\|en\|es] [--subtitles-only]` | Upload, separate, transcribe, diarize → `work/<name>/segments.json` (with the language pair), source-language `.srt`; `--subtitles-only`: the audio alone, no backend |
+| `scripts/dub.py prep <video> [--source en\|es\|ko\|zh --target ja\|en\|es] [--subtitles-only]` | Upload, separate, transcribe, diarize → `<part>/segments.json` (with the language pair), source-language `.srt`; `--subtitles-only`: the audio alone, no backend |
 | `scripts/separate.py <clip> ... [--restore]` | Re-separate prepped clips with Mel-Band Roformer: far less music left in the vocals, so cleaner clones (own environment; see AGENTS.md) |
 | `scripts/subs.py <clip> [--open]` | Read burned-in closed captions (OCR) → `subs.json`: exact words, speaker names, colours, off-screen marks; song lyrics become bare ♪ markers (own environment). `--open`: a film's own subtitles for foreign-language speech |
 | `scripts/signs.py <clip> [--preview]` | Text in the picture to translate (signs, diagrams, title cards, pages): candidates with times and boxes → `signs.json`, a sheet per candidate and shot thumbnails (subs.py's environment); `--preview` draws the script's signs into their frames |

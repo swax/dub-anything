@@ -49,8 +49,8 @@ class Part:
         notes_by_voice = {"actor": notes or {}}
         output = io.StringIO()
         with (
-            patch.object(check, "WORK", self.root),
-            patch.object(check.runner, "WORK", self.root),
+            patch.object(core, "WORK", self.root),
+            patch.object(core, "WORK", self.root),
             patch.object(check, "job_of", return_value=self.job),
             patch.object(check.edges, "analyse", side_effect=lambda n, a: self.edge_calls.append(a) or ([], [], [])),
             patch.object(check.tails, "rows", return_value=[]),

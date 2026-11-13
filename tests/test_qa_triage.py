@@ -391,7 +391,7 @@ class NormalControlIntegrationTests(unittest.TestCase):
                     return "Something else."
 
             with (
-                patch.object(lineqa, "WORK", root / "work"),
+                patch.object(core, "WORK", root / "work"),
                 patch.object(core, "WORK", root / "work"),
                 patch.object(core, "JOBS", root / "jobs"),
                 patch.object(lineqa, "take_wav", return_value=wav),

@@ -12,6 +12,8 @@ from unittest.mock import patch
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+
+import core
 import edges
 
 
@@ -25,7 +27,7 @@ class OriginalSpeechEdgesTests(unittest.TestCase):
             (part / "script.json").write_text(json.dumps(script), encoding="utf-8")
             (part / "segments.json").write_text('{"job_id": "sample"}', encoding="utf-8")
             with (
-                patch.object(edges, "WORK", root),
+                patch.object(core, "WORK", root),
                 patch.object(edges, "JOBS", root),
                 patch.object(edges, "decode_audio", return_value=audio),
                 contextlib.redirect_stdout(io.StringIO()),

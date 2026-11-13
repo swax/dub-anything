@@ -6,7 +6,7 @@ Part of [directing a dub](../directing.md): read its file formats and workflow o
 
 - **Translate for meaning, in the character's voice**, not word for word. Keep
   running jokes and motifs consistent across a show, and record the choices in
-  `work/NOTES.md`.
+  the job's `NOTES.md`.
 - **Windows must cover all of the original speech.** Anything outside a window
   plays in the original language. Leave pure hums, laughs and eating noises
   (うーん, んー) uncovered: they're language-neutral and the actor's own.
@@ -121,7 +121,7 @@ Part of [directing a dub](../directing.md): read its file formats and workflow o
   signs in passing, posters, number plates, the channel's logo.
   `scripts/signs.py <part>` (subs.py's environment, about 40 s of GPU per
   minute) lists candidates in `signs.json` with times and boxes, draws a sheet
-  for each (`work/<part>/signs/NN.jpg`) and a thumbnail of every shot
+  for each (`<part>/signs/NN.jpg`) and a thumbnail of every shot
   (`shots-N.jpg`). Read the sheets, not the OCR: it misreads stylised writing
   and misses vertical brush lettering, handwriting and arched labels altogether,
   so scan the shot thumbnails for text it missed and take the box from the

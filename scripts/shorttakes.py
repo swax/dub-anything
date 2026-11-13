@@ -428,13 +428,13 @@ def measure(store, entry, line, actor, limit, policy, target, ear, heard_path, r
 
 
 def context(name, script, rendered, policy, candidates, seed, indices=None):
-    work = core.WORK / name
+    work = core.part_dir(name)
     doc = core.load_json(work / "segments.json")
     references = {}
     for key in sorted({line["voice"] for line in script["lines"]}):
         references[key] = {"spec": core.voice_sig(key), "wav_sha256": sha(core.voice_wav(key))}
     line_references = {}
-    voices = core.load_json(core.WORK / "voices.json", {})
+    voices = core.load_voices()
     source = core.langs(name)[0]
     for line in script["lines"]:
         lid = core.line_id(line)
@@ -486,7 +486,7 @@ def trial(
 ):
     if candidates not in (2, 3):
         raise ValueError("choose two or three total candidates, including the baseline")
-    work = core.WORK / name
+    work = core.part_dir(name)
     with locked(work / "shorttakes.lock"):
         dub.require_settled_generation(work)
         script = core.load_json(work / "script.json")
@@ -745,7 +745,7 @@ def main():
     action.add_argument("--apply-control", action="store_true", help="Install the archived normal repair result")
     parser.add_argument("--control-cost", type=Path, help="JSON manifest of normal-policy generation/QA cost receipts")
     args = parser.parse_args()
-    script = core.load_json(core.WORK / args.name / "script.json")
+    script = core.load_json(core.part_dir(args.name) / "script.json")
     if not script:
         parser.error("missing directed script")
     indices = dub.selected_indices(args.lines, len(script["lines"]))

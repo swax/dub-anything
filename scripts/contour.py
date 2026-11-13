@@ -6,20 +6,18 @@ Needs librosa, so run it in a throwaway env:
 """
 
 import json
-import pathlib
 import sys
 
 import librosa
 import numpy as np
 
-from core import default_data_dir
+from core import default_data_dir, part_dir
 
 # Same job-folder resolution as core.py / VoiceStudio's backend/core/config.py.
 JOBS = default_data_dir() / "dub_jobs"
-WORK = pathlib.Path(__file__).resolve().parents[1] / "work"
 
 name, t0, t1 = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
-job = json.loads((WORK / name / "segments.json").read_text(encoding="utf-8"))["job_id"]
+job = json.loads((part_dir(name) / "segments.json").read_text(encoding="utf-8"))["job_id"]
 y, sr = librosa.load(JOBS / job / "vocals.wav", sr=16000, mono=True, offset=t0, duration=t1 - t0)
 hop = int(0.02 * sr)
 f0, voiced, _ = librosa.pyin(y, fmin=70, fmax=500, sr=sr, frame_length=1024, hop_length=hop)

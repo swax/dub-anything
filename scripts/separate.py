@@ -25,11 +25,10 @@ import shutil
 import sys
 import tempfile
 
-from core import cache_root, default_data_dir
+from core import cache_root, default_data_dir, part_dir
 from gpulock import hold_gpu
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-WORK = ROOT / "work"
 # Same resolution as core.py / VoiceStudio's backend/core/config.py.
 JOBS = default_data_dir() / "dub_jobs"
 MODELS = cache_root() / "audio-separator"
@@ -39,7 +38,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
 def job_dir(clip):
-    seg = json.loads((WORK / clip / "segments.json").read_text(encoding="utf-8"))
+    seg = json.loads((part_dir(clip) / "segments.json").read_text(encoding="utf-8"))
     return JOBS / seg["job_id"]
 
 

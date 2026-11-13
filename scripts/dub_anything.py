@@ -1,17 +1,20 @@
 """Run a dub from source video to the delivered file: the machine work, around the director's.
 
 Usage:
-  scripts/dub_anything.py new <video> [--source ja --target en] [--voices actor|american|both|none] [--slug NAME] [--minutes 3] [--whole A-B ...] [--captions|--subtitles|--auto-text] [--signs]
+  scripts/dub_anything.py new <video> [--source ja --target en] [--voices actor|american|both|none] [--slug NAME] [--voices-from SLUG ...] [--minutes 3] [--whole A-B ...] [--captions|--subtitles|--auto-text] [--signs]
   scripts/dub_anything.py run <slug> [--watch]       do every step that can run now (see below)
   scripts/dub_anything.py status <slug>              where each part stands, and what blocks it
   scripts/dub_anything.py ready <slug> <NN> [...]    mark parts' scripts as directed (same as "ready": true)
   scripts/dub_anything.py report <slug>              write and print the report (work/jobs/<slug>/report.md)
   scripts/dub_anything.py cleanup <slug>             after delivery, move the bulk to videos/_to-delete/<slug>/
 
+Everything a job makes is in work/jobs/<slug>/ (see core.py, "where a job's work lives").
+
 A job (work/jobs/<slug>/job.json) is one source video, the language pair (Japanese
 -> English unless --source/--target say otherwise; the American voice is English
-only) and the voices to dub it in ("both" plays the actor's voice by default). The
-source is hard-linked into videos/<slug>.<ext> so the split keeps working after
+only) and the voices to dub it in ("both" plays the actor's voice by default),
+optionally casting from earlier jobs' voices too (--voices-from). The source is
+hard-linked into the job's media/<slug>.<ext> so the split keeps working after
 delivery renames it. With --voices none the job subtitles the video instead of
 dubbing it: any two languages with a module (languages/), no VoiceStudio
 backend, nothing to render. Its parts are prepped from their audio alone
@@ -70,30 +73,32 @@ import sys
 import time
 
 import backend
+import core
 import gpu
 import subtitles
 from core import (
     FILL_SPEED,
-    JOBS,
     RESULT_ENV,
     ROOT,
     VOICE_LABEL,
-    WORK,
     actor_ends,
     fallback_voice,
+    job_dir,
     langs,
     line_id,
     load_json,
+    load_voices,
+    part_dir,
     save_json,
     speech_length,
+    split_dir,
     take_wav,
+    use_job,
     voice_part,
 )
 from languages import LANGUAGES, NAMES, PAIR, PAIRS
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-JOB_DIR = WORK / "jobs"
-VIDEOS = ROOT / "videos"
 QA_ROUNDS = 3  # rounds of fresh takes for flagged lines after the first check
 MAX_REMIX_QA_RECHECKS = 2  # additional QA passes when a re-mix changes checked audio
 PREP_CHUNK = 4  # parts prepped, separated and drafted together, after the first part
@@ -184,13 +189,16 @@ RETRY = ("render failed", "lineqa failed")  # problems a new run retries; the re
 
 
 def job_file(slug):
-    return JOB_DIR / slug / "job.json"
+    return job_dir(slug) / "job.json"
 
 
 def load_job(slug):
     job = load_json(job_file(slug))
     if not job:
         raise SystemExit(f"no job {slug!r} (scripts/dub_anything.py new <video>)")
+    # The job's cast is the one every tool reads and writes, here and in the tools it starts.
+    use_job(slug)
+    ENV["DUB_JOB"] = slug
     return job
 
 
@@ -209,7 +217,7 @@ def subtitles_only(job):
 
 
 def parts(job):
-    pj = load_json(VIDEOS / f"{job['slug']}-parts" / "parts.json")
+    pj = load_json(split_dir(job["slug"]) / "parts.json")
     return pj["parts"] if pj else []
 
 
@@ -221,8 +229,8 @@ def write_json(path, data):
 
 
 def job_dir_of(name):
-    seg = load_json(WORK / name / "segments.json")
-    return JOBS / seg["job_id"] if seg else None
+    seg = load_json(part_dir(name) / "segments.json")
+    return core.JOBS / seg["job_id"] if seg else None
 
 
 def film_time(seconds):
@@ -248,7 +256,7 @@ def tool(job, label, cmd, logname):
     it reported (core.report_result, kept beside the log as <logname>.result.json).
     The runner decides from the report; the output is for messages and the log."""
     pause_checkpoint()
-    logs = JOB_DIR / job["slug"] / "logs"
+    logs = job_dir(job["slug"]) / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     log(f"{label} ...")
@@ -273,7 +281,7 @@ def tool(job, label, cmd, logname):
 
 
 def split(job):
-    pdir = VIDEOS / f"{job['slug']}-parts"
+    pdir = split_dir(job["slug"])
     if (pdir / "parts.json").exists():
         return True
     try:
@@ -289,12 +297,12 @@ def split(job):
 
 
 def original_only(p):
-    script = load_json(WORK / p["name"] / "script.json")
+    script = load_json(part_dir(p["name"]) / "script.json")
     return script is not None and not script["lines"]
 
 
 def drafted(p):
-    return (WORK / p["name"] / "draft.json").exists()
+    return (part_dir(p["name"]) / "draft.json").exists()
 
 
 def prep_chunk(ps):
@@ -314,9 +322,9 @@ def prepare_step(job, ps):
     if not chunk:
         # Text in the picture, for translating: after the drafts, which the director needs first.
         for p in ps if job.get("signs") else []:
-            if not (WORK / p["name"] / "signs.json").exists():
+            if not (part_dir(p["name"]) / "signs.json").exists():
                 command = SIGNS + [p["name"]]
-                if not (WORK / p["name"] / "segments.json").exists():
+                if not (part_dir(p["name"]) / "segments.json").exists():
                     src, tgt = job_langs(job)
                     command += ["--video", p["file"], "--source", src, "--target", tgt]
                 if not tool(job, f"signs {p['name']}", command, f"signs-{p['name']}")[0]:
@@ -327,7 +335,7 @@ def prepare_step(job, ps):
     names = [p["name"] for p in chunk]
     label = names[0] if len(names) == 1 else f"{names[0]}..{names[-1].rsplit('-', 1)[-1]}"
     for p in chunk:
-        if not (WORK / p["name"] / "segments.json").exists():
+        if not (part_dir(p["name"]) / "segments.json").exists():
             src, tgt = job_langs(job)
             ok, out, result = tool(
                 job,
@@ -338,8 +346,8 @@ def prepare_step(job, ps):
             )
             if not ok and result.get("no_speech"):
                 # No speech at all (a silent channel card): nothing to dub, so it stays original.
-                (WORK / p["name"]).mkdir(exist_ok=True)
-                write_json(WORK / p["name"] / "script.json", {"lines": []})
+                part_dir(p["name"]).mkdir(parents=True, exist_ok=True)
+                write_json(part_dir(p["name"]) / "script.json", {"lines": []})
                 log(f"{p['name']}: no speech, left original")
                 return "busy"
             if not ok:
@@ -356,7 +364,7 @@ def prepare_step(job, ps):
             return "failed"
         return "busy"
     for n in names:
-        if job.get("captions") and not (WORK / n / "subs.json").exists():
+        if job.get("captions") and not (part_dir(n) / "subs.json").exists():
             extra = {"open": ["--open"], "auto": ["--auto"]}.get(job["captions"], [])
             if not tool(job, f"subs {n}", SUBS + [n] + extra, f"subs-{n}")[0]:
                 problem(job, f"subs.py failed on {n}")
@@ -397,10 +405,12 @@ def second(job, ps):
     elif proc:
         return
     todo = [
-        p["name"] for p in ps if (WORK / p["name"] / "draft.json").exists() and p["name"] not in job.get("second", [])
+        p["name"]
+        for p in ps
+        if (part_dir(p["name"]) / "draft.json").exists() and p["name"] not in job.get("second", [])
     ]
     if todo:
-        logs = JOB_DIR / job["slug"] / "logs"
+        logs = job_dir(job["slug"]) / "logs"
         logs.mkdir(parents=True, exist_ok=True)
         f = open(logs / f"second-{time.strftime('%H%M%S')}.log", "w", encoding="utf-8")
         log(f"second.py over {len(todo)} parts in the background (CPU)")
@@ -430,7 +440,7 @@ def last_error(out):
 
 
 def ready(p):
-    script = load_json(WORK / p["name"] / "script.json")
+    script = load_json(part_dir(p["name"]) / "script.json")
     return script is not None and (not script["lines"] or bool(script.get("ready")))
 
 
@@ -450,7 +460,7 @@ def derived_script(script, voice):
 def variant(job, p, voice):
     """The voice's work folder for part p, set up (script, VoiceStudio job, stems); None if it isn't ready."""
     name = voice_part(p["name"], voice)
-    base = WORK / p["name"]
+    base = part_dir(p["name"])
     script = load_json(base / "script.json")
     if voice == "actor":
         want = {**ACTOR_RENDER, "line_ref": PAIRS[langs(p["name"])]["line_ref"]}
@@ -463,8 +473,8 @@ def variant(job, p, voice):
             script["render"] = {**want, **script.get("render", {})}
             write_json(base / "script.json", script)
         return name
-    work = WORK / name
-    work.mkdir(exist_ok=True)
+    work = part_dir(name)
+    work.mkdir(parents=True, exist_ok=True)
     write_json(work / "script.json", derived_script(script, voice))
     if not script["lines"]:
         return name
@@ -508,10 +518,10 @@ def script_sha(script):
 def finished(p, voice):
     """Part p is final in this voice for its current script: a script edited after
     its part's turn in a pass still needs that part rendered again."""
-    script = load_json(WORK / p["name"] / "script.json")
+    script = load_json(part_dir(p["name"]) / "script.json")
     if not script["lines"]:
         return True
-    st = load_json(WORK / voice_part(p["name"], voice) / "state.json", {})
+    st = load_json(part_dir(voice_part(p["name"], voice)) / "state.json", {})
     wanted = derived_script(script, voice)
     if st.get("stage") != "final" or st.get("script") != script_sha(wanted):
         return False
@@ -529,7 +539,7 @@ def finished(p, voice):
 
 def current_take_hashes(name, script):
     """Hash every requested current take; missing audio cannot count as checked."""
-    segment = load_json(WORK / name / "segments.json", {})
+    segment = load_json(part_dir(name) / "segments.json", {})
     if not segment.get("job_id"):
         raise ValueError(f"{name}: missing current take job metadata")
     target = langs(name)[1]
@@ -551,7 +561,7 @@ def current_take_hashes(name, script):
 
 def advance(job, name):
     """One step for a part in one voice: 'busy' (did something), 'final', or 'blocked'."""
-    work = WORK / name
+    work = part_dir(name)
     script = load_json(work / "script.json")
     if not script["lines"]:
         return "final"
@@ -686,12 +696,12 @@ def delivery_sha(job, ps):
         h.update(b"quicktime-audio")
     for p in ps:
         if subtitles_only(job):
-            h.update(json.dumps(load_json(WORK / p["name"] / "script.json"), sort_keys=True).encode())
+            h.update(json.dumps(load_json(part_dir(p["name"]) / "script.json"), sort_keys=True).encode())
         for voice in job["voices"]:
             name = voice_part(p["name"], voice)
             h.update(
                 json.dumps(
-                    [load_json(WORK / name / "script.json"), load_json(WORK / name / "state.json")],
+                    [load_json(part_dir(name) / "script.json"), load_json(part_dir(name) / "state.json")],
                     sort_keys=True,
                     ensure_ascii=False,
                 ).encode()
@@ -758,7 +768,7 @@ def report(job, ps, quiet=False):
     listen, original, flags, cues = [], [], {v: [] for v in job["voices"]}, []
     timing = {v: [] for v in job["voices"]}
     for p in ps:
-        script = load_json(WORK / p["name"] / "script.json")
+        script = load_json(part_dir(p["name"]) / "script.json")
         if script is None:
             problems.append(f"{p['name']}: not directed yet")
             continue
@@ -777,16 +787,16 @@ def report(job, ps, quiet=False):
             ]
         for voice in job["voices"]:
             name = voice_part(p["name"], voice)
-            st = load_json(WORK / name / "state.json", {})
+            st = load_json(part_dir(name) / "state.json", {})
             if st.get("problem"):
                 problems.append(f"{name} ({VOICE_LABEL[voice]}): {st['problem']}")
             elif st.get("stage") != "final":
                 problems.append(f"{name} ({VOICE_LABEL[voice]}): not finished ({st.get('stage', 'not rendered')})")
-            for r in load_json(WORK / name / "reroll-left.json", []):
+            for r in load_json(part_dir(name) / "reroll-left.json", []):
                 flags[voice].append((p["start"] + r["start"], r["text"], r.get("got", "")))
-            seg = load_json(WORK / name / "segments.json")
+            seg = load_json(part_dir(name) / "segments.json")
             if seg and st.get("stage") == "final":
-                lines = load_json(WORK / name / "script.json")["lines"]
+                lines = load_json(part_dir(name) / "script.json")["lines"]
                 for line, end in zip(lines, actor_ends(seg["job_id"], lines)):
                     wav = take_wav(seg["job_id"], line_id(line), langs(name)[1])
                     if end is not None and wav.exists():
@@ -824,7 +834,7 @@ def report(job, ps, quiet=False):
     if original:
         what = "Not subtitled" if subtitles_only(job) else "Left in the original (not dubbed)"
         md += ["", f"{what}: {', '.join(original)}"]
-    path = JOB_DIR / job["slug"] / "report.md"
+    path = job_dir(job["slug"]) / "report.md"
     path.write_text("\n".join(md) + "\n", encoding="utf-8")
     if not quiet:
         print("\n".join(md))
@@ -861,8 +871,14 @@ def cmd_new(args):
         raise SystemExit(
             f"a dub into {NAMES[args.target]} can't have the {' or '.join(unknown)} voice: use --voices actor"
         )
-    VIDEOS.mkdir(exist_ok=True)
-    link = VIDEOS / f"{slug}{src.suffix.lower()}"
+    missing = [other for other in args.voices_from if not job_file(other).exists()]
+    if missing:
+        raise SystemExit(f"--voices-from: no job {', '.join(missing)}")
+    # Everything the job makes goes in its folder (core.py, "where a job's work lives").
+    home = job_dir(slug)
+    for folder in ("media", "parts", "logs", "scratch"):
+        (home / folder).mkdir(parents=True, exist_ok=True)
+    link = home / "media" / f"{slug}{src.suffix.lower()}"
     if not link.exists():
         try:
             os.link(src, link)
@@ -883,7 +899,8 @@ def cmd_new(args):
         "quicktime_audio": args.quicktime_audio,
         "created": time.strftime("%Y-%m-%d %H:%M"),
     }
-    job_file(slug).parent.mkdir(parents=True, exist_ok=True)
+    if args.voices_from:
+        job["voices_from"] = args.voices_from
     save_job(job)
     print(
         f"job {slug}: {src.name}, {NAMES[args.source]} -> {NAMES[args.target]}, "
@@ -893,6 +910,7 @@ def cmd_new(args):
             else "subtitles only"
         )
     )
+    print(f"its folder: {home}")
     print(
         f"next: scripts/dub_anything.py run {slug} --watch   (in the background), then "
         + ("translate the parts" if not voices else "direct the parts")
@@ -993,14 +1011,14 @@ def ready_problems(script, voices=None, american=False):
 def cmd_ready(args):
     job = load_job(args.slug)
     names = {p["name"][-2:]: p["name"] for p in parts(job)}
-    voices = None if subtitles_only(job) else load_json(WORK / "voices.json", {})
+    voices = None if subtitles_only(job) else load_voices()
     if voices is not None and not isinstance(voices, dict):
         raise SystemExit("voices.json must be an object keyed by voice name")
     pending = []
     for nn in args.parts:
         name = names.get(f"{int(nn):02d}")
         try:
-            script = load_json(WORK / name / "script.json") if name else None
+            script = load_json(part_dir(name) / "script.json") if name else None
         except json.JSONDecodeError as exc:
             raise SystemExit(f"part {nn}: invalid script.json: {exc}") from exc
         if script is None:
@@ -1011,7 +1029,7 @@ def cmd_ready(args):
         pending.append((name, script))
     for name, script in pending:
         script["ready"] = True
-        write_json(WORK / name / "script.json", script)
+        write_json(part_dir(name) / "script.json", script)
         print(f"{name}: ready")
 
 
@@ -1027,10 +1045,10 @@ def cmd_status(args):
         print("  not split yet")
     for p in ps:
         name = p["name"]
-        script = load_json(WORK / name / "script.json")
-        prep = "prepped" if (WORK / name / "segments.json").exists() else "-"
+        script = load_json(part_dir(name) / "script.json")
+        prep = "prepped" if (part_dir(name) / "segments.json").exists() else "-"
         sep = "separated" if job_dir_of(name) and (job_dir_of(name) / "separator.json").exists() else "-"
-        draft = "drafted" if (WORK / name / "draft.json").exists() else "-"
+        draft = "drafted" if (part_dir(name) / "draft.json").exists() else "-"
         if script is None:
             direction = "to direct"
         elif not script["lines"]:
@@ -1040,7 +1058,7 @@ def cmd_status(args):
         cols = []
         problems = []
         for voice in job["voices"]:
-            st = load_json(WORK / voice_part(name, voice) / "state.json", {})
+            st = load_json(part_dir(voice_part(name, voice)) / "state.json", {})
             if st and script and script["lines"] and st.get("script") != script_sha(derived_script(script, voice)):
                 cols.append(f"{voice}: script changed; render pending")
                 continue
@@ -1054,7 +1072,7 @@ def cmd_status(args):
             ):
                 cols.append(f"{voice}: current take QA coverage pending (changed or missing audio)")
                 continue
-            left = len(load_json(WORK / voice_part(name, voice) / "reroll-left.json", []))
+            left = len(load_json(part_dir(voice_part(name, voice)) / "reroll-left.json", []))
             s = ("BLOCKED" if st.get("problem") else st.get("stage", "-")) + (
                 f" r{st['round']}" if st.get("round") else ""
             )
@@ -1082,7 +1100,7 @@ def cmd_run(args):
     known = set()
     for p in ps:  # a new run retries what failed for reasons outside the script
         for v in job["voices"]:
-            path = WORK / voice_part(p["name"], v) / "state.json"
+            path = part_dir(voice_part(p["name"], v)) / "state.json"
             st = load_json(path, {})
             if st.get("problem", "").startswith(RETRY):
                 log(f'{voice_part(p["name"], v)}: retrying after "{st.pop("problem")[:80]}"')
@@ -1107,7 +1125,7 @@ def cmd_run(args):
                     busy = True
                 if state == "blocked":
                     blocked = True
-                    st = load_json(WORK / name / "state.json", {})
+                    st = load_json(part_dir(name) / "state.json", {})
                     block = (name, st.get("script"), st.get("problem"))
                     if block not in seen:
                         seen.add(block)
@@ -1121,7 +1139,7 @@ def cmd_run(args):
                 return 2
             busy = step == "busy"
         # With --signs, signs.py reads every part before delivery, however early the parts were ready.
-        signs_read = not job.get("signs") or all((WORK / p["name"] / "signs.json").exists() for p in ps)
+        signs_read = not job.get("signs") or all((part_dir(p["name"]) / "signs.json").exists() for p in ps)
         final = signs_read and all(ready(p) and all(finished(p, v) for v in job["voices"]) for p in ps)
         if final:
             if SECOND_RUN.get(job["slug"]):
@@ -1151,12 +1169,14 @@ def cmd_report(args):
 
 def cmd_cleanup(args):
     """Move what a finished job no longer needs into one folder the user deletes: the
-    VoiceStudio jobs, split parts and renders, the pre-dub source link, per-line
-    references, kept takes and logs. Scripts, states, notes and the report stay."""
+    VoiceStudio jobs (every <slug>-... folder, retakes of a prep included), split parts
+    and renders, the pre-dub source link, per-line references, kept takes and logs.
+    Scripts, states, the cast, notes, scratch and the report stay in the job's folder."""
     job = load_job(args.slug)
     if not job.get("delivered") and not args.force:
         raise SystemExit("not delivered yet (--force to clean up anyway)")
-    hold = VIDEOS / "_to-delete" / job["slug"]
+    hold = core.ROOT / "videos" / "_to-delete" / job["slug"]
+    home = job_dir(job["slug"])
     moved = 0
 
     def mv(src, dst):
@@ -1173,10 +1193,13 @@ def cmd_cleanup(args):
             if j and j.exists():
                 mv(j, hold / "dub_jobs" / j.name)
             for sub in ("refs", "emo", "takes"):
-                mv(WORK / name / sub, hold / "work" / name / sub)
-    mv(VIDEOS / f"{job['slug']}-parts", hold / "videos" / f"{job['slug']}-parts")
-    mv(pathlib.Path(job["video"]), hold / "videos" / pathlib.Path(job["video"]).name)
-    mv(JOB_DIR / job["slug"] / "logs", hold / "logs")
+                mv(part_dir(name) / sub, hold / "parts" / name / sub)
+    # VoiceStudio folders are named for their parts: catch any a re-prep left behind.
+    for j in sorted(core.JOBS.glob(f"{job['slug']}-*")):
+        mv(j, hold / "dub_jobs" / j.name)
+    mv(home / "media" / "split", hold / "media" / "split")
+    mv(pathlib.Path(job["video"]), hold / "media" / pathlib.Path(job["video"]).name)
+    mv(home / "logs", hold / "logs")
     job["cleaned"] = {"to": str(hold), "at": time.strftime("%Y-%m-%d %H:%M")}
     save_job(job)
     print(f"moved {moved} items to {hold}; delete that folder when you're happy with the delivery")
@@ -1201,6 +1224,13 @@ def main():
         help="tag English original audio as und to prefer the dub in QuickTime",
     )
     a.add_argument("--slug")
+    a.add_argument(
+        "--voices-from",
+        action="append",
+        default=[],
+        metavar="SLUG",
+        help="also cast from another job's voices (an earlier episode); repeatable",
+    )
     a.add_argument("--minutes", type=float, default=3)
     a.add_argument("--whole", action="append", default=[], metavar="A-B")
     a.add_argument("--captions", action="store_true", help="the picture carries captions: run subs.py")

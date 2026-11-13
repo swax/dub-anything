@@ -11,6 +11,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+
+import core
 import dub_anything as runner
 
 
@@ -27,15 +29,13 @@ class TextEvidenceTests(unittest.TestCase):
                 source = root / "sample.mp4"
                 source.touch()
                 work = root / "work"
-                folder = work / "sample-01"
+                folder = work / "jobs" / "sample" / "parts" / "01"
                 folder.mkdir(parents=True)
                 (folder / "segments.json").write_text('{"job_id": "sample"}', encoding="utf-8")
                 (root / "separator.json").write_text("{}", encoding="utf-8")
                 argv = ["dub_anything.py", "new", str(source)] + ([flag] if flag else [])
                 with (
-                    patch.object(runner, "VIDEOS", root / "videos"),
-                    patch.object(runner, "JOB_DIR", work / "jobs"),
-                    patch.object(runner, "WORK", work),
+                    patch.object(core, "WORK", work),
                     patch.object(sys, "argv", argv),
                     contextlib.redirect_stdout(io.StringIO()),
                 ):
@@ -66,7 +66,7 @@ class OriginalAudioTextTests(unittest.TestCase):
             (folder / "script.json").write_text('{"lines": []}', encoding="utf-8")
             part = {"name": folder.name, "file": "opening.mp4"}
             job = {"signs": True, "langs": ["en", "es"]}
-            with patch.object(runner, "WORK", work), patch.object(runner, "tool", return_value=(True, "", {})) as tool:
+            with patch.object(core, "WORK", work), patch.object(runner, "tool", return_value=(True, "", {})) as tool:
                 self.assertEqual(runner.prepare_step(job, [part]), "busy")
                 self.assertEqual(
                     tool.call_args.args[2],
@@ -90,7 +90,7 @@ class OriginalAudioTextTests(unittest.TestCase):
                     (folder / "signs.json").write_text('{"candidates": []}', encoding="utf-8")
                 job = {"slug": "sample", "voices": ["actor"], "signs": True, "delivered": {"path": "out.mkv"}}
                 with (
-                    patch.object(runner, "WORK", work),
+                    patch.object(core, "WORK", work),
                     patch.object(runner, "load_job", return_value=job),
                     patch.object(runner, "save_job"),
                     patch.object(runner.backend, "ensure", return_value=True),
@@ -113,7 +113,7 @@ class OriginalAudioTextTests(unittest.TestCase):
             folder = work / "sample-01"
             folder.mkdir()
             (folder / "script.json").write_text('{"lines": []}', encoding="utf-8")
-            with patch.object(runner, "WORK", work), patch.object(runner, "tool") as tool:
+            with patch.object(core, "WORK", work), patch.object(runner, "tool") as tool:
                 self.assertEqual(runner.prepare_step({"signs": False}, [{"name": folder.name}]), "done")
                 tool.assert_not_called()
 
@@ -237,7 +237,7 @@ class ReadyPreflightTests(unittest.TestCase):
                 (folder / "script.json").write_text(json.dumps(script), encoding="utf-8")
             (root / "voices.json").write_text('{"speaker_a": {}}', encoding="utf-8")
             with (
-                patch.object(runner, "WORK", root),
+                patch.object(core, "WORK", root),
                 patch.object(runner, "load_job", return_value={"voices": ["actor"]}),
                 patch.object(runner, "parts", return_value=parts),
                 contextlib.redirect_stdout(io.StringIO()),
@@ -260,7 +260,7 @@ class ReadyPreflightTests(unittest.TestCase):
             path = folder / "script.json"
             path.write_text('{"lines": [', encoding="utf-8")
             with (
-                patch.object(runner, "WORK", root),
+                patch.object(core, "WORK", root),
                 patch.object(runner, "load_job", return_value={"voices": []}),
                 patch.object(runner, "parts", return_value=[{"name": "sample-01"}]),
                 contextlib.redirect_stdout(io.StringIO()),
@@ -294,7 +294,7 @@ class StatusTests(unittest.TestCase):
                 return output.getvalue()
 
             with (
-                patch.object(runner, "WORK", root),
+                patch.object(core, "WORK", root),
                 patch.object(runner, "parts", return_value=[part]),
                 patch.object(runner, "job_dir_of", return_value=None),
                 patch.object(
@@ -327,7 +327,7 @@ class WatchBlockTests(unittest.TestCase):
                 return "blocked"
 
             with (
-                patch.object(runner, "WORK", root),
+                patch.object(core, "WORK", root),
                 patch.object(runner, "load_job", return_value={"slug": "sample", "voices": ["actor"]}),
                 patch.object(runner.backend, "ensure", return_value=True),
                 patch.object(runner, "split", return_value=True),
