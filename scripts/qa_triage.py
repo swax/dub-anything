@@ -26,6 +26,8 @@ import subprocess
 import time
 
 import core
+import lengths
+import voicecast
 from languages import LANGUAGES
 
 PROTOCOL = {
@@ -265,7 +267,7 @@ def source_spans(folder, segments, script, source_sha256):
         ):
             raise ValueError("source VAD cache changed")
         return previous["spans"]
-    value = {"binding": binding, "spans": core.actor_spans(segments["job_id"], lines)}
+    value = {"binding": binding, "spans": lengths.actor_spans(segments["job_id"], lines)}
     value["receipt_sha256"] = identity(value)
     save(path, value)
     return value["spans"]
@@ -301,13 +303,13 @@ class ObservationStore:
         started = time.perf_counter()
         self.folder, self.part, self.work = Path(folder), part, Path(work)
         self.segments, self.script = segments, script
-        self.voices = core.load_voices()
+        self.voices = voicecast.load_voices()
         keys = {l["voice"] for l in script["lines"]}
         keys.update(script.get("render", {}).get("fallback_voices", {}).values())
         keys.update(l["fallback_voice"] for l in script["lines"] if l.get("fallback_voice"))
         self.voice_inputs = {}
         for key in keys:
-            reference = core.voice_path(key)
+            reference = voicecast.voice_path(key)
             self.voice_inputs[key] = {
                 "specification": self.voices.get(key),
                 "sha256": sha(reference) if reference.exists() else None,

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import core
+import lengths
 
 
 class VoiceStudioNormalizerTests(unittest.TestCase):
@@ -32,8 +33,8 @@ class VoiceStudioNormalizerTests(unittest.TestCase):
                 patch.dict(sys.modules),
             ):
                 sys.modules.pop("core.language_variants", None)
-                normalize = core._voicestudio_normalizer(backend)
+                normalize = lengths._voicestudio_normalizer(backend)
                 self.assertEqual(normalize("12", "Portuguese"), "12:pt-BR")
                 self.assertIs(sys.modules["core"], core)
                 self.assertEqual(core.ROOT, original_root)
-                self.assertTrue(callable(core.take_length))
+                self.assertTrue(callable(lengths.take_length))

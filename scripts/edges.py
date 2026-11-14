@@ -25,7 +25,7 @@ a crowd, and are only noted, unless the voice dies out into that silence.
 
 Where two windows touch (a turn change, or a line split without a pause), the
 voice often still dips to near silence for a moment near the boundary, too briefly
-for speech detection to call it a pause. When that dip (core.end_dip) isn't at the
+for speech detection to call it a pause. When that dip (references.end_dip) isn't at the
 boundary, both windows move to it: it's where one line really ends and the next
 begins, and a per-line reference cut there ends cleanly.
 
@@ -45,7 +45,8 @@ import sys
 
 import numpy as np
 
-from core import DIP_DB, JOBS, end_dip, load_json, part_dir
+from core import JOBS, load_json, part_dir
+from references import DIP_DB, end_dip
 from faster_whisper.audio import decode_audio
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")

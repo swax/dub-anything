@@ -3,6 +3,7 @@
 import contextlib
 import io
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -13,6 +14,7 @@ import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import core
+import lengths
 import lineqa
 import qa_triage as triage
 
@@ -269,6 +271,7 @@ class AuditCacheTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     triage.hear_sample(folder, self.reader("r1", []), "fake")
 
+    @unittest.skipUnless(shutil.which("ffmpeg"), "needs ffmpeg")
     def test_context_crop_is_bound_to_source_range_and_immutable_bytes(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
@@ -325,7 +328,7 @@ class NormalControlIntegrationTests(unittest.TestCase):
             with (
                 patch.object(core, "WORK", root / "work"),
                 patch.object(core, "JOBS", root / "jobs"),
-                patch.object(core, "actor_spans", return_value=[(0, 1)]) as source_vad,
+                patch.object(lengths, "actor_spans", return_value=[(0, 1)]) as source_vad,
                 patch.object(triage, "physical", return_value={"notes": []}) as physical,
                 patch.object(triage, "take_spans", return_value=[[0, 1]]),
             ):
@@ -396,7 +399,7 @@ class NormalControlIntegrationTests(unittest.TestCase):
                 patch.object(core, "JOBS", root / "jobs"),
                 patch.object(lineqa, "take_wav", return_value=wav),
                 patch.object(lineqa, "line_id", return_value="line"),
-                patch.object(core, "actor_spans", return_value=[(0, 1)]),
+                patch.object(lengths, "actor_spans", return_value=[(0, 1)]),
                 patch.object(triage, "physical", return_value={"notes": []}),
                 patch.object(triage, "take_spans", return_value=[[0, 1]]),
                 patch.object(triage, "model_identity", return_value={"model": "fake", "revision": "r1"}),

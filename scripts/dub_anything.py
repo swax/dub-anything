@@ -86,28 +86,24 @@ import core
 import gpu
 import subtitles
 from core import (
-    FILL_SPEED,
     RESULT_ENV,
     ROOT,
     VOICE_LABEL,
-    actor_ends,
-    fallback_voice,
     job_dir,
     langs,
-    line_id,
     load_json,
-    load_voices,
     part_dir,
     save_json,
-    speech_length,
     split_dir,
     take_wav,
     use_job,
     voice_part,
-    voice_sig,
     without_remarks,
 )
 from languages import LANGUAGES, NAMES, PAIR, PAIRS
+from lengths import FILL_SPEED, actor_ends, speech_length
+from references import fallback_voice
+from voicecast import line_id, load_voices, voice_sig
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 QA_ROUNDS = 3  # rounds of fresh takes for flagged lines after the first check
@@ -510,7 +506,7 @@ def cast_sha(script):
     """Fingerprint of the voices a part's takes are made from: each line's voice
     and, in the actor's voice, the voices its lines fall back to (a line's
     "fallback_voice", the render's "fallback_voices"), as voices.json has them now
-    (core.voice_sig: a remark in an entry changes nothing). The cast's other
+    (voicecast.voice_sig: a remark in an entry changes nothing). The cast's other
     voices aren't in it."""
     mode = script.get("render") or {}
     keys = {line.get("voice") for line in script["lines"]}

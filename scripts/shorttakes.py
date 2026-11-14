@@ -37,8 +37,10 @@ import soundfile as sf
 
 import core
 import dub
-import lineqa
 from languages import LANGUAGES
+import lengths
+import lineqa
+import voicecast
 
 
 def sha(path):
@@ -116,7 +118,7 @@ def take_seed(signature, lid, ordinal, base, baseline_seed=None):
 
 
 def render_room(script, index, policy):
-    """Exactly the concise room used by core.fit_rows, before onset protection."""
+    """Exactly the concise room used by lengths.fit_rows, before onset protection."""
     line = script["lines"][index]
     next_dub = script["lines"][index + 1]["start"] if index + 1 < len(script["lines"]) else math.inf
     gap = next_dub - line["end"]
@@ -432,12 +434,12 @@ def context(name, script, rendered, policy, candidates, seed, indices=None):
     doc = core.load_json(work / "segments.json")
     references = {}
     for key in sorted({line["voice"] for line in script["lines"]}):
-        references[key] = {"spec": core.voice_sig(key), "wav_sha256": sha(core.voice_wav(key))}
+        references[key] = {"spec": voicecast.voice_sig(key), "wav_sha256": sha(voicecast.voice_wav(key))}
     line_references = {}
-    voices = core.load_voices()
+    voices = voicecast.load_voices()
     source = core.langs(name)[0]
     for line in script["lines"]:
-        lid = core.line_id(line)
+        lid = voicecast.line_id(line)
         reference = rendered.get(lid, {}).get("line_ref")
         if not reference:
             continue
@@ -465,7 +467,16 @@ def context(name, script, rendered, policy, candidates, seed, indices=None):
         "implementation_sha256": identity(
             {
                 p: sha(Path(__file__).parent / p)
-                for p in ("shorttakes.py", "dub.py", "core.py", "lineqa.py", "whisper_safe.py")
+                for p in (
+                    "shorttakes.py",
+                    "dub.py",
+                    "core.py",
+                    "lengths.py",
+                    "references.py",
+                    "voicecast.py",
+                    "lineqa.py",
+                    "whisper_safe.py",
+                )
             }
         ),
         "languages_sha256": identity({p.name: sha(p) for p in language_files}),
@@ -509,7 +520,7 @@ def trial(
             raise ValueError("invalid baseline overflow policy")
         policy = Policy(overflow_s=overflow)
         target = core.langs(name)[1]
-        ids = [core.line_id(line) for line in script["lines"]]
+        ids = [voicecast.line_id(line) for line in script["lines"]]
         if not rendered or any(
             not core.take_wav(doc["job_id"], lid, target).exists() or lid not in rendered for lid in ids
         ):
@@ -522,7 +533,7 @@ def trial(
         signature = identity(frozen)
         folder = work / "shorttakes" / signature
         save(folder / "context.json", frozen)
-        spans = core.actor_spans(doc["job_id"], script["lines"])
+        spans = lengths.actor_spans(doc["job_id"], script["lines"])
         stores, eligibility = {}, []
         for index in sorted(indices):
             actor = spans[index]

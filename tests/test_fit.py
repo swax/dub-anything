@@ -13,6 +13,9 @@ import soundfile as sf
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import core
+import lengths
+import references
+import voicecast
 
 
 class FitReferenceCastTests(unittest.TestCase):
@@ -60,10 +63,10 @@ class FitReferenceCastTests(unittest.TestCase):
                 patch.object(core, "langs", return_value=("ja", "en")),
                 patch.dict(sys.modules, {"draft": draft, "register": register}),
             ):
-                ids = [core.line_id(line) for line in lines]
+                ids = [voicecast.line_id(line) for line in lines]
                 # Generation compares both speakers: the second window belongs to
                 # speaker1, so it must fall back to speaker2's base reference.
-                generated = core.line_refs(work, "sample", lines, ids, verbose=False, dips=True, cast_lines=True)
+                generated = references.line_refs(work, "sample", lines, ids, verbose=False, dips=True, cast_lines=True)
                 self.assertIn(ids[0], generated)
                 self.assertNotIn(ids[1], generated)
                 cache = (work / "refs" / "clean.json").read_bytes()
@@ -74,8 +77,8 @@ class FitReferenceCastTests(unittest.TestCase):
                 lines[1]["text"] = "An updated second line."
                 (work / "script.json").write_text(json.dumps({"lines": lines, "render": mode}), encoding="utf-8")
                 model.side_effect = AssertionError("Rewording must reuse the source check without loading a model")
-                with patch.object(core, "take_length", return_value=2.0) as estimate:
-                    rows = core.fit_rows("sample", predict=True)
+                with patch.object(lengths, "take_length", return_value=2.0) as estimate:
+                    rows = lengths.fit_rows("sample", predict=True)
                 estimate.assert_called_once_with(
                     root / "voices" / "speaker2.wav", "Second voice.", "An updated second line.", lang="en"
                 )
@@ -93,13 +96,13 @@ class ActorEndpointTests(unittest.TestCase):
             get_speech_timestamps=lambda *args: detected,
         )
         with patch.dict(sys.modules, {"faster_whisper.audio": audio, "faster_whisper.vad": vad}):
-            return core.actor_spans("sample", lines)
+            return lengths.actor_spans("sample", lines)
 
     def test_checked_endpoint_recovers_missed_announcement_and_timing_report(self):
         lines = [{"start": 0.5, "end": 2.0, "actor_end": 1.8}]
         self.assertEqual(self.spans(lines, []), [(0.0, 1.3)])
-        with patch.object(core, "actor_spans", return_value=[(0.0, 1.3)]):
-            self.assertEqual(core.actor_ends("sample", lines), [1.3])
+        with patch.object(lengths, "actor_spans", return_value=[(0.0, 1.3)]):
+            self.assertEqual(lengths.actor_ends("sample", lines), [1.3])
 
     def test_override_preserves_detected_onset_and_other_lines(self):
         lines = [{"start": 0.0, "end": 1.0, "actor_end": 0.8}, {"start": 1.0, "end": 2.0}]

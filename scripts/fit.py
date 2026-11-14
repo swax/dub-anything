@@ -6,7 +6,7 @@ Lines not rendered yet get an estimate (~): the length OmniVoice itself will giv
 them, computed with its own rule from the reference the render will use (the
 line's own original, or the voice's clips for the lines listed as falling back).
 A part in the "american" voice is estimated with IndexTTS's length instead, from
-the English and how long the actor speaks in the window (core.indextts_length).
+the English and how long the actor speaks in the window (lengths.indextts_length).
 No render is needed, so it works for a new show's first part. --voice american
 estimates the director's script in the American voice (each line's "text_us",
 if it has one) before that voice renders it. They're flagged
@@ -32,18 +32,10 @@ import argparse
 import statistics
 
 import subtitles
-from core import (
-    _omnivoice,
-    fallback_voice,
-    fit_rows,
-    langs,
-    load_json,
-    load_voices,
-    part_dir,
-    said,
-    script_files,
-    voice_clips,
-)
+from core import langs, load_json, part_dir, said, script_files
+from lengths import _omnivoice, fit_rows
+from references import fallback_voice
+from voicecast import load_voices, voice_clips
 
 
 def reading_rows(name):

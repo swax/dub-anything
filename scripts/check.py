@@ -37,7 +37,9 @@ import edges  # noqa: E402
 import fit  # noqa: E402
 import tails  # noqa: E402
 import core  # noqa: E402
-from core import base_part, fit_rows, load_json, load_voices, part_dir  # noqa: E402
+from core import base_part, load_json, part_dir  # noqa: E402
+from lengths import fit_rows  # noqa: E402
+from voicecast import load_voices  # noqa: E402
 
 MUST_FIT = {"OVER", "OVER?"}
 SHORT_WINDOW = 1.0  # s; "risk" on a window shorter than this is as good as OVER?

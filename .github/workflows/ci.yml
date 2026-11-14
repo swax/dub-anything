@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # The same two checks as .githooks/pre-commit (settings in ruff.toml).
+      - run: uvx ruff format --check
+      - run: uvx ruff check
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      # vendor/VoiceStudio stays unfetched: the tests need neither it nor a GPU.
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # The tests that mux real files skip without ffmpeg. The Windows job
+      # installs it, so they run there; the Linux job runs the rest.
+      - name: Install ffmpeg
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --no-progress -y
+      - name: Run the tests
+        run: >-
+          uv run --no-project --python 3.12
+          --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+          --with-requirements tests/requirements.txt
+          python -m unittest discover -s tests

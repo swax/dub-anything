@@ -49,42 +49,38 @@ import requests
 import soundfile as sf
 
 from core import (
-    FILL_SPEED,
-    FILL_TOL,
     HERE,
     HF_CACHE,
     JOBS,
     ROOT,
-    SPEED_EXPONENT,
     active_job,
-    actor_spans,
     base_part,
-    fallback_voice,
-    fit_rows,
-    indextts_length,
     langs,
-    line_id,
-    line_refs,
     load_json,
-    load_voices,
     new_vs_job_id,
     out_dir,
     part_dir,
     profiles_file,
-    reference_settings,
-    reference_signature,
     report_result,
     save_json,
-    speech_length,
     srt_time,
-    take_length,
     take_wav,
-    voice_sig,
-    voice_wav,
 )
 import gpu
 from gpulock import hold_gpu
 from languages import LANGUAGES, NAMES, PAIR, PAIRS
+from lengths import (
+    FILL_SPEED,
+    FILL_TOL,
+    SPEED_EXPONENT,
+    actor_spans,
+    fit_rows,
+    indextts_length,
+    speech_length,
+    take_length,
+)
+from references import fallback_voice, line_refs, reference_settings, reference_signature
+from voicecast import line_id, load_voices, voice_sig, voice_wav
 
 API = os.environ.get("VOICESTUDIO_API", "http://127.0.0.1:3900")
 # How VoiceStudio's transcription says it found no speech (its error event has no code for it).
@@ -839,7 +835,7 @@ def render_mode(work, script, args, pair=PAIR):
     "dips": .., "cast_lines": .., "predict_speed": .., "voice": "actor" | "american"}. A
     part without one gets the defaults (per-line references, fill, references cut at
     a dip when speech runs on past a window, and the window check's voice test against
-    the characters' cast lines too: core.unclean_windows) if it has never been
+    the characters' cast lines too: references.unclean_windows) if it has never been
     rendered (per-line references only where languages.PAIRS says so for the
     part's pair), and the earlier behaviour (all off) if it has, so approved
     takes don't change under a new default; the block is then written so later runs
@@ -921,91 +917,115 @@ def cmd_generate(args):
 
 
 def _cmd_generate(args):
-    work = part_dir(args.name)
-    doc = json.loads((work / "segments.json").read_text(encoding="utf-8"))
-    if doc.get("subtitles_only"):
-        raise SystemExit(f"{args.name} was prepped for subtitles only: prep a dub job to render voices")
-    job_id = doc["job_id"]
-    tgt = langs(args.name)[1]
-    script = load_json(work / "script.json")
-    only = selected_indices(getattr(args, "only", None), len(script["lines"]) if script else 0)
-    explicit_seed = getattr(args, "seed", None)
-    if explicit_seed is not None and (only is None or not 0 <= explicit_seed < 2**31):
-        raise ValueError("--seed requires --only and a seed from 0 through 2**31-1")
-    if only is not None:
+    render = PartRender(args)
+    done = render.render()
+    render.save_receipt(done)
+    if not getattr(args, "no_export", False):
+        render.export()
+
+
+class PartRender:
+    """One `generate` of a part. Its passes (the first render, fill's re-timing, the
+    re-mix for levels and converted takes) share the part's script and render mode
+    and the records of what each cached take was made with. plan() says what a pass
+    sends, run() sends it, and render() takes the passes in order."""
+
+    def __init__(self, args):
+        self.args = args
+        self.work = work = part_dir(args.name)
+        self.doc = json.loads((work / "segments.json").read_text(encoding="utf-8"))
+        if self.doc.get("subtitles_only"):
+            raise SystemExit(f"{args.name} was prepped for subtitles only: prep a dub job to render voices")
+        self.job_id = job_id = self.doc["job_id"]
+        self.tgt = tgt = langs(args.name)[1]
+        self.script = script = load_json(work / "script.json")
+        self.lines = script["lines"] if script else []
+        self.only = selected_indices(getattr(args, "only", None), len(self.lines))
+        self.explicit_seed = getattr(args, "seed", None)
+        if self.explicit_seed is not None and (self.only is None or not 0 <= self.explicit_seed < 2**31):
+            raise ValueError("--seed requires --only and a seed from 0 through 2**31-1")
+        if self.only is not None:
+            self._require_baseline()
+        # The takes a selected-only render leaves alone: run() puts back any the backend changes.
+        self.protected = {
+            line_id(line): (take_wav(job_id, line_id(line), tgt), take_wav(job_id, line_id(line), tgt).read_bytes())
+            for index, line in enumerate(self.lines)
+            if self.only is not None and index not in self.only
+        }
+        self.mode = mode = (
+            render_mode(work, script, args, langs(args.name))
+            if script
+            else {"line_ref": False, "fill": False, "predict_speed": False, "voice": "actor"}
+        )
+        self.american = mode["voice"] == "american"
+        if args.engine is None:
+            args.engine = "indextts2" if self.american else "omnivoice"
+        if self.explicit_seed is not None and (args.engine != "omnivoice" or self.american):
+            raise ValueError("--seed currently supports actor/OmniVoice only")
+        if args.emo_alpha is None:
+            args.emo_alpha = 0.9 if self.american and args.engine != "omnivoice" else 0.0
+        # Takes whose seg_<target> file holds a voice-converted copy (id -> its hash); the
+        # engine's own take is kept beside it as src_<target>_<id>.wav.
+        self.converted_path = work / "converted.json"
+        self.converted = load_json(self.converted_path, {})
+        self.rendered_path = work / "rendered.json"  # synthesis settings each cached line was made with
+        self.rendered = load_json(self.rendered_path, {})
+        # Takes lineqa.py --reroll flagged: synthesized again (on the first pass) for a fresh roll,
+        # or, when only the voice conversion garbled them, converted again.
+        self.queued = load_json(work / "reroll.json", []) if script else []
+        self.reroll = {r["id"] for r in self.queued if not r.get("reconvert") and not r.get("settled")}
+        self.forced_regeneration = args.full or self.only is not None or bool(self.reroll)
+        self.reconvert = {r["id"] for r in self.queued if r.get("reconvert")}
+        self.fitting_paces = {}  # rejected automatic adjustments can reuse a validated published pace
+        self.spans = actor_spans(job_id, self.lines) if mode["fill"] else None
+        self.ends = [span and span[1] for span in self.spans] if self.spans else None
+        for line in self.lines:
+            if re.search(r"(\.\.\.|…)\s*$", line["text"]):
+                print(f"  warning {line['start']}: ends in '…'; the last word tends to get swallowed")
+
+    def _require_baseline(self):
+        """--only re-renders chosen lines of a part that is rendered, whole and intact."""
+        args, work, job_id, tgt = self.args, self.work, self.job_id, self.tgt
         if args.full:
             raise ValueError("--only cannot be combined with --full")
-        if not script or not load_json(work / "rendered.json"):
+        if not self.script or not load_json(work / "rendered.json"):
             raise ValueError("--only requires an already rendered full-part baseline")
-        incremental_baseline(work, job_id, script["lines"], tgt)
-        missing = [i for i, line in enumerate(script["lines"]) if not take_wav(job_id, line_id(line), tgt).exists()]
+        incremental_baseline(work, job_id, self.lines, tgt)
+        missing = [i for i, line in enumerate(self.lines) if not take_wav(job_id, line_id(line), tgt).exists()]
         if missing:
             raise ValueError(f"--only cannot synthesize an incomplete baseline; missing lines: {missing}")
-        ids = [line_id(line) for line in script["lines"]]
-        if any(ids.count(ids[i]) != 1 for i in only):
+        ids = [line_id(line) for line in self.lines]
+        if any(ids.count(ids[i]) != 1 for i in self.only):
             raise ValueError("--only needs unique line ids; distinguish repeated text with the line's take field")
-    protected = {
-        line_id(line): (take_wav(job_id, line_id(line), tgt), take_wav(job_id, line_id(line), tgt).read_bytes())
-        for index, line in enumerate(script["lines"] if script else [])
-        if only is not None and index not in only
-    }
-    mode = (
-        render_mode(work, script, args, langs(args.name))
-        if script
-        else {"line_ref": False, "fill": False, "predict_speed": False, "voice": "actor"}
-    )
-    american = mode["voice"] == "american"
-    if args.engine is None:
-        args.engine = "indextts2" if american else "omnivoice"
-    if explicit_seed is not None and (args.engine != "omnivoice" or american):
-        raise ValueError("--seed currently supports actor/OmniVoice only")
-    if args.emo_alpha is None:
-        args.emo_alpha = 0.9 if american and args.engine != "omnivoice" else 0.0
-    # Takes whose seg_<target> file holds a voice-converted copy (id -> its hash); the
-    # engine's own take is kept beside it as src_<target>_<id>.wav.
-    converted_path = work / "converted.json"
-    converted = load_json(converted_path, {})
-    rendered_path = work / "rendered.json"  # synthesis settings each cached line was made with
-    rendered = load_json(rendered_path, {})
-    # Takes lineqa.py --reroll flagged: synthesized again (on the first pass) for a fresh roll,
-    # or, when only the voice conversion garbled them, converted again.
-    queued = load_json(work / "reroll.json", []) if script else []
-    reroll = {r["id"] for r in queued if not r.get("reconvert") and not r.get("settled")}
-    forced_regeneration = args.full or only is not None or bool(reroll)
-    reconvert = {r["id"] for r in queued if r.get("reconvert")}
-    fitting_paces = {}  # rejected automatic adjustments can reuse a validated published pace
-    spans = actor_spans(job_id, script["lines"]) if mode["fill"] else None
-    ends = [span and span[1] for span in spans] if spans else None
-    for line in script["lines"] if script else []:
-        if re.search(r"(\.\.\.|…)\s*$", line["text"]):
-            print(f"  warning {line['start']}: ends in '…'; the last word tends to get swallowed")
 
-    def engine_take(i):
+    # ---- takes on disk ----
+
+    def engine_take(self, i):
         """The engine's own take. A converted copy can start or end a little
         differently, so fill judges timing by the take it was made from."""
-        seg, src = take_wav(job_id, i, tgt), take_wav(job_id, i, tgt, "src")
-        if src.exists() and seg.exists() and converted.get(i) == file_sha(seg):
+        seg, src = take_wav(self.job_id, i, self.tgt), take_wav(self.job_id, i, self.tgt, "src")
+        if src.exists() and seg.exists() and self.converted.get(i) == file_sha(seg):
             return src
         return seg
 
-    def convert(ids):
+    def convert(self, ids):
         """Give every take not converted yet the actor's timbre (vc.py, its own environment),
         and convert the engine take of each line queued for it again."""
         import vc
 
         todo = []
-        for line, i in zip(script["lines"], ids):
-            seg, src = take_wav(job_id, i, tgt), take_wav(job_id, i, tgt, "src")
+        for line, i in zip(self.lines, ids):
+            seg, src = take_wav(self.job_id, i, self.tgt), take_wav(self.job_id, i, self.tgt, "src")
             if not seg.exists():
                 continue
-            if converted.get(i) != file_sha(seg):
+            if self.converted.get(i) != file_sha(seg):
                 shutil.copy2(seg, src)
-            elif i not in reconvert or not src.exists():
+            elif i not in self.reconvert or not src.exists():
                 continue
             todo.append({"in": str(src), "target": str(voice_wav(line["voice"])), "out": str(seg), "id": i})
         if not todo:
             return False
-        pairs = work / "vc-pairs.json"
+        pairs = self.work / "vc-pairs.json"
         pairs.write_text(json.dumps(todo, indent=1), encoding="utf-8")
         try:
             subprocess.run(
@@ -1016,33 +1036,59 @@ def _cmd_generate(args):
         except OSError:  # not found; in WSL, whose PATH has Windows folders it can't search, permission denied
             raise SystemExit("voice conversion needs uv on PATH (see AGENTS.md)")
         for p in todo:
-            converted[p["id"]] = file_sha(p["out"])
-        save_json(converted_path, converted)
+            self.converted[p["id"]] = file_sha(p["out"])
+        save_json(self.converted_path, self.converted)
         return True
 
-    def plan(first):
+    # ---- what a pass sends ----
+
+    def plan(self, first):
         """One pass: the segments to send, their ids, the settings each take is made
         with, and the ids to synthesize (None: all)."""
-        segments, ids, settings = [], [], {}
-        if not script:
-            dubbed = json.loads((work / f"{tgt}.json").read_text(encoding="utf-8"))
-            for s in doc["segments"]:
-                text = dubbed.get(s["id"], "").strip()
-                if text:
-                    segments.append(
-                        {
-                            "start": s["start"],
-                            "end": s["end"],
-                            "text": text,
-                            "profile_id": s.get("profile_id") or "",
-                            "target_lang": tgt,
-                        }
-                    )
-                    ids.append(s["id"])
-            return segments, ids, settings, None
+        if not self.script:
+            return self._undirected()
         # Hand-directed lines: own timing, speaker and text per line.
         voices = load_voices()
-        for line_index, line in enumerate(script["lines"]):
+        segments, ids, settings = self._segments(first)
+        refs = self._references(first, segments, ids, settings)
+        if self.mode["fill"]:
+            self._fill(segments, ids, settings, refs, voices)
+        for seg, lid, line in zip(segments, ids, self.lines):
+            if lid in self.fitting_paces:
+                _override_speed(seg, settings[lid], self.fitting_paces[lid])
+            if "speed" in line:
+                _override_speed(seg, settings[lid], line["speed"])
+        stuck = self._stuck(first, ids, settings)
+        if self.args.engine == "indextts2":
+            self._seed(first, segments, ids, settings, stuck)
+        if self.args.full and first:
+            return segments, ids, settings, None
+        return segments, ids, settings, self._to_synthesize(first, ids, settings, stuck)
+
+    def _undirected(self):
+        """A part without a script: VoiceStudio's own segments, with <target>.json's text."""
+        segments, ids = [], []
+        dubbed = json.loads((self.work / f"{self.tgt}.json").read_text(encoding="utf-8"))
+        for s in self.doc["segments"]:
+            text = dubbed.get(s["id"], "").strip()
+            if text:
+                segments.append(
+                    {
+                        "start": s["start"],
+                        "end": s["end"],
+                        "text": text,
+                        "profile_id": s.get("profile_id") or "",
+                        "target_lang": self.tgt,
+                    }
+                )
+                ids.append(s["id"])
+        return segments, ids, {}, None
+
+    def _segments(self, first):
+        """Each line as the backend takes it, its id, and the settings its take is made with."""
+        args, tgt, only = self.args, self.tgt, self.only
+        segments, ids, settings = [], [], {}
+        for line_index, line in enumerate(self.lines):
             # The take keeps its line's id (line_id), whatever text the engine gets.
             seg = {
                 "start": line["start"],
@@ -1065,16 +1111,25 @@ def _cmd_generate(args):
                 settings[ids[-1]]["engine"] = args.engine
             if args.engine == "omnivoice":
                 seed = (
-                    explicit_seed if only is not None and line_index in only else rendered.get(ids[-1], {}).get("seed")
+                    self.explicit_seed
+                    if only is not None and line_index in only
+                    else self.rendered.get(ids[-1], {}).get("seed")
                 )
-                if explicit_seed is None and first and ids[-1] in reroll and seed is not None:
+                if self.explicit_seed is None and first and ids[-1] in self.reroll and seed is not None:
                     seed = secrets.randbelow(2**31)
                 if seed is not None:
-                    seg["profile_id"] = seeded_voice(work, line["voice"], seed)
+                    seg["profile_id"] = seeded_voice(self.work, line["voice"], seed)
                     settings[ids[-1]]["seed"] = seed
                     settings[ids[-1]]["seed_profile"] = seg["profile_id"]
+        return segments, ids, settings
+
+    def _references(self, first, segments, ids, settings):
+        """Give each line what its take follows: an emotion reference for an engine
+        that takes one, its own original as the reference to clone, or the voice it
+        falls back to. Returns the per-line references, {id: (path, transcript)}."""
+        args, mode = self.args, self.mode
         # Emotion references: each line's own original, for engines that take one.
-        emo = emo_refs(work, job_id, script["lines"], ids, args.emo_alpha) if args.engine != "omnivoice" else {}
+        emo = emo_refs(self.work, self.job_id, self.lines, ids, args.emo_alpha) if args.engine != "omnivoice" else {}
         for seg, i in zip(segments, ids):
             if i in emo:
                 seg["emo_audio"], seg["emo_alpha"] = emo[i]
@@ -1082,9 +1137,9 @@ def _cmd_generate(args):
         # Per-line references: the voice's clips plus the line's own original.
         refs = (
             line_refs(
-                work,
-                job_id,
-                script["lines"],
+                self.work,
+                self.job_id,
+                self.lines,
                 ids,
                 verbose=first,
                 dips=mode["dips"],
@@ -1099,101 +1154,100 @@ def _cmd_generate(args):
                 seg["ref_audio"], seg["ref_text"] = refs[i]
                 # The window, optional cut, and fingerprint of the voice audio.
                 settings[i]["line_ref"] = pathlib.Path(refs[i][0]).stem.split("_", 1)[1]
-        if not american:
-            for seg, i, line in zip(segments, ids, script["lines"]):
+        if not self.american:
+            for seg, i, line in zip(segments, ids, self.lines):
                 settings[i].update(reference_settings(line, mode, refs.get(i)))
                 if i not in refs:
                     selected = fallback_voice(line, mode)
                     if selected != line["voice"]:
                         seed = settings[i].get("seed")
                         seg["profile_id"] = (
-                            seeded_voice(work, selected, seed) if seed is not None else ensure_voice(selected)
+                            seeded_voice(self.work, selected, seed) if seed is not None else ensure_voice(selected)
                         )
                         if seed is not None:
                             settings[i]["seed_profile"] = seg["profile_id"]
-        if mode["fill"]:
-            # Re-time takes that stop well short of the actor or run past them:
-            # render them at the speed that lands their end on the actor's last sound.
-            # With predict_speed, a line with no take yet starts at the speed its
-            # predicted length (take_length, or indextts_length) asks for, and every
-            # correction follows at_speed rather than assuming length changes in
-            # proportion to speed. IndexTTS's duration factor is exact: it does.
-            power = 1 / SPEED_EXPONENT if mode["predict_speed"] and not american else 1.0
-            for seg, i, end, line, span in zip(segments, ids, ends, script["lines"], spans):
-                prev = rendered.get(i, {}).get("speed")
-                speed, wav = prev, engine_take(i)
-                compatible = reference_signature(rendered.get(i, {})) == reference_signature(settings[i])
-                length = speech_length(wav) if wav.exists() and compatible else None
-                measured = length is not None
-                if not compatible:
-                    prev, speed = None, None
-                if length is None and end and mode["predict_speed"] and american:
-                    length, prev, speed = indextts_length(line["text"], span[1] - span[0]), None, None
-                elif (
-                    length is None and end and mode["predict_speed"] and (i in refs or "clips" in voices[line["voice"]])
-                ):
-                    selected = fallback_voice(line, mode)
-                    ref = refs.get(i) or (voice_wav(selected), voices[selected].get("ref_text", ""))
-                    # The prediction is at natural pace, whatever speed a lost take had.
-                    length, prev, speed = take_length(*ref, line["text"], lang=tgt), None, None
-                if end and length and abs(length - end) > FILL_TOL:
-                    speed = _fill_speed(length, end, prev, power=power, measured=measured)
-                if speed and abs(speed - 1) >= 0.01:
-                    seg["speed"] = settings[i]["speed"] = round(speed, 2)
-        for seg, lid, line in zip(segments, ids, script["lines"]):
-            if lid in fitting_paces:
-                _override_speed(seg, settings[lid], fitting_paces[lid])
-            if "speed" in line:
-                _override_speed(seg, settings[lid], line["speed"])
-        # A take that overflows its room at fill's fastest speed can't be re-timed:
-        # give it a fresh take instead (takes of one line differ by a few tenths).
-        stuck = set()
-        if mode["fill"] and not first:
-            stuck = {
-                ids[row["i"]]
-                for row in fit_rows(args.name, args.overflow)
-                if row["flag"] == "OVER"
-                and "speed" not in script["lines"][row["i"]]
-                and rendered.get(ids[row["i"]], {}).get("speed")
-                == settings[ids[row["i"]]].get("speed")
-                == FILL_SPEED[1]
-            }
-        if args.engine == "indextts2":
-            # Seeded takes: fill re-times a line without changing its performance
-            # (IndexTTS's duration factor stretches the same take); only a re-roll
-            # draws a new one.
-            for seg, i in zip(segments, ids):
-                seed = rendered.get(i, {}).get("seed")
-                if (first and i in reroll) or i in stuck:
-                    seed = secrets.randbelow(2**31)
-                elif seed is None:
-                    seed = int(i[1:], 16) % 2**31
-                seg["seed"] = settings[i]["seed"] = seed
-        if args.full and first:
-            return segments, ids, settings, None
-        # Missing clips, clips made with other settings, or queued re-rolls;
-        # an empty list re-mixes cached speech without synthesizing anything.
+        return refs
+
+    def _fill(self, segments, ids, settings, refs, voices):
+        """Re-time takes that stop well short of the actor or run past them:
+        render them at the speed that lands their end on the actor's last sound.
+        With predict_speed, a line with no take yet starts at the speed its
+        predicted length (take_length, or indextts_length) asks for, and every
+        correction follows at_speed rather than assuming length changes in
+        proportion to speed. IndexTTS's duration factor is exact: it does."""
+        mode, american, rendered = self.mode, self.american, self.rendered
+        power = 1 / SPEED_EXPONENT if mode["predict_speed"] and not american else 1.0
+        for seg, i, end, line, span in zip(segments, ids, self.ends, self.lines, self.spans):
+            prev = rendered.get(i, {}).get("speed")
+            speed, wav = prev, self.engine_take(i)
+            compatible = reference_signature(rendered.get(i, {})) == reference_signature(settings[i])
+            length = speech_length(wav) if wav.exists() and compatible else None
+            measured = length is not None
+            if not compatible:
+                prev, speed = None, None
+            if length is None and end and mode["predict_speed"] and american:
+                length, prev, speed = indextts_length(line["text"], span[1] - span[0]), None, None
+            elif length is None and end and mode["predict_speed"] and (i in refs or "clips" in voices[line["voice"]]):
+                selected = fallback_voice(line, mode)
+                ref = refs.get(i) or (voice_wav(selected), voices[selected].get("ref_text", ""))
+                # The prediction is at natural pace, whatever speed a lost take had.
+                length, prev, speed = take_length(*ref, line["text"], lang=self.tgt), None, None
+            if end and length and abs(length - end) > FILL_TOL:
+                speed = _fill_speed(length, end, prev, power=power, measured=measured)
+            if speed and abs(speed - 1) >= 0.01:
+                seg["speed"] = settings[i]["speed"] = round(speed, 2)
+
+    def _stuck(self, first, ids, settings):
+        """A take that overflows its room at fill's fastest speed can't be re-timed:
+        give it a fresh take instead (takes of one line differ by a few tenths)."""
+        if not self.mode["fill"] or first:
+            return set()
+        return {
+            ids[row["i"]]
+            for row in fit_rows(self.args.name, self.args.overflow)
+            if row["flag"] == "OVER"
+            and "speed" not in self.lines[row["i"]]
+            and self.rendered.get(ids[row["i"]], {}).get("speed")
+            == settings[ids[row["i"]]].get("speed")
+            == FILL_SPEED[1]
+        }
+
+    def _seed(self, first, segments, ids, settings, stuck):
+        """Seeded takes (IndexTTS): fill re-times a line without changing its performance
+        (its duration factor stretches the same take); only a re-roll draws a new one."""
+        for seg, i in zip(segments, ids):
+            seed = self.rendered.get(i, {}).get("seed")
+            if (first and i in self.reroll) or i in stuck:
+                seed = secrets.randbelow(2**31)
+            elif seed is None:
+                seed = int(i[1:], 16) % 2**31
+            seg["seed"] = settings[i]["seed"] = seed
+
+    def _to_synthesize(self, first, ids, settings, stuck):
+        """Missing clips, clips made with other settings, or queued re-rolls;
+        an empty list re-mixes cached speech without synthesizing anything."""
         regen = [
             i
             for i in ids
-            if not take_wav(job_id, i, tgt).exists()
-            or (first and i in reroll)
+            if not take_wav(self.job_id, i, self.tgt).exists()
+            or (first and i in self.reroll)
             or i in stuck
-            or rendered.get(i, {"steps": 16, "effect": "broadcast", "instruct": ""}) != settings[i]
+            or self.rendered.get(i, {"steps": 16, "effect": "broadcast", "instruct": ""}) != settings[i]
         ]
-        if only is not None:
-            permitted = {ids[i] for i in only}
+        if self.only is not None:
+            permitted = {ids[i] for i in self.only}
             regen = [i for i in regen if i in permitted]
-            if first and explicit_seed is not None:
+            if first and self.explicit_seed is not None:
                 regen = [i for i in ids if i in permitted]
-        return segments, ids, settings, regen
+        return regen
 
-    def request(segments, ids, regen):
+    def request(self, segments, ids, regen):
+        args = self.args
         body = {
             "segments": segments,
             "segment_ids": ids,
-            "language": NAMES[tgt],
-            "language_code": tgt,
+            "language": NAMES[self.tgt],
+            "language_code": self.tgt,
             "timing_strategy": args.timing,
             "voice_match": args.voice_match,
             "num_step": args.steps,
@@ -1204,19 +1258,24 @@ def _cmd_generate(args):
             body["regen_only"] = regen
         return body
 
-    def level(segments, ids):
+    def level(self, segments, ids):
         """Level each line against the actor, from the takes on disk."""
-        for seg, gain in zip(segments, match_gains(job_id, script["lines"], ids, tgt)):
+        for seg, gain in zip(segments, match_gains(self.job_id, self.lines, ids, self.tgt)):
             if gain is not None:
                 seg["gain"] = gain
 
-    def run(body):
+    # ---- sending it ----
+
+    def run(self, body):
+        """Send one pass to the backend and wait for it. A selected-only render keeps
+        its receipt current around the request and puts back any take it didn't select."""
+        args, work, job_id, tgt = self.args, self.work, self.job_id, self.tgt
         started = time.perf_counter()
         generation = args._generation
         request_outcome = None
         if generation is not None:
             generation.preserve(
-                [rendered_path, work / "script.json", work / "generate-result.json"]
+                [self.rendered_path, work / "script.json", work / "generate-result.json"]
                 + [take_wav(job_id, lid, tgt, kind) for lid in body["segment_ids"] for kind in ("seg", "src")]
             )
             request_outcome = generation.start_request(body)
@@ -1248,7 +1307,7 @@ def _cmd_generate(args):
                 )
             changed = []
             safe = request_outcome is None or request_outcome["status"] != "unknown"
-            for lid, (wav, baseline) in protected.items() if safe else ():
+            for lid, (wav, baseline) in self.protected.items() if safe else ():
                 if not wav.exists() or wav.read_bytes() != baseline:
                     # Preserve unexpected output too, but never leave an unselected
                     # take silently changed by the backend's full-regeneration guard.
@@ -1263,94 +1322,82 @@ def _cmd_generate(args):
             if changed:
                 raise RuntimeError(f"backend changed unselected caches; originals restored: {changed}")
 
-    prev_engine = use_tts_engine(args.engine)
-    done, synthesized = None, False
-    try:
-        if args._generation is not None:
-            args._generation.doc["previous_engine"] = prev_engine
-            args._generation.save()
+    # ---- the passes, in order ----
+
+    def render(self):
+        """Render the part with its engine (the one selected before is restored after):
+        the first pass and fill's re-timing, the re-mix that keeps a fitting
+        publication, then the American voice's conversion and the levels. Returns
+        the backend's result for the mix that stands."""
+        args = self.args
+        prev_engine = use_tts_engine(args.engine)
+        try:
+            if args._generation is not None:
+                args._generation.doc["previous_engine"] = prev_engine
+                args._generation.save()
+            done, ids, synthesized, recovered_adjustment, stopped = self._passes()
+            if done is None and recovered_adjustment and not self.forced_regeneration:
+                done, ids = self._remix_published()
+            if done is None:
+                self._report_overflow(stopped)
+            return self._convert_and_level(done, ids, synthesized)
+        finally:
+            if (
+                prev_engine
+                and prev_engine != args.engine
+                and (args._generation is None or not args._generation.unknown())
+            ):
+                use_tts_engine(prev_engine)
+
+    def _passes(self):
+        """The first render, then fill's passes while a take still needs re-timing.
+        Returns the last result (None: a line doesn't fit), the last plan's ids,
+        whether anything was synthesized, whether the last rejected re-timing fell
+        back to the pace already published, and where the backend's check stopped."""
+        args, mode, job_id, tgt = self.args, self.mode, self.job_id, self.tgt
+        done, synthesized, stopped = None, False, None
         for n in range(1 + (FILL_PASSES if mode["fill"] else 0)):
-            segments, ids, settings, regen = plan(first=n == 0)
-            if n and not regen and (done is not None or not fitting_paces):
+            segments, ids, settings, regen = self.plan(first=n == 0)
+            if n and not regen and (done is not None or not self.fitting_paces):
                 break  # every take ends on the actor, or is as fast or slow as fill allows
-            if args.match_level and script:
-                level(segments, ids)
-            print(
-                f"{'generate' if n == 0 else f'  fill pass {n}:'} {args.name}: {len(segments)} segments "
-                f"({len(regen) if regen is not None else len(segments)} to synthesize), "
-                f"{args.timing}, {args.voice_match}, {args.steps} steps, {args.effect}, {args.engine}"
-                + (
-                    f", emotion from the original at {args.emo_alpha}"
-                    if args.engine != "omnivoice" and args.emo_alpha
-                    else ""
-                )
-                + (
-                    f", {sum('ref_audio' in s for s in segments)} lines with their own reference"
-                    if mode["line_ref"]
-                    else ""
-                )
-                + (f", {sum('speed' in s for s in segments)} lines re-timed to the actor" if mode["fill"] else "")
-            )
+            if args.match_level and self.script:
+                self.level(segments, ids)
+            self._announce(n, segments, regen)
             t0 = time.time()
             published = False
             recovered_adjustment = False
             try:
-                done = run(request(segments, ids, regen))
+                done = self.run(self.request(segments, ids, regen))
                 published = True
             except RuntimeError as e:
                 if args._generation is not None and args._generation.unknown():
                     raise
-                if "dub_timing_overflow" not in str(e) or not script:
+                if "dub_timing_overflow" not in str(e) or not self.script:
                     raise
                 # Failed attempts publish no takes. Keep the backend's validation
                 # detail available when the director repairs the reported line.
                 print(f"  timing validation: {e}")
                 done, stopped = None, re.search(r'"segment": (\d+)', str(e))
-                if (
-                    mode["fill"]
-                    and args.timing == "concise"
-                    and args.engine == "omnivoice"
-                    and not american
-                    and not forced_regeneration
-                    and isinstance(e, BackendTaskError)
-                    and e.event.get("type") == "error"
-                    and e.event.get("error_code") == "dub_timing_overflow"
-                ):
-                    index = e.event.get("segment")
-                    if type(index) is int and 0 <= index < len(ids):
-                        lid = ids[index]
-                        if (
-                            e.event.get("segment_id", lid) == lid
-                            and lid not in reroll
-                            and "speed" not in script["lines"][index]
-                        ):
-                            row = next(r for r in fit_rows(args.name, args.overflow) if r["i"] == index)
-                            pace = _fitting_published_pace(settings[lid], rendered.get(lid), row)
-                            if pace is not None:
-                                fitting_paces[lid] = pace
-                                recovered_adjustment = True
-                                print(
-                                    f"  L{index:02d}: keeping fitting published pace {pace:g}; rejected adjustment was not published"
-                                )
+                recovered_adjustment = self._keep_published_pace(e, ids, settings)
             finally:
                 # Failed/cancelled attempts leave the last publication intact.
                 if args._generation is None or not args._generation.unknown():
                     _record_published_settings(
-                        rendered,
+                        self.rendered,
                         settings,
                         job_id,
                         tgt,
                         t0,
                         regen,
                         published=published,
-                        selected={ids[k] for k in only} if only is not None else None,
+                        selected={ids[k] for k in self.only} if self.only is not None else None,
                     )
                 if settings and (args._generation is None or not args._generation.unknown()):
-                    save_json(rendered_path, rendered)
+                    save_json(self.rendered_path, self.rendered)
             print(f"    ({time.time() - t0:.0f} s)")
             synthesized |= regen is None or bool(regen)
             if done is None:
-                if not mode["fill"] or n == FILL_PASSES or forced_regeneration:
+                if not mode["fill"] or n == FILL_PASSES or self.forced_regeneration:
                     break
                 if not any(take_wav(job_id, lid, tgt).exists() for lid in ids):
                     print("  no published takes to measure; revise the reported line before retrying")
@@ -1358,55 +1405,115 @@ def _cmd_generate(args):
                 print(
                     "  a line overflows its room; the next fill pass re-times it, or re-rolls it at the fastest speed"
                 )
-        if done is None and recovered_adjustment and not forced_regeneration:
-            # A different rejected slowdown can consume each fill pass. Even
-            # the last rejection gets one cache-only assembly, provided the
-            # entire current publication still matches and fits. Require a new
-            # successful backend result; the failed attempt is never success.
-            segments, ids, settings, _ = plan(first=False)
-            paces = _published_remix_paces(
-                ids,
-                settings,
-                rendered,
-                fit_rows(args.name, args.overflow),
-                directed={lid for lid, line in zip(ids, script["lines"]) if "speed" in line},
+        return done, ids, synthesized, recovered_adjustment, stopped
+
+    def _announce(self, n, segments, regen):
+        args, mode = self.args, self.mode
+        print(
+            f"{'generate' if n == 0 else f'  fill pass {n}:'} {args.name}: {len(segments)} segments "
+            f"({len(regen) if regen is not None else len(segments)} to synthesize), "
+            f"{args.timing}, {args.voice_match}, {args.steps} steps, {args.effect}, {args.engine}"
+            + (
+                f", emotion from the original at {args.emo_alpha}"
+                if args.engine != "omnivoice" and args.emo_alpha
+                else ""
             )
-            if paces is not None:
-                fitting_paces.update(paces)
-                for segment, lid in zip(segments, ids):
-                    _override_speed(segment, settings[lid], paces[lid])
-                if args.match_level:
-                    level(segments, ids)
-                print("  fill adjustments exhausted; re-mix the complete fitting publication (no synthesis)")
-                t0 = time.time()
-                done = run(request(segments, ids, []))
-                _record_published_settings(rendered, settings, job_id, tgt, t0, [], published=True)
-                save_json(rendered_path, rendered)
-        if done is None:
-            # VoiceStudio stops at the first overflow; report them all so one
-            # pass of edits fixes every line.
-            print(f"\nVoiceStudio stopped at L{int(stopped.group(1)):02d}" if stopped else "")
-            print("lines that don't fit (clip / window / room with borrowed gap and overflow budget):")
-            rows = [row for row in fit_rows(args.name, args.overflow) if row["flag"] in ("OVER", "tight")]
-            for row in rows:
-                print(
-                    f"  L{row['i']:02d} {row['start']:7.2f}  {row['speech']:4.2f}s / {row['window']:4.2f}s "
-                    f"/ {row['room']:4.2f}s  {row['flag']:5s} {row['text']}"
-                )
-            # The runner blocks the part on these until its script changes.
-            report_result(
-                overflow=[
-                    {k: row[k] for k in ("i", "start", "speech", "window", "room", "text")}
-                    for row in rows
-                    if row["flag"] == "OVER"
-                ]
+            + (
+                f", {sum('ref_audio' in s for s in segments)} lines with their own reference"
+                if mode["line_ref"]
+                else ""
             )
-            raise SystemExit("shorten the text or widen the window of each OVER line, then generate again")
-        # "american": now that the takes' timing is settled, give the new ones the
-        # actor's timbre. VoiceStudio re-mixes the files it finds (the job has rendered).
-        voiced = bool(script) and american and convert(ids)
+            + (f", {sum('speed' in s for s in segments)} lines re-timed to the actor" if mode["fill"] else "")
+        )
+
+    def _keep_published_pace(self, e, ids, settings):
+        """The backend rejected an automatic re-timing of one line, so that take was
+        not published: when the take already published fits at its own pace, keep
+        that pace for the passes to come. Returns whether it did."""
+        args = self.args
+        if not (
+            self.mode["fill"]
+            and args.timing == "concise"
+            and args.engine == "omnivoice"
+            and not self.american
+            and not self.forced_regeneration
+            and isinstance(e, BackendTaskError)
+            and e.event.get("type") == "error"
+            and e.event.get("error_code") == "dub_timing_overflow"
+        ):
+            return False
+        index = e.event.get("segment")
+        if not (type(index) is int and 0 <= index < len(ids)):
+            return False
+        lid = ids[index]
+        if not (e.event.get("segment_id", lid) == lid and lid not in self.reroll and "speed" not in self.lines[index]):
+            return False
+        row = next(r for r in fit_rows(args.name, args.overflow) if r["i"] == index)
+        pace = _fitting_published_pace(settings[lid], self.rendered.get(lid), row)
+        if pace is None:
+            return False
+        self.fitting_paces[lid] = pace
+        print(f"  L{index:02d}: keeping fitting published pace {pace:g}; rejected adjustment was not published")
+        return True
+
+    def _remix_published(self):
+        """A different rejected slowdown can consume each fill pass. Even the last
+        rejection gets one cache-only assembly, provided the entire current
+        publication still matches and fits. Require a new successful backend
+        result; the failed attempt is never success. Returns that result (None
+        when the publication can't stand) and the plan's ids."""
+        args = self.args
+        segments, ids, settings, _ = self.plan(first=False)
+        paces = _published_remix_paces(
+            ids,
+            settings,
+            self.rendered,
+            fit_rows(args.name, args.overflow),
+            directed={lid for lid, line in zip(ids, self.lines) if "speed" in line},
+        )
+        if paces is None:
+            return None, ids
+        self.fitting_paces.update(paces)
+        for segment, lid in zip(segments, ids):
+            _override_speed(segment, settings[lid], paces[lid])
+        if args.match_level:
+            self.level(segments, ids)
+        print("  fill adjustments exhausted; re-mix the complete fitting publication (no synthesis)")
+        t0 = time.time()
+        done = self.run(self.request(segments, ids, []))
+        _record_published_settings(self.rendered, settings, self.job_id, self.tgt, t0, [], published=True)
+        save_json(self.rendered_path, self.rendered)
+        return done, ids
+
+    def _report_overflow(self, stopped):
+        """VoiceStudio stops at the first overflow; report them all so one
+        pass of edits fixes every line."""
+        args = self.args
+        print(f"\nVoiceStudio stopped at L{int(stopped.group(1)):02d}" if stopped else "")
+        print("lines that don't fit (clip / window / room with borrowed gap and overflow budget):")
+        rows = [row for row in fit_rows(args.name, args.overflow) if row["flag"] in ("OVER", "tight")]
+        for row in rows:
+            print(
+                f"  L{row['i']:02d} {row['start']:7.2f}  {row['speech']:4.2f}s / {row['window']:4.2f}s "
+                f"/ {row['room']:4.2f}s  {row['flag']:5s} {row['text']}"
+            )
+        # The runner blocks the part on these until its script changes.
+        report_result(
+            overflow=[
+                {k: row[k] for k in ("i", "start", "speech", "window", "room", "text")}
+                for row in rows
+                if row["flag"] == "OVER"
+            ]
+        )
+        raise SystemExit("shorten the text or widen the window of each OVER line, then generate again")
+
+    def _convert_and_level(self, done, ids, synthesized):
+        """The American voice: now that the takes' timing is settled, give the new ones
+        the actor's timbre. VoiceStudio re-mixes the files it finds (the job has rendered).
+        Levels are measured on the takes: level the new ones and re-mix (no synthesis)."""
+        args, script = self.args, self.script
+        voiced = bool(script) and self.american and self.convert(ids)
         if script and (voiced or (args.match_level and synthesized)):
-            # Levels are measured on the takes: level the new ones and re-mix (no synthesis).
             print(
                 "re-mix: "
                 + ", ".join(
@@ -1415,55 +1522,60 @@ def _cmd_generate(args):
                 )
             )
             t0 = time.time()
-            segments, ids, _, _ = plan(first=False)
+            segments, ids, _, _ = self.plan(first=False)
             if args.match_level:
-                level(segments, ids)
-            done = run(request(segments, ids, []))
+                self.level(segments, ids)
+            done = self.run(self.request(segments, ids, []))
             print(f"    ({time.time() - t0:.0f} s)")
-    finally:
-        if prev_engine and prev_engine != args.engine and (args._generation is None or not args._generation.unknown()):
-            use_tts_engine(prev_engine)
-    receipt = {
-        **done,
-        "client": {
-            "job_id": job_id,
-            "timing": args.timing,
-            "wav_kind": "slotted" if args.timing == "strict_slot" else "natural",
-            "policy": {
+        return done
+
+    # ---- after the render ----
+
+    def save_receipt(self, done):
+        """Record how the part was rendered (generate-result.json); the re-rolls
+        lineqa.py queued have had their fresh takes."""
+        args = self.args
+        receipt = {
+            **done,
+            "client": {
+                "job_id": self.job_id,
                 "timing": args.timing,
-                "overflow": args.overflow,
-                "match_level": args.match_level,
-                "voice_match": args.voice_match,
-                "engine": args.engine,
-                "render_mode": mode,
+                "wav_kind": "slotted" if args.timing == "strict_slot" else "natural",
+                "policy": {
+                    "timing": args.timing,
+                    "overflow": args.overflow,
+                    "match_level": args.match_level,
+                    "voice_match": args.voice_match,
+                    "engine": args.engine,
+                    "render_mode": self.mode,
+                },
             },
-        },
-    }
-    save_json(work / "generate-result.json", receipt, indent=2)
-    if script and queued and only is None:
-        (work / "reroll.json").unlink(missing_ok=True)
+        }
+        save_json(self.work / "generate-result.json", receipt, indent=2)
+        if self.script and self.queued and self.only is None:
+            (self.work / "reroll.json").unlink(missing_ok=True)
 
-    if getattr(args, "no_export", False):
-        return
-
-    out = out_dir(doc)
-    out.mkdir(parents=True, exist_ok=True)
-    suffix = f".{args.tag}" if args.tag else ""
-    print("export mp4")
-    t0 = time.time()
-    r = requests.get(
-        f"{API}/dub/download/{job_id}",
-        params={"include_tracks": tgt, "default_track": tgt, "preserve_bg": "true"},
-        timeout=1800,
-    )
-    if r.status_code >= 400:
-        raise RuntimeError(f"download {r.status_code}: {r.text[:500]}")
-    mp4 = out / f"{args.name}.{tgt}{suffix}.mp4"
-    mp4.write_bytes(r.content)
-    r = requests.get(f"{API}/dub/srt/{job_id}", params={"lang": tgt}, timeout=120)
-    r.raise_for_status()
-    (out / f"{args.name}.{tgt}{suffix}.srt").write_text(r.text, encoding="utf-8")
-    print(f"  wrote {mp4} ({time.time() - t0:.0f} s)")
+    def export(self):
+        """Download the mixed part (MP4) and its subtitles (SRT) into the dubbed folder."""
+        args, job_id, tgt = self.args, self.job_id, self.tgt
+        out = out_dir(self.doc)
+        out.mkdir(parents=True, exist_ok=True)
+        suffix = f".{args.tag}" if args.tag else ""
+        print("export mp4")
+        t0 = time.time()
+        r = requests.get(
+            f"{API}/dub/download/{job_id}",
+            params={"include_tracks": tgt, "default_track": tgt, "preserve_bg": "true"},
+            timeout=1800,
+        )
+        if r.status_code >= 400:
+            raise RuntimeError(f"download {r.status_code}: {r.text[:500]}")
+        mp4 = out / f"{args.name}.{tgt}{suffix}.mp4"
+        mp4.write_bytes(r.content)
+        r = requests.get(f"{API}/dub/srt/{job_id}", params={"lang": tgt}, timeout=120)
+        r.raise_for_status()
+        (out / f"{args.name}.{tgt}{suffix}.srt").write_text(r.text, encoding="utf-8")
+        print(f"  wrote {mp4} ({time.time() - t0:.0f} s)")
 
 
 def main():
@@ -1483,7 +1595,7 @@ def main():
         "--segment-refs",
         action="store_true",
         help="have VoiceStudio cut and transcribe a reference per segment, for undirected renders "
-        "(a script's lines bring their own: core.line_refs)",
+        "(a script's lines bring their own: references.line_refs)",
     )
     a.set_defaults(fn=cmd_prep)
     f = sub.add_parser("fork")

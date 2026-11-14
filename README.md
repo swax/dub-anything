@@ -281,6 +281,8 @@ to send the changes back as a pull request. Sharing is optional.
 [docs/directing.md](docs/directing.md) explains how the pieces fit. Python is
 formatted and linted with ruff (`uvx ruff format`, `uvx ruff check`), and
 the [agent setup guide](docs/setup.md) shows how to turn on the pre-commit check.
+The tests need no GPU ([scripts/README.md](scripts/README.md) says how to run
+them), and CI runs ruff and the tests on every push and pull request.
 
 `videos/` and `work/` are git-ignored so that source media, transcripts and
 voice references stay out of the repository. Don't force-add them, and use

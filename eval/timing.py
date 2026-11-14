@@ -21,7 +21,9 @@ import sys
 import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
-from core import FILL_SPEED, FILL_TOL, actor_ends, langs, line_id, load_json, part_dir, speech_length, take_wav
+from core import langs, load_json, part_dir, take_wav
+from lengths import FILL_SPEED, FILL_TOL, actor_ends, speech_length
+from voicecast import line_id
 
 
 def main():

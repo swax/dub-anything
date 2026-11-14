@@ -1,0 +1,13 @@
+# What the tests import, for a run without VoiceStudio's environment (as CI does):
+#
+#   uv run --no-project --python 3.12 --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match --with-requirements tests/requirements.txt python -m unittest discover -s tests
+#
+# No test runs a model, so torch comes from PyTorch's CPU index. Four tests mux
+# real files and skip without ffmpeg on PATH.
+faster-whisper
+numpy
+requests
+scipy
+sherpa-onnx
+soundfile
+torch

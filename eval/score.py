@@ -35,7 +35,9 @@ import torch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import draft
 import register as R
-from core import langs, line_id, load_json, part_dir, speech_length, take_wav
+from core import langs, load_json, part_dir, take_wav
+from lengths import speech_length
+from voicecast import line_id
 from gpulock import hold_gpu
 from faster_whisper.audio import decode_audio
 

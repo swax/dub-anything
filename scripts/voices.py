@@ -35,19 +35,8 @@ lines already cast to them in its other parts, best three first.
 import json
 import sys
 
-from core import (
-    JOBS,
-    adopt_job,
-    langs,
-    load_json,
-    load_voices,
-    part_dir,
-    script_files,
-    update_voices,
-    voice_clips,
-    voice_wav,
-    whisper_setup,
-)
+from core import JOBS, adopt_job, langs, load_json, part_dir, script_files, whisper_setup
+from voicecast import load_voices, update_voices, voice_clips, voice_wav
 
 sys.stdout.reconfigure(encoding="utf-8")
 SR = 16000

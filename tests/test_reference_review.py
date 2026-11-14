@@ -14,6 +14,7 @@ import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import core
+import references
 from reference_review import audible_tail, speech_margins
 
 
@@ -81,15 +82,15 @@ class ReferenceWarningTests(unittest.TestCase):
                 patch.object(core, "WORK", root),
                 patch.object(core, "JOBS", root / "jobs"),
                 patch.object(core, "langs", return_value=("ja", "en")),
-                patch.object(core, "unclean_windows", return_value=[(None, None)]),
+                patch.object(references, "unclean_windows", return_value=[(None, None)]),
             ):
-                key = core.source_check_keys(part, [line])[0]
+                key = references.source_check_keys(part, [line])[0]
                 report = {key: {"source": source, "review_tail": True, "last_word": 2, "trailing_seconds": 2}}
                 path = part / "refs" / "source-review.json"
                 path.write_text(json.dumps(report))
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output):
-                    own = core.line_refs(part, "job", [line], ["L00"], prefix=False)
+                    own = references.line_refs(part, "job", [line], ["L00"], prefix=False)
                 self.assertIn("reference review at 0.0", output.getvalue())
                 self.assertIn("L00", own)
                 got, _ = sf.read(own["L00"][0], dtype="float32")
@@ -99,7 +100,7 @@ class ReferenceWarningTests(unittest.TestCase):
                 path.write_text(json.dumps(report))
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output):
-                    core.line_refs(part, "job", [line], ["L00"], prefix=False)
+                    references.line_refs(part, "job", [line], ["L00"], prefix=False)
                 self.assertNotIn("reference review", output.getvalue())
 
 

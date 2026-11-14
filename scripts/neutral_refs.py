@@ -91,10 +91,12 @@ def measure(audio, text, language):
 def collect(voice, parts):
     """Get complete single-speaker windows already accepted by source checks."""
     import core
+    import references
+    import voicecast
     import draft
     from languages import LANGUAGES
 
-    voices = core.load_voices()
+    voices = voicecast.load_voices()
     family = voices[voice].get("register_of", voice)
     pool, candidates = [], []
     for name in parts:
@@ -104,12 +106,14 @@ def collect(voice, parts):
             continue
         lines = script["lines"]
         job = core.load_json(folder / "segments.json")["job_id"]
-        checks = core.unclean_windows(folder, job, lines, [core.line_id(l) for l in lines], dips=True, cast_lines=True)
+        checks = references.unclean_windows(
+            folder, job, lines, [voicecast.line_id(l) for l in lines], dips=True, cast_lines=True
+        )
         audio = draft.decode_audio(str(core.JOBS / job / "vocals.wav"), sampling_rate=draft.SR)
         clean = []
         for index, (line, (why, cut)) in enumerate(zip(lines, checks)):
             same = voices[line["voice"]].get("register_of", line["voice"]) == family
-            if not same or why or line.get("line_ref") is False or line.get("effect") in core.ROOM_EFFECTS:
+            if not same or why or line.get("line_ref") is False or line.get("effect") in references.ROOM_EFFECTS:
                 continue
             end = cut or line["end"]
             feature = measure(
@@ -174,6 +178,8 @@ def main():
     ap.add_argument("--key", help="create this separate voice key from the selected candidate")
     args = ap.parse_args()
     import core
+    import references
+    import voicecast
     import draft
 
     pool, candidates = collect(args.voice, args.parts)
@@ -217,7 +223,7 @@ def main():
     if args.key:
         from voices import add
 
-        voices = core.load_voices()
+        voices = voicecast.load_voices()
         family = voices[args.voice].get("register_of", args.voice)
         from register import cer
 
@@ -231,13 +237,13 @@ def main():
             compute_type="default" if draft.whisper_on_gpu() else "int8",
         )
         heard = "".join(p["said"] for p in draft.transcribe(ear, sample, language=core.langs(picked["part"])[0]))
-        error = cer(core.bare(picked["text"]), core.bare(heard))
+        error = cer(references.bare(picked["text"]), references.bare(heard))
         embed = draft.embedder()
         vector = embed(sample)
         identity = {}
         for key, voice in voices.items():
             if voice.get("register_of", key) == family and voice.get("clips"):
-                match = embed(draft.decode_audio(str(core.voice_wav(key)), sampling_rate=draft.SR))
+                match = embed(draft.decode_audio(str(voicecast.voice_wav(key)), sampling_rate=draft.SR))
                 identity[key] = float(vector @ match)
         report["verification"] = {"heard": heard, "cer": error, "family_reference_similarity": identity}
         if error > 0.25 or not identity or max(identity.values()) < 0.5:
@@ -257,12 +263,12 @@ def main():
                 raise SystemExit("key already exists with a different reference; create a new key")
         else:
             add(args.key, picked["part"], json.dumps(spec["clips"]), picked["text"], False)
-            core.update_voices(
+            voicecast.update_voices(
                 lambda values: values[args.key].update(
                     {k: v for k, v in spec.items() if k not in ("from", "clips", "ref_text")}
                 )
             )
-        path = core.voice_wav(args.key, rebuild=True)
+        path = voicecast.voice_wav(args.key, rebuild=True)
         report["built"] = dict(
             key=args.key,
             path=str(path),

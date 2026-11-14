@@ -15,6 +15,7 @@ import soundfile as sf
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import check
 import core
+import references
 
 
 def row(i, flag="", window=2.0, **extra):
@@ -166,10 +167,10 @@ class LineRefNotesTests(unittest.TestCase):
                 patch.object(core, "WORK", root),
                 patch.object(core, "JOBS", root / "jobs"),
                 patch.object(core, "langs", return_value=("ja", "en")),
-                patch.object(core, "unclean_windows", return_value=[(None, None), ("voice nearer other", None)]),
+                patch.object(references, "unclean_windows", return_value=[(None, None), ("voice nearer other", None)]),
                 contextlib.redirect_stdout(output),
             ):
-                refs = core.line_refs(part, "job", lines, ["L0", "L1"], prefix=False, notes=notes)
+                refs = references.line_refs(part, "job", lines, ["L0", "L1"], prefix=False, notes=notes)
             self.assertEqual(output.getvalue(), "")
             self.assertEqual(notes, {1: ["line ref skipped: voice nearer other"]})
             self.assertEqual(set(refs), {"L0"})

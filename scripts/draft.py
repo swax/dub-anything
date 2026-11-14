@@ -65,14 +65,13 @@ from core import (
     job_of,
     langs,
     load_json,
-    load_voices,
     part_dir,
     script_files,
-    voice_clips,
     whisper_setup,
 )
 from gpulock import hold_gpu
 from languages import LANGUAGES, NAMES
+from voicecast import load_voices, voice_clips
 
 whisper_setup()
 import torch  # noqa: E402

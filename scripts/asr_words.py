@@ -13,7 +13,8 @@ import argparse
 import pathlib
 import sys
 
-from core import JOBS, langs, load_json, load_voices, part_dir, use_job, whisper_setup
+from core import JOBS, langs, load_json, part_dir, use_job, whisper_setup
+from voicecast import load_voices
 
 whisper_setup()  # VoiceStudio's downloaded Whisper + cuDNN 8
 from faster_whisper.audio import decode_audio  # noqa: E402

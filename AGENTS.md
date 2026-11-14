@@ -290,6 +290,10 @@ sound wrong: `scripts/register.py report`, `build`, `route --apply`, `check`.
   both once a clone turns it on ([docs/setup.md](docs/setup.md)). A long ffmpeg
   command keeps its hand layout, flag beside value, with `# fmt: skip`. List any
   formatting-only commit in `.git-blame-ignore-revs`.
+- Run the tests before committing a change to the scripts, from the repo root
+  with VoiceStudio's Python: `python -m unittest discover -s tests`. They need
+  no GPU or backend. CI (`.github/workflows/ci.yml`) runs ruff and the tests on
+  every push.
 - Preserve original sources, delivered videos, voice references and requested
   review artifacts. Final deliveries belong beside the original library video;
   packaging may replace only the job-local working source after every copied

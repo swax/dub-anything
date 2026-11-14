@@ -44,8 +44,9 @@ import time
 
 import soundfile as sf
 
-from core import langs, line_id, load_json, part_dir, report_result, save_json, take_wav, whisper_setup
+from core import langs, load_json, part_dir, report_result, save_json, take_wav, whisper_setup
 from languages import LANGUAGES
+from voicecast import line_id
 
 whisper_setup()
 from whisper_safe import WhisperModel, hold_gpu_for_whisper, whisper_on_gpu  # noqa: E402

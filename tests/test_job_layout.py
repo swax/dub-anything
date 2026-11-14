@@ -13,6 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 
 import core
+import voicecast
 import dub_anything as runner
 import voices as voice_tool
 
@@ -78,10 +79,10 @@ class JobLayoutTests(unittest.TestCase):
             core.part_dir(name).mkdir(parents=True)
             (core.part_dir(name) / "script.json").write_text('{"lines": []}', encoding="utf-8")
         core.use_job("first")
-        core.update_voices(lambda v: v.update({"hero": {"from": "first-01", "clips": [[0, 1]]}}))
+        voicecast.update_voices(lambda v: v.update({"hero": {"from": "first-01", "clips": [[0, 1]]}}))
         self.assertEqual([n for n, _ in core.script_files()], ["first-01"])
         core.use_job("second")
-        self.assertEqual(core.load_voices(), {})
+        self.assertEqual(voicecast.load_voices(), {})
         self.assertEqual([n for n, _ in core.script_files()], ["second-01"])
         self.assertTrue((core.job_dir("first") / "voices.json").exists())
         self.assertFalse((self.work / "voices.json").exists())
@@ -89,17 +90,17 @@ class JobLayoutTests(unittest.TestCase):
     def test_a_later_job_borrows_an_earlier_cast_without_writing_it(self):
         self.new_job("ep01")
         core.use_job("ep01")
-        core.update_voices(lambda v: v.update({"hero": {"from": "ep01-01", "clips": [[0, 1]]}}))
+        voicecast.update_voices(lambda v: v.update({"hero": {"from": "ep01-01", "clips": [[0, 1]]}}))
         (core.job_dir("ep01") / "voices").mkdir()
         (core.job_dir("ep01") / "voices" / "hero.wav").write_bytes(b"RIFF")
         self.new_job("ep02", "--voices-from", "ep01")
         core.use_job("ep02")
-        self.assertIn("hero", core.load_voices())
-        self.assertEqual(core.voice_path("hero"), core.job_dir("ep01") / "voices" / "hero.wav")
-        self.assertEqual(core.voice_wav("hero"), core.job_dir("ep01") / "voices" / "hero.wav")
+        self.assertIn("hero", voicecast.load_voices())
+        self.assertEqual(voicecast.voice_path("hero"), core.job_dir("ep01") / "voices" / "hero.wav")
+        self.assertEqual(voicecast.voice_wav("hero"), core.job_dir("ep01") / "voices" / "hero.wav")
         with self.assertRaises(SystemExit):
             voice_tool.add("hero", "ep02-01", "[[0, 1]]", "words", False)
-        core.update_voices(lambda v: v.update({"guest": {"from": "ep02-01", "clips": [[0, 1]]}}))
+        voicecast.update_voices(lambda v: v.update({"guest": {"from": "ep02-01", "clips": [[0, 1]]}}))
         self.assertNotIn("guest", json.loads((core.job_dir("ep01") / "voices.json").read_text(encoding="utf-8")))
 
     def test_voices_from_must_name_an_existing_job(self):
@@ -114,7 +115,7 @@ class JobLayoutTests(unittest.TestCase):
         self.new_job("ep01")
         self.new_job("ep02")
         core.use_job("ep02")
-        core.update_voices(lambda v: v.update({"hero": {}, "rival": {}}))
+        voicecast.update_voices(lambda v: v.update({"hero": {}, "rival": {}}))
         core.use_job(None)
         self.assertEqual(core.adopt_job(["hero", "rival"]), "ep02")
         core.use_job(None)

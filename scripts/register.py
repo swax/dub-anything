@@ -34,21 +34,9 @@ import sys
 import numpy as np
 
 import draft
-from core import (
-    JOBS,
-    bare,
-    langs,
-    line_id,
-    load_json,
-    load_voices,
-    part_dir,
-    said,
-    script_files,
-    take_wav,
-    update_voices,
-    voice_clips,
-    voice_path,
-)
+from core import JOBS, langs, load_json, part_dir, said, script_files, take_wav
+from references import bare
+from voicecast import line_id, load_voices, update_voices, voice_clips, voice_path
 from faster_whisper.audio import decode_audio
 from faster_whisper.vad import VadOptions, get_speech_timestamps
 

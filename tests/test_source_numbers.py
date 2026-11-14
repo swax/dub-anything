@@ -14,6 +14,7 @@ import soundfile as sf
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import core
+import references
 from languages import ja
 
 
@@ -115,11 +116,11 @@ class SourceWindowNumberTests(unittest.TestCase):
         sf.write(self.source, self.audio, self.sr)
 
     def check(self):
-        return core.unclean_windows(self.work, "sample", self.lines, ["L00", "L01"])
+        return references.unclean_windows(self.work, "sample", self.lines, ["L00", "L01"])
 
     def legacy_cache(self, first):
         with patch.object(ja, "SOURCE_CHECK_VERSION", "", create=True):
-            keys = core.source_check_keys(self.work, self.lines)
+            keys = references.source_check_keys(self.work, self.lines)
         core.save_json(self.work / "refs" / "clean.json", {keys[0]: first, keys[1]: None})
         return keys
 
@@ -173,13 +174,13 @@ class SourceWindowNumberTests(unittest.TestCase):
         self.assertEqual(self.check()[0], ("speech runs on past the window's end", None))
 
     def test_policy_version_changes_japanese_keys_but_not_other_languages(self):
-        japanese = core.source_check_keys(self.work, self.lines)
+        japanese = references.source_check_keys(self.work, self.lines)
         with patch.object(core, "langs", return_value=("es", "en")):
-            spanish = core.source_check_keys(self.work, self.lines)
+            spanish = references.source_check_keys(self.work, self.lines)
         with patch.object(ja, "SOURCE_CHECK_VERSION", "ja-numbers-next"):
-            self.assertNotEqual(core.source_check_keys(self.work, self.lines), japanese)
+            self.assertNotEqual(references.source_check_keys(self.work, self.lines), japanese)
             with patch.object(core, "langs", return_value=("es", "en")):
-                self.assertEqual(core.source_check_keys(self.work, self.lines), spanish)
+                self.assertEqual(references.source_check_keys(self.work, self.lines), spanish)
 
 
 if __name__ == "__main__":

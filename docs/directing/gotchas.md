@@ -19,7 +19,7 @@ hardware's are in [machine.md](machine.md).
   clips to real speech boundaries, keep neighbours out, then check the joined
   reference with `scripts/asr_words.py work\voices\<key>.wav`. Every phrase must be
   complete, and `ref_text` must match what is actually said. Per-line references
-  must contain the rebuilt voice too: `core.line_refs` fingerprints its audio
+  must contain the rebuilt voice too: `references.line_refs` fingerprints its audio
   in the cached filename, so an old joined WAV cannot survive a voice correction
   under the new reference transcript.
 - **Keep screams out of voice clips.** Speech detection doesn't count a scream

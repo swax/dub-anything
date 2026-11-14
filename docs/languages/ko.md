@@ -31,7 +31,7 @@ language's notes ([en.md](en.md)). The code is `scripts/languages/ko.py`.
 - **Spacing.** Korean is written with spaces, but recognisers place them
   differently ("할 수 있어", "할수있어"), and the Korean Zipformer writes none
   at all. So `second.py` compares transcripts by syllable, and the window check
-  (`core.bare`) drops spaces as it does for every language.
+  (`references.bare`) drops spaces as it does for every language.
 - **Second opinions.** `second.py` runs k2's Korean Zipformer (trained on
   spontaneous Korean speech) and SenseVoice (about 320 MB). SenseVoice is the
   stronger on drama dialogue; the Zipformer misreads more but independently.

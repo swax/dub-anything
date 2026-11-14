@@ -51,7 +51,7 @@ for _path in sorted(pathlib.Path(__file__).parent.glob("*.py")):
 # a part's pair in its segments.json; parts prepped before it was recorded are
 # Japanese -> English (PAIR). For each pair, what was measured (docs/research.md):
 #   line_ref: whether its lines render with per-line references unless the script
-#             says otherwise (core.line_refs: the voice's clips, then the actor's
+#             says otherwise (references.line_refs: the voice's clips, then the actor's
 #             own original of the line)
 PAIR = ("ja", "en")
 PAIRS = {

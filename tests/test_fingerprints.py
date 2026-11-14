@@ -15,6 +15,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 
 import core
+import voicecast
 import dub_anything as runner
 
 
@@ -79,8 +80,8 @@ class VoiceFingerprintTests(unittest.TestCase):
     }
 
     def sig(self, voices, key):
-        with patch.object(core, "load_voices", return_value=voices):
-            return core.voice_sig(key), core.line_id({"voice": key, "text": "The parcel is here."})
+        with patch.object(voicecast, "load_voices", return_value=voices):
+            return voicecast.voice_sig(key), voicecast.line_id({"voice": key, "text": "The parcel is here."})
 
     def test_unchanged_entry_keeps_its_earlier_fingerprint(self):
         for key, spec in self.VOICES.items():

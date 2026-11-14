@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import cast
 import core
+import voicecast
 
 
 class CastJobSelectionTests(unittest.TestCase):
@@ -21,7 +22,7 @@ class CastJobSelectionTests(unittest.TestCase):
         seen = []
 
         def centroids(_embed, selected):
-            seen.append((core.active_job(), set(core.load_voices()), selected))
+            seen.append((core.active_job(), set(voicecast.load_voices()), selected))
             raise StopAfterCentroids
 
         with tempfile.TemporaryDirectory() as directory:

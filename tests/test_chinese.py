@@ -30,7 +30,7 @@ class ChineseSourceTests(unittest.TestCase):
         self.assertNotEqual(units("张"), units("章"))
 
     def test_reference_window_check_ignores_chinese_punctuation(self):
-        from core import bare
+        from references import bare
 
         self.assertEqual(bare("你好，世界；今天：【出发】。"), bare("你好世界今天出发"))
 

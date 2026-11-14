@@ -19,10 +19,11 @@ import sys
 import numpy as np
 import soundfile as sf
 
-from core import JOBS, langs, line_id, load_json, part_dir, take_wav
+from core import JOBS, langs, load_json, part_dir, take_wav
 from edges import HOP, SR, frames_db
 from faster_whisper.audio import decode_audio
 from faster_whisper.vad import VadOptions, get_speech_timestamps
+from voicecast import line_id
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 WET_MS = 200

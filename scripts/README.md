@@ -18,12 +18,24 @@ the tools produce evidence and render each part.
 
 `dub_anything.py new ... --auto-text` reads both caption styles and looks for
 signs. For a supervised pause and resume, see the directing guide's
-`DUB_PAUSE_FILE` instructions. Shared modules such as `core.py`, `gpulock.py`,
-`gpu.py` (the PyTorch build and what an AMD GPU needs), `whisper_safe.py`, and
-`languages/` support the tools.
+`DUB_PAUSE_FILE` instructions. Shared modules support the tools: `core.py`
+(where things live, and the JSON files the tools share), `voicecast.py` (the
+cast, voice fingerprints and line ids), `references.py` (per-line references
+and the window check), `lengths.py` (take lengths, their prediction and fit),
+`gpulock.py`, `gpu.py` (the PyTorch build and what an AMD GPU needs),
+`whisper_safe.py`, and `languages/`. They call one another through the module
+(`core.load_json`, `voicecast.voice_sig`), so a test patches a name once, in
+the module it lives in.
 
 A tool that `dub_anything.py run` acts on reports what it decided with
 `core.report_result(...)` instead of leaving the runner to read its messages:
 change a message freely, but keep the reported fields (`no_speech`, `overflow`,
 `parts`, `output`). Write shared JSON with `core.save_json`, which replaces the
 file in one step.
+
+The tests in `tests/` need no GPU, backend or models. Run them from the
+repository root with VoiceStudio's Python, `python -m unittest discover -s tests`,
+or without that environment as [tests/requirements.txt](../tests/requirements.txt)
+shows. Four of them mux real files and skip without ffmpeg on PATH. CI
+(`.github/workflows/ci.yml`) runs ruff and the tests on every push and pull
+request.

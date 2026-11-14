@@ -12,6 +12,7 @@ import numpy as np
 import soundfile as sf
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import references
 import shorttakes as st
 
 
@@ -334,7 +335,7 @@ class TimingTests(unittest.TestCase):
             self.assertLess(result["actual_end"], 1.3)
             self.assertGreater(result["trimmed_length_s"], 1.3)
             self.assertLess(result["trimmed_length_s"], 1.4)  # old +100ms incorrectly accepted this take
-            self.assertEqual(result["trimmed_length_s"], st.core.speech_length(wav))
+            self.assertEqual(result["trimmed_length_s"], st.lengths.speech_length(wav))
             self.assertEqual(result["legal_room_s"], 1.3)
             self.assertIn("padded take exceeds normal concise room", result["notes"])
 
@@ -404,10 +405,10 @@ class ContextTests(unittest.TestCase):
             with (
                 patch.object(st.core, "WORK", root),
                 patch.object(st.core, "JOBS", root / "jobs"),
-                patch.object(st.core, "voice_sig", return_value="spec"),
-                patch.object(st.core, "voice_wav", return_value=ref),
-                patch.object(st.core, "line_id", return_value="L0"),
-                patch.object(st.core, "line_refs") as rebuild,
+                patch.object(st.voicecast, "voice_sig", return_value="spec"),
+                patch.object(st.voicecast, "voice_wav", return_value=ref),
+                patch.object(st.voicecast, "line_id", return_value="L0"),
+                patch.object(references, "line_refs") as rebuild,
             ):
                 first = st.context("sample", script, settings, st.Policy(), 3, 1729)
                 self.assertEqual(first["line_references"]["L0"]["text"], "Base reference. Original words.")
@@ -424,10 +425,10 @@ class ContextTests(unittest.TestCase):
             with (
                 patch.object(st.core, "WORK", root),
                 patch.object(st.core, "JOBS", root / "jobs"),
-                patch.object(st.core, "voice_sig", return_value="spec"),
-                patch.object(st.core, "voice_wav", return_value=ref),
-                patch.object(st.core, "line_id", return_value="L0"),
-                patch.object(st.core, "line_refs") as rebuild,
+                patch.object(st.voicecast, "voice_sig", return_value="spec"),
+                patch.object(st.voicecast, "voice_wav", return_value=ref),
+                patch.object(st.voicecast, "line_id", return_value="L0"),
+                patch.object(references, "line_refs") as rebuild,
             ):
                 with self.assertRaisesRegex(ValueError, "declared per-line reference is missing"):
                     st.context("sample", script, settings, st.Policy(), 3, 1729)
@@ -450,8 +451,8 @@ class ContextTests(unittest.TestCase):
             with (
                 patch.object(st.core, "WORK", root),
                 patch.object(st.core, "JOBS", root / "jobs"),
-                patch.object(st.core, "voice_sig", return_value="spec"),
-                patch.object(st.core, "voice_wav", return_value=ref),
+                patch.object(st.voicecast, "voice_sig", return_value="spec"),
+                patch.object(st.voicecast, "voice_wav", return_value=ref),
             ):
 
                 def get():
@@ -557,10 +558,10 @@ class TrialIntegrationTests(unittest.TestCase):
             with (
                 patch.object(st.core, "WORK", root),
                 patch.object(st.core, "JOBS", root / "jobs"),
-                patch.object(st.core, "voice_sig", return_value="spec"),
-                patch.object(st.core, "voice_wav", return_value=ref),
-                patch.object(st.core, "line_id", return_value="L0"),
-                patch.object(st.core, "actor_spans", return_value=[(0.05, 0.8)]),
+                patch.object(st.voicecast, "voice_sig", return_value="spec"),
+                patch.object(st.voicecast, "voice_wav", return_value=ref),
+                patch.object(st.voicecast, "line_id", return_value="L0"),
+                patch.object(st.lengths, "actor_spans", return_value=[(0.05, 0.8)]),
                 patch.object(st, "vad", side_effect=fixture_speech),
                 patch.object(st.lineqa, "Ear", return_value=ear),
                 patch.object(st.subprocess, "run", side_effect=generate),

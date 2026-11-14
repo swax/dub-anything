@@ -10,6 +10,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 from dub import _fill_speed, _fitting_published_pace, _override_speed, _published_remix_paces
 from dub_anything import ready_problems
 import core
+import lengths
+import voicecast
 
 
 class FillSpeedTests(unittest.TestCase):
@@ -119,11 +121,11 @@ class FillSpeedTests(unittest.TestCase):
         with (
             patch.object(core, "load_json", side_effect=lambda path, default=None: docs[path.name]),
             patch.object(core, "langs", return_value=("ja", "en")),
-            patch.object(core, "line_id", return_value="line"),
-            patch.object(core, "voice_wav", return_value=pathlib.Path("reference.wav")),
+            patch.object(voicecast, "line_id", return_value="line"),
+            patch.object(voicecast, "voice_wav", return_value=pathlib.Path("reference.wav")),
             patch.object(core, "take_wav", return_value=SimpleNamespace(exists=lambda: False)),
-            patch.object(core, "take_length", return_value=1.5),
+            patch.object(lengths, "take_length", return_value=1.5),
         ):
-            row = core.fit_rows("clip", predict=True)[0]
+            row = lengths.fit_rows("clip", predict=True)[0]
         self.assertEqual(row["flag"], "OVER?")
         self.assertEqual(row["est"], 1.5)

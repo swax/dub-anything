@@ -13,6 +13,9 @@ import soundfile as sf
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 import core
+import lengths
+import references
+import voicecast
 
 
 class LineReferenceCacheTests(unittest.TestCase):
@@ -42,9 +45,9 @@ class LineReferenceCacheTests(unittest.TestCase):
             patch.object(core, "WORK", self.root),
             patch.object(core, "JOBS", self.jobs),
             patch.object(core, "langs", return_value=("ja", "en")),
-            patch.object(core, "unclean_windows", return_value=[(None, None)]),
+            patch.object(references, "unclean_windows", return_value=[(None, None)]),
         ):
-            path, text = core.line_refs(self.work, "sample", [self.line], ["L00"], **options)["L00"]
+            path, text = references.line_refs(self.work, "sample", [self.line], ["L00"], **options)["L00"]
         return pathlib.Path(path), text
 
     def test_rebuilt_voice_changes_reference_audio_and_cache_identity(self):
@@ -108,9 +111,9 @@ class LineReferenceCacheTests(unittest.TestCase):
             patch.object(core, "WORK", self.root),
             patch.object(core, "JOBS", self.jobs),
             patch.object(core, "langs", return_value=("ja", "en")),
-            patch.object(core, "unclean_windows", return_value=[("another speaker", None)]),
+            patch.object(references, "unclean_windows", return_value=[("another speaker", None)]),
         ):
-            self.assertEqual(core.line_refs(self.work, "sample", [self.line], ["L00"], prefix=False), {})
+            self.assertEqual(references.line_refs(self.work, "sample", [self.line], ["L00"], prefix=False), {})
 
     def test_repeated_ids_cannot_borrow_another_occurrences_own_reference(self):
         for disabled in (False, True):
@@ -120,10 +123,10 @@ class LineReferenceCacheTests(unittest.TestCase):
                 patch.object(core, "WORK", self.root),
                 patch.object(core, "JOBS", self.jobs),
                 patch.object(core, "langs", return_value=("ja", "en")),
-                patch.object(core, "unclean_windows", return_value=[(None, None)] * 2),
+                patch.object(references, "unclean_windows", return_value=[(None, None)] * 2),
                 self.assertRaisesRegex(ValueError, "distinct take values"),
             ):
-                core.line_refs(self.work, "sample", [self.line, second], ["shared", "shared"], prefix=False)
+                references.line_refs(self.work, "sample", [self.line, second], ["shared", "shared"], prefix=False)
 
     def test_distinct_takes_keep_their_own_source_audio_for_identical_english(self):
         audio = np.full(self.sr, 0.2)
@@ -134,10 +137,10 @@ class LineReferenceCacheTests(unittest.TestCase):
             patch.object(core, "WORK", self.root),
             patch.object(core, "JOBS", self.jobs),
             patch.object(core, "langs", return_value=("ja", "en")),
-            patch.object(core, "unclean_windows", return_value=[(None, None)] * 2),
+            patch.object(references, "unclean_windows", return_value=[(None, None)] * 2),
         ):
-            ids = [core.line_id(line) for line in lines]
-            refs = core.line_refs(self.work, "sample", lines, ids, prefix=False)
+            ids = [voicecast.line_id(line) for line in lines]
+            refs = references.line_refs(self.work, "sample", lines, ids, prefix=False)
         self.assertEqual(len(refs), 2)
         means = [sf.read(refs[key][0])[0].mean() for key in ids]
         np.testing.assert_allclose(means, [0.2, 0.4], atol=1 / 32768)
@@ -148,9 +151,9 @@ class LineReferenceCacheTests(unittest.TestCase):
             patch.object(core, "WORK", self.root),
             patch.object(core, "JOBS", self.jobs),
             patch.object(core, "langs", return_value=("ja", "en")),
-            patch.object(core, "unclean_windows", return_value=[(None, None)] * 2),
+            patch.object(references, "unclean_windows", return_value=[(None, None)] * 2),
         ):
-            self.assertEqual(core.line_refs(self.work, "sample", lines, ["shared", "shared"], prefix=False), {})
+            self.assertEqual(references.line_refs(self.work, "sample", lines, ["shared", "shared"], prefix=False), {})
 
     def test_fit_predicts_with_the_same_source_only_reference_as_generation(self):
         voices = json.loads((self.root / "voices.json").read_text(encoding="utf-8"))
@@ -164,11 +167,11 @@ class LineReferenceCacheTests(unittest.TestCase):
             patch.object(core, "WORK", self.root),
             patch.object(core, "JOBS", self.jobs),
             patch.object(core, "langs", return_value=("ja", "en")),
-            patch.object(core, "voice_wav", return_value=self.root / "voices/speaker1.wav"),
-            patch.object(core, "unclean_windows", return_value=[(None, None)]),
-            patch.object(core, "take_length", return_value=0.4) as estimate,
+            patch.object(voicecast, "voice_wav", return_value=self.root / "voices/speaker1.wav"),
+            patch.object(references, "unclean_windows", return_value=[(None, None)]),
+            patch.object(lengths, "take_length", return_value=0.4) as estimate,
         ):
-            rows = core.fit_rows("sample", predict=True)
+            rows = lengths.fit_rows("sample", predict=True)
         reference, transcript, text = estimate.call_args.args
         audio, _ = sf.read(reference)
         self.assertEqual(len(audio), self.sr // 2)
