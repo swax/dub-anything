@@ -714,6 +714,11 @@ def advance(job, name):
                     f"/ {o['room']:.2f}s  {o['text']}"
                     for o in over
                 )
+            elif rejected := result.get("timing_overflow"):
+                st["problem"] = (
+                    f"backend rejected timing at L{rejected['i']:02d} {rejected['start']:.2f}  "
+                    f"{rejected['text']}; revise the text or window (the rejected take was not published)"
+                )
             elif st["fails"] >= 2:
                 st["problem"] = f"render failed twice: {last_error(out)}"
             elif GPU_FULL.search(out):

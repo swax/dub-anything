@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import pathlib
+import re
 import sys
 import tempfile
 import types
@@ -55,6 +56,19 @@ class ReportResultTests(unittest.TestCase):
                 core.report_result(output="sample.mp4")
                 core.report_result(parts={"sample-01": {"restored": 1}})
             self.assertEqual(core.load_json(path), {"output": "sample.mp4", "parts": {"sample-01": {"restored": 1}}})
+
+    def test_first_atomic_overflow_reports_the_backend_line_without_inventing_duration(self):
+        render = object.__new__(dub.PartRender)
+        render.args = types.SimpleNamespace(name="sample-01", overflow=0.3)
+        render.lines = [{"start": 1.0, "end": 2.0, "text": "Bring it here."}]
+        with (
+            patch.object(dub, "fit_rows", return_value=[{"i": 0, "flag": "", "speech": None}]),
+            patch.object(dub, "report_result") as report,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            with self.assertRaises(SystemExit):
+                render._report_overflow(re.search(r"(\d+)", "0"))
+        report.assert_called_once_with(overflow=[], timing_overflow={"i": 0, "start": 1.0, "text": "Bring it here."})
 
 
 class ToolTests(unittest.TestCase):

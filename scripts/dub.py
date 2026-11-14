@@ -1499,7 +1499,8 @@ class PartRender:
         """VoiceStudio stops at the first overflow; report them all so one
         pass of edits fixes every line."""
         args = self.args
-        print(f"\nVoiceStudio stopped at L{int(stopped.group(1)):02d}" if stopped else "")
+        index = int(stopped.group(1)) if stopped else None
+        print(f"\nVoiceStudio stopped at L{index:02d}" if index is not None else "")
         print("lines that don't fit (clip / window / room with borrowed gap and overflow budget):")
         rows = [row for row in fit_rows(args.name, args.overflow) if row["flag"] in ("OVER", "tight")]
         for row in rows:
@@ -1508,13 +1509,17 @@ class PartRender:
                 f"/ {row['room']:4.2f}s  {row['flag']:5s} {row['text']}"
             )
         # The runner blocks the part on these until its script changes.
-        report_result(
-            overflow=[
+        result = {
+            "overflow": [
                 {k: row[k] for k in ("i", "start", "speech", "window", "room", "text")}
                 for row in rows
                 if row["flag"] == "OVER"
             ]
-        )
+        }
+        if index is not None and 0 <= index < len(self.lines):
+            line = self.lines[index]
+            result["timing_overflow"] = {"i": index, "start": line["start"], "text": line["text"]}
+        report_result(**result)
         raise SystemExit("shorten the text or widen the window of each OVER line, then generate again")
 
     def _convert_and_level(self, done, ids, synthesized):

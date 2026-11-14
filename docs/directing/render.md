@@ -16,6 +16,11 @@ creates another timestamped video under the VoiceStudio job's `exports/`, even
 when the downloaded part MP4 is overwritten. Include those backend copies in
 the job's eventual storage cleanup.
 
+When the first render fails its timing check before any takes are published,
+the backend's reported line still needs revision. There is no current take to
+measure or re-time. The runner blocks on that line without an unchanged retry;
+shorten its text or adjust a justified window, then run again.
+
 If a line overflows, VoiceStudio stops at the first one. `dub.py` then prints
 every line that doesn't fit, using VoiceStudio's exact rule: the whole clip
 against the window, plus up to 0.25 s of the following gap, plus the 0.3 s

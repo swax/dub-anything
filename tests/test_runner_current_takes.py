@@ -121,6 +121,21 @@ class CurrentTakeGateTests(unittest.TestCase):
         self.assertNotIn("problem", self.current_state())
         self.assertEqual(self.current_state()["fails"], 1)
 
+    def test_atomic_timing_rejection_blocks_without_measured_published_takes(self):
+        self.state("render")
+        rejected = {"i": 1, "start": 3.0, "text": "Thank you very much."}
+        with (
+            patch.object(
+                runner, "tool", return_value=(False, "stopped", {"overflow": [], "timing_overflow": rejected})
+            ),
+            patch.object(runner.backend, "ensure") as ensure,
+        ):
+            self.assertEqual(runner.advance({}, self.name), "blocked")
+        ensure.assert_not_called()
+        problem = self.current_state()["problem"]
+        self.assertIn("backend rejected timing at L01 3.00", problem)
+        self.assertIn("rejected take was not published", problem)
+
     def test_qa_without_a_report_remixes_before_final(self):
         self.state()
         with patch.object(runner, "tool", return_value=(True, "0 of 2 lines flagged", {})):
