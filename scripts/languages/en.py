@@ -45,7 +45,13 @@ def speakable(text):
     # ordinary English "for your sake". Keep subtitles conventional while
     # giving the engine an explicit two-syllable reading.
     text = re.sub(r"\bsaké\b", "sah-kay", unicodedata.normalize("NFC", text), flags=re.I)
+    # Romanized Japanese long vowels (Bōda, Tōkyō) keep their macrons in the subtitles;
+    # the engine gets the plain vowels it knows how to say.
+    text = text.translate(MACRONS)
     return re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)
+
+
+MACRONS = str.maketrans("āēīōūĀĒĪŌŪ", "aeiouAEIOU")
 
 
 ONES = (
@@ -123,6 +129,10 @@ def words(text, reading="plain"):
     (phone numbers: "zero three three zero ...")."""
     t = unicodedata.normalize("NFC", text).lower().replace("’", "'")
     t = re.sub(r"\b(?:saké|sah?[- ]kay)\b", "sake", t)
+    # Accents and macrons aside: "Bōda" is heard as "Boda", "café" as "cafe".
+    t = unicodedata.normalize(
+        "NFC", "".join(c for c in unicodedata.normalize("NFD", t) if not unicodedata.combining(c))
+    )
     t = re.sub(r"(\d+)\s*%", r"\1 percent", t)
     t = re.sub(r"\bhalf (?:a )?percent\b", "0.5 percent", t)  # Whisper writes "half a percent" as "0.5%"
     t = re.sub(r"\bno\.\s*(?=\d)", "number ", t)  # "No.1" is "number one", not a negation

@@ -118,6 +118,92 @@ class OriginalAudioTextTests(unittest.TestCase):
                 tool.assert_not_called()
 
 
+class DeliveryHoldTests(unittest.TestCase):
+    def run_final_job(self, work, marker):
+        part = {"name": "sample-01", "file": "opening.mp4"}
+        folder = work / part["name"]
+        folder.mkdir(exist_ok=True)
+        (folder / "script.json").write_text('{"lines": []}', encoding="utf-8")
+        job = {"slug": "sample", "voices": ["actor"], "signs": False, "delivered": {"path": "out.mkv"}}
+        out = io.StringIO()
+        with (
+            patch.object(core, "WORK", work),
+            patch.object(runner, "hold_file", return_value=marker),
+            patch.object(runner, "load_job", return_value=job),
+            patch.object(runner, "save_job"),
+            patch.object(runner.backend, "ensure", return_value=True),
+            patch.object(runner, "split", return_value=True),
+            patch.object(runner, "parts", return_value=[part]),
+            patch.object(runner, "second"),
+            patch.object(runner, "variant", return_value=part["name"]),
+            patch.object(runner, "advance", return_value="final"),
+            patch.object(runner, "prepare_step", return_value="done"),
+            patch.object(runner, "deliver_job", return_value=True) as delivery,
+            patch.object(runner, "report", return_value=work / "report.md"),
+            contextlib.redirect_stdout(out),
+        ):
+            result = runner.cmd_run(types.SimpleNamespace(slug="sample", watch=False))
+        return result, delivery.call_count, out.getvalue()
+
+    def test_held_job_is_not_delivered_until_released(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            marker = work / "delivery-hold"
+            job = {"slug": "sample"}
+            with (
+                patch.object(runner, "hold_file", return_value=marker),
+                patch.object(runner, "load_job", return_value=job),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                runner.cmd_hold(types.SimpleNamespace(slug="sample", reason="auditing signs", release=False))
+                self.assertEqual(runner.held(job), "auditing signs")
+            result, delivered, log = self.run_final_job(work, marker)
+            self.assertEqual((result, delivered), (0, 0))
+            self.assertIn("delivery held (auditing signs)", log)
+            with (
+                patch.object(runner, "hold_file", return_value=marker),
+                patch.object(runner, "load_job", return_value=job),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                runner.cmd_hold(types.SimpleNamespace(slug="sample", reason=None, release=True))
+                self.assertIsNone(runner.held(job))
+            result, delivered, _ = self.run_final_job(work, marker)
+            self.assertEqual((result, delivered), (0, 1))
+
+    def test_unheld_job_delivers_as_before(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            result, delivered, log = self.run_final_job(work, work / "delivery-hold")
+            self.assertEqual((result, delivered), (0, 1))
+            self.assertNotIn("delivery held", log)
+
+
+class SecondOpinionTests(unittest.TestCase):
+    def test_parts_left_original_get_no_second_opinions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp)
+            ps = []
+            for name, lines in (("sample-01", "[]"), ("sample-02", '[{"start": 0, "end": 1}]'), ("sample-03", None)):
+                folder = work / name
+                folder.mkdir()
+                (folder / "draft.json").write_text('{"lines": []}', encoding="utf-8")
+                if lines is not None:
+                    (folder / "script.json").write_text('{"lines": %s}' % lines, encoding="utf-8")
+                ps.append({"name": name})
+            job = {"slug": "sample", "second": []}
+            with (
+                patch.object(core, "WORK", work),
+                patch.object(runner, "job_dir", return_value=work),
+                patch.object(runner, "SECOND_RUN", {}),
+                patch.object(runner.subprocess, "Popen") as launch,
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                runner.second(job, ps)
+                launch.assert_called_once()
+                self.assertEqual(launch.call_args.args[0][len(runner.SECOND) :], ["sample-02", "sample-03"])
+                runner.SECOND_RUN["sample"][2].close()
+
+
 class PauseCheckpointTests(unittest.TestCase):
     def test_pause_waits_for_background_checks_and_skips_the_next_tool(self):
         with tempfile.TemporaryDirectory() as tmp:

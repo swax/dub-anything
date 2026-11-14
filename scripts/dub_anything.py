@@ -6,6 +6,8 @@ Usage:
   scripts/dub_anything.py status <slug>              where each part stands, and what blocks it
   scripts/dub_anything.py ready <slug> <NN> [...]    mark parts' scripts as directed (same as "ready": true)
   scripts/dub_anything.py report <slug>              write and print the report (work/jobs/<slug>/report.md)
+  scripts/dub_anything.py hold <slug> [--reason TEXT | --release]
+                                                     hold delivery for the director's final audits, or release it
   scripts/dub_anything.py cleanup <slug>             after delivery, move the bulk to videos/_to-delete/<slug>/
 
 Everything a job makes is in work/jobs/<slug>/ (see core.py, "where a job's work lives").
@@ -45,6 +47,13 @@ keeps waiting for scripts until delivery, and stops early when a part is blocked
 so the agent can tell the user. Exit codes: 0 done or idle, 2 needs the director,
 1 error. Every GPU step waits for the GPU lock (gpulock.py); logs are in
 work/jobs/<slug>/logs/.
+
+hold puts a marker (work/jobs/<slug>/delivery-hold) that stops run short of
+assembly and delivery: every part still renders and goes through QA, so the
+director can audit current takes, handoffs and signs on the finished parts first.
+run --watch keeps waiting while it is there; hold --release removes it, and the
+next pass delivers. A marker file, not a job.json field, so a runner that is
+already going sees it on its next pass.
 
 Current take hashes are recorded after QA. A re-mix that changes checked audio
 returns to ordinary QA; after two such rechecks for one unchanged script, another
@@ -178,6 +187,19 @@ def load_job(slug):
 
 def save_job(job):
     save_json(job_file(job["slug"]), job)
+
+
+def hold_file(slug):
+    """The delivery hold's marker (cmd_hold): its text is the director's reason."""
+    return job_dir(slug) / "delivery-hold"
+
+
+def held(job):
+    """The reason delivery is held, or None when it isn't."""
+    path = hold_file(job["slug"])
+    if not path.exists():
+        return None
+    return path.read_text(encoding="utf-8").strip() or "held by the director"
 
 
 def job_langs(job):
@@ -381,10 +403,14 @@ def second(job, ps):
         SECOND_RUN.pop(job["slug"])
     elif proc:
         return
+    # A part the director left original (credits, a commercial block) has no lines to check:
+    # minutes of song or advertising would only cost CPU.
     todo = [
         p["name"]
         for p in ps
-        if (part_dir(p["name"]) / "draft.json").exists() and p["name"] not in job.get("second", [])
+        if (part_dir(p["name"]) / "draft.json").exists()
+        and p["name"] not in job.get("second", [])
+        and not original_only(p)
     ]
     if todo:
         logs = job_dir(job["slug"]) / "logs"
@@ -1107,6 +1133,22 @@ def cmd_ready(args):
         print(f"{name}: ready")
 
 
+def cmd_hold(args):
+    """Hold delivery until the director's audits are done (the marker held() reads), or release it."""
+    job = load_job(args.slug)
+    path = hold_file(job["slug"])
+    if args.release:
+        if path.exists():
+            path.unlink()
+            print(f"{job['slug']}: delivery released; run delivers once every part is final")
+        else:
+            print(f"{job['slug']}: delivery was not held")
+        return 0
+    path.write_text((args.reason or "held by the director") + "\n", encoding="utf-8")
+    print(f"{job['slug']}: delivery held ({held(job)}); parts still render and go through QA")
+    return 0
+
+
 def cmd_status(args):
     job = load_job(args.slug)
     ps = parts(job)
@@ -1114,6 +1156,7 @@ def cmd_status(args):
         f"{job['slug']}: {pathlib.Path(job['source']).name}; {' -> '.join(job_langs(job))}; "
         + ("subtitles only" if subtitles_only(job) else f"voices {', '.join(job['voices'])}")
         + (f"; delivered {job['delivered']['at']}" if job.get("delivered") else "")
+        + (f"; delivery held: {held(job)}" if held(job) else "")
     )
     if not ps:
         print("  not split yet")
@@ -1186,7 +1229,7 @@ def cmd_run(args):
                 write_json(path, st)
             if st.get("problem"):
                 known.add((voice_part(p["name"], v), st.get("script"), st["problem"]))
-    seen, new_block = set(), False
+    seen, new_block, held_logged = set(), False, None
     while True:
         pause_checkpoint()
         second(job, ps)
@@ -1219,6 +1262,17 @@ def cmd_run(args):
         # With --signs, signs.py reads every part before delivery, however early the parts were ready.
         signs_read = not job.get("signs") or all((part_dir(p["name"]) / "signs.json").exists() for p in ps)
         final = signs_read and all(ready(p) and all(finished(p, v) for v in job["voices"]) for p in ps)
+        if final and (reason := held(job)):
+            # Everything is rendered and checked: the director audits it before it's packaged.
+            if reason != held_logged:
+                log(
+                    f"every part is final; delivery held ({reason}): "
+                    f"scripts/dub_anything.py hold {job['slug']} --release to deliver"
+                )
+                held_logged = reason
+            final = False
+            if not args.watch and not busy:
+                return 0
         if final:
             if SECOND_RUN.get(job["slug"]):
                 SECOND_RUN[job["slug"]][0].wait()
@@ -1332,6 +1386,11 @@ def main():
             b.add_argument("--watch", action="store_true", help="keep waiting for scripts until delivered")
         if name == "cleanup":
             b.add_argument("--force", action="store_true")
+    h = sub.add_parser("hold", help="hold delivery for the director's audits, or --release it")
+    h.add_argument("slug")
+    h.add_argument("--reason", help="why delivery waits (shown by status and run)")
+    h.add_argument("--release", action="store_true", help="remove the hold: the next run delivers")
+    h.set_defaults(fn=cmd_hold)
     c = sub.add_parser("ready")
     c.add_argument("slug")
     c.add_argument("parts", nargs="+")

@@ -29,6 +29,9 @@ class JapaneseSourceNumbersTests(unittest.TestCase):
             ("零点五秒です。", "0.5秒です。"),
             ("三点五万円です。", "35,000円です。"),
             ("マイナス三点五度です。", "-3.5度です。"),
+            ("本当に三週間だぞ。", "本当に3週間だぞ。"),
+            ("一週間で二名様、二泊三日です。", "1週間で2名様、2泊3日です。"),
+            ("三点差で四十代の三着です。", "3点差で40代の3着です。"),
         ):
             with self.subTest(want=want, heard=heard):
                 self.assertEqual(ja.normalize_source(want), ja.normalize_source(heard))
@@ -101,6 +104,8 @@ class SourceWindowNumberTests(unittest.TestCase):
         self.enterContext(patch.object(core, "WORK", self.root))
         self.enterContext(patch.object(core, "JOBS", self.root / "jobs"))
         self.enterContext(patch.object(core, "langs", return_value=("ja", "en")))
+        # Readings come from pykakasi in its own environment: as written here, unless a test says otherwise.
+        self.enterContext(patch.object(ja, "source_reading", side_effect=lambda text: text))
         self.enterContext(
             patch.dict(
                 sys.modules,
@@ -168,6 +173,19 @@ class SourceWindowNumberTests(unittest.TestCase):
     def test_unrelated_words_still_have_to_match(self):
         self.heard = "三千六百円で電車は別の駅から出発しました。"
         self.assertIn("heard as", self.check()[0][0])
+
+    def test_kanji_heard_as_kana_reads_the_same_and_keeps_its_reference(self):
+        self.lines[0]["ja"], self.heard = "南条弘です。", "なんじょうひろしです。"
+        self.assertIn("heard as", self.check()[0][0])  # spelled differently, and no reading to compare
+        readings = {"南条弘です。": "なんじょうひろしです。", "なんじょうひろしです。": "なんじょうひろしです。"}
+        (self.work / "refs" / "clean.json").unlink()  # the same inputs would reuse that decision
+        self.transcribe.reset_mock()
+        with patch.object(ja, "source_reading", side_effect=readings.get):
+            self.assertEqual(self.check()[0], (None, None))
+
+    def test_reading_is_not_asked_for_when_the_spelling_already_matches(self):
+        with patch.object(ja, "source_reading", side_effect=AssertionError("no reading needed")):
+            self.assertEqual(self.check()[0], (None, None))
 
     def test_numeric_equivalence_does_not_override_a_clipped_source_window(self):
         self.draft.get_speech_timestamps = lambda *args: [{"start": 0, "end": self.sr}]

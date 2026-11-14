@@ -21,7 +21,8 @@ ROOM_EFFECTS = {"echo", "pa"}  # their original carries the room, which a refere
 
 
 # How far Whisper's hearing of a window may be from the line's `ja` (character error
-# rate). Kanji written as kana counts against it, so only gross mismatches fail.
+# rate). Where the language has a reading (source_reading), kanji written as kana
+# doesn't count against it; elsewhere only gross mismatches fail.
 LINE_REF_CER = 0.5
 
 
@@ -156,6 +157,9 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
     language, and the line's original words are its field named for it."""
     src = core.langs(core.part_name(work))[0]
     normalize = getattr(LANGUAGES[src], "normalize_source", lambda text: (text, []))
+    # Spelling is not speech: a language that can read its text aloud (Japanese, as kana)
+    # compares readings too, so 南条さん heard as なんじょうさん still matches.
+    reading = getattr(LANGUAGES[src], "source_reading", None)
     cache_path = work / "refs" / "clean.json"
     cache = core.load_json(cache_path, {})
     keys = source_check_keys(work, lines, dips, cast_lines)
@@ -221,6 +225,8 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
                 expected, expected_numbers = normalize(core.said(line, src))
                 observed, observed_numbers = normalize(heard)
                 err = cer(bare(expected), bare(observed))
+                if err > LINE_REF_CER and reading:
+                    err = min(err, cer(bare(reading(expected)), bare(reading(observed))))
                 if expected_numbers != observed_numbers:
                     why = f"number differs: {expected_numbers} -> {observed_numbers}"
                 elif err > LINE_REF_CER:

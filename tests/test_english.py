@@ -16,6 +16,14 @@ class BeveragePronunciationTests(unittest.TestCase):
         )
         self.assertEqual(en.speakable("Sake\u0301, please."), "sah-kay, please.")
 
+    def test_romanized_japanese_macrons_reach_the_engine_as_plain_vowels(self):
+        self.assertEqual(en.speakable("Mr. Bōda drove to Tōkyō."), "Mr. Boda drove to Tokyo.")
+        self.assertEqual(en.speakable("Mr. Bōda."), "Mr. Boda.")  # a decomposed macron too
+
+    def test_qa_hears_names_with_macrons_as_their_plain_spelling(self):
+        self.assertEqual(en.compare("Mr. Bōda is strict.", "Mr. Boda is strict.")[0], [])
+        self.assertEqual(en.words("Café Bōda"), ["cafe", "boda"])
+
     def test_qa_accepts_the_beverage_spellings(self):
         for heard in (
             "Two bottles of sake.",

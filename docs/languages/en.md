@@ -40,6 +40,11 @@ have kept them digits for the clone to read in its reference's language
 (`speakable` in `en.py`; [ko.md](ko.md)). From Spanish, see [es.md](es.md), "As
 the source"; from Korean, [ko.md](ko.md); from Chinese, [zh.md](zh.md).
 
+Romanized Japanese names keep their macrons in the subtitles (`Bōda`,
+`Tōkyō`); `speakable` sends the engine the plain vowels, which it says
+reliably, and QA compares words without accents or macrons, so `Bōda` heard
+as "Boda" is no flag.
+
 Connected speech can make a short proper name sound like a pronoun or a common
 phrase. When the scene supports it, a title before the name can make the boundary
 clear without changing the person being discussed. Check the replacement in the

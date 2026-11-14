@@ -22,12 +22,18 @@ SECOND_OPINIONS = {
 # (RapidOCR's LangRec and ModelType), which reads kana too.
 OCR = ("CH", "SERVER")
 UNIT_PUNCT = "、。,.!?！？…・「」『』()（）ー〜~-—:：;；\"' 　"
-SOURCE_CHECK_VERSION = "ja-numbers-v1"
+SOURCE_CHECK_VERSION = "ja-numbers-readings-v2"
 
 
 def normalize_source(text):
     """Written-number equivalence for source references, preserving other words."""
     return kana.normalize_source_numbers(text)
+
+
+def source_reading(text):
+    """The reading a source-window check compares when two spellings differ: kanji or
+    kana, the same words (南条さん and なんじょうさん) read the same (kana.py)."""
+    return kana.readings([text])[0]
 
 
 def units(text):

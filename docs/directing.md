@@ -235,12 +235,26 @@ the words with audio and frames before using them to correct a transcript.
 Foreign-language dialogue translated in the picture may need to stay original
 with translated captions. Auto detection provides evidence; the director still
 decides which text the viewer needs.
+The caption reading runs on every part before its draft (about 3 minutes of GPU
+for a 3-minute part) and is separate from the later signs scan. When the first
+parts' `subs.json` hold only credits and signs, no dialogue captions, stop it:
+pause the runner (below; it keeps `job.json` in memory and would write its old
+copy back), set `"captions": false` in `job.json`, and run again. `"signs"`
+stays on, so every part is still scanned for text to translate.
 
 To pause a long run at a completed tool step, set `DUB_PAUSE_FILE` to an absolute
 marker-file path before starting `run --watch`, then create that file when a
 pause is needed. The current tool and background second-opinion checks finish
 before the runner exits with code 75. Remove the marker and run the same command
 again to resume from saved progress. Without that variable, runs behave as usual.
+
+To audit the finished parts before anything is packaged (current takes,
+handoffs, retained original audio, signs), hold delivery:
+`scripts/dub_anything.py hold <slug> --reason "<what you're checking>"`. Every
+part still renders and goes through QA; when all are final, `run` logs that
+delivery is held and `run --watch` keeps waiting. `status` shows the hold.
+`scripts/dub_anything.py hold <slug> --release` removes it, and the next pass
+assembles and delivers. A running watcher sees the marker on its next pass.
 
 For a new show, use the actor's voice with their native accent unless the user
 requests American English or both (see "Voice" under [Render](directing/render.md)). The
@@ -293,7 +307,7 @@ The loop, in the order it runs:
 
 | Script | Does |
 |---|---|
-| `scripts/dub_anything.py new\|run\|status\|ready\|report\|cleanup` | A whole dub (or with `--voices none`, subtitles): runs every machine step below in order, renders each part when its script is ready, QA rounds, delivery, the report |
+| `scripts/dub_anything.py new\|run\|status\|ready\|hold\|report\|cleanup` | A whole dub (or with `--voices none`, subtitles): runs every machine step below in order, renders each part when its script is ready, QA rounds, delivery (unless held), the report |
 | `scripts/split.py <video>` | Cut a long video into ~N-minute parts at pauses in speech (frame-accurate) |
 | `scripts/dub.py prep <video> [--source en\|es\|ko\|zh --target ja\|en\|es] [--subtitles-only]` | Upload (VoiceStudio doesn't separate it), separate the voices with `separate.py`, attach the stems to the job, transcribe, diarize → `<part>/segments.json` (with the language pair), source-language `.srt`; `--subtitles-only`: the audio alone, no backend |
 | `scripts/dub.py fork <part>.us` | Another voice of a prepped part: a VoiceStudio job over the same hard-linked media and stems, nothing uploaded or separated again (`dub_anything.py` does it for the American voice) |

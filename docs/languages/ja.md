@@ -17,9 +17,13 @@ The per-line reference check compares written numeric values before its normal
 character-error check: `三千六百円`, `3,600円` and full-width digits agree, as do
 mixed forms such as `3万6千円` and `三万六千円`. Values keep their order, signs and
 leading zeroes; a changed amount is rejected even inside an otherwise matching
-long sentence. Ordinary kanji and kana are not made interchangeable by this
-check, and compounds such as `一緒` and `千葉` stay intact. Ambiguous `十分`
-stays written as-is rather than assuming it means ten minutes. VAD and speaker
+long sentence. A single kanji numeral counts as a number before a counter
+(`三週間` and `3週間`, `二泊三日`, `二名`); compounds such as `一緒`, `一般` and
+`千葉` stay intact. Ambiguous `十分` stays written as-is rather than assuming it
+means ten minutes. When the written words still differ, the check compares
+their kana readings (`kana.readings`, pykakasi in its own environment), so a
+line written `南条さん` is not rejected because Whisper wrote `なんじょうさん`;
+the threshold is unchanged, so different words still fail. VAD and speaker
 checks still apply. The numeric policy is part of the Japanese source-check cache key: old
 decisions are rechecked, including the speaker comparison a previous text
 rejection may have skipped. This can select a different reference on the next
