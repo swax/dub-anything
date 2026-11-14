@@ -21,7 +21,8 @@ official subtitles). It also writes sidecar `.en.srt` / `.ja.srt` files.
 ```
 
 `deliver.py` puts the dubs into its input file, so give it a **job-local working
-source copy**, preserving the original library file and its name. It puts each
+source copy**, preserving the original library file and its name
+(`dub_anything.py new` makes one in `bulk/media/source/`). It puts each
 voice's English track first (the default voice's plays; with both, the actor's),
 then the source's own audio and subtitles untouched, with English subtitles per voice and
 the Japanese transcript. Every copied stream is checked against its input before
@@ -30,15 +31,16 @@ replaces the dub tracks a "(dubbed)" file already has. `dub_anything.py` does bo
 steps when every part is done.
 
 The final handover belongs **beside the original library video**, using its
-original basename plus ` (dubbed)` and the delivered container extension. Record
-the library source path at intake, including when the job works on another
-drive. After packaging and stream verification, copy the delivery to a temporary
-sibling in that library folder, compare the entire file's SHA-256 with the
-verified job delivery, then publish the final name. Preserve the original;
-do not overwrite an unrelated existing file. Record the published library path
-and SHA-256 in the job's `NOTES.md` and delivery receipt and link that file in the
-handover. A retained job copy alone does not finish delivery. Apply the same
-placement rule to a subtitles-only video and its translation sidecar.
+original basename plus ` (dubbed)` and the delivered container extension.
+`dub_anything.py` publishes it there itself after delivery (`publish`): each
+file (with a subtitles-only job, the `.srt` sidecar too) is copied under a
+hidden `.partial` name in the original's folder, compared with the verified
+delivery by SHA-256, and only then renamed. It replaces only its own earlier
+publication (the same path, with the hash it recorded) and stops with a problem
+rather than overwrite any other file. The published path and hash are in
+`job.json` (`delivered.published`) and the report; note them in the job's
+`NOTES.md` and link the file in the handover. A delivery that exists only in
+`bulk/` is not a finished handover.
 
 When any part has `signs` or `subtitle_layout`, `assemble.py` also writes the
 English track styled (`.en.ass`: the dialogue, with each sign placed by its
@@ -83,41 +85,30 @@ an explicit cleanup request, finish the authorized cleanup in the same task.
 The delivery flag alone does not establish listener acceptance. An idle
 machine does not establish that an unfinished job has been abandoned.
 
-1. **Check what must survive.** Locate the actual delivered video, including
-   any move into the user's library, and verify it against its delivery proof
-   when available. Keep an original source or a verified delivery containing
-   the copied original video and audio. Preserve scripts, transcripts, states,
-   reports, notes, the job's `voices/*.wav` (later jobs may borrow them), VoiceStudio voice profiles and
-   references, and requested review pages, clips and experiments. Check that
+1. **Check what must survive.** Everything at the top of the job's folder
+   stays: scripts, transcripts, states, reports, notes, the cast with its
+   `voices/*.wav` (later jobs may borrow them) and `scratch/`. So do the
+   published dub and the original beside it, VoiceStudio voice profiles,
+   installed engines, Python interpreters and downloaded models. Check that
    shared voice references have been materialized before retiring their source
-   jobs. Check retained jobs' persisted paths and voice profiles too: cached
-   stems or clone references can point into another job's directory. Preserve
-   that dependency or migrate and verify it before removing the older job.
-   Keep installed engines, Python interpreters and downloaded production
-   models. Stop or wait for job watchers, backend tasks and cache users before
-   touching their files.
-2. **Stage the job's disposable bulk.** Run
-   `scripts/dub_anything.py cleanup <slug>` after checking its inputs. It moves
-   the job's VoiceStudio folders (every `dub_jobs/<slug>-...`, with their
-   `exports/` history), `media/split/` (split parts and renders), per-line
-   references and kept takes, the `media/` input video and job logs into
-   `videos/_to-delete/<slug>/`. The job's folder keeps its scripts, cast, notes,
-   report and `scratch/`; review `scratch/` for experiments worth keeping before
-   deleting it. Keep a manifest outside that folder. If
-   the workspace input is the only retained source, restore it from the holding
-   folder before deletion. Preserve requested experiments and provenance logs
-   separately. Do not use `--force` on an unfinished job without the user's
-   explicit instruction to abandon it. Inventory jobs left over from earlier
-   cleanup or experiments separately; a folder's age is not proof it is unused.
-3. **Actually reclaim space when authorized.** A move on the same volume does
-   not free space. Check every resolved absolute target is inside the intended
-   holding folder; reject reparse points and unexpected files. Verify staged
-   paths, sizes and file identities or hashes against the manifest, and check
-   retained deliveries and references again. With the user's cleanup
-   authorization, remove only those staged disposable files. Otherwise report
-   their path and size for the user to delete. Record what was removed, what
-   remains resumable, and the before/after free space. Keep partial cleanup
-   distinct from the runner's full `cleaned` state.
+   jobs, and that no retained job's paths point into this one's bulk. Stop or
+   wait for job watchers and backend tasks before deleting their files.
+2. **List, then delete.** `scripts/dub_anything.py cleanup <slug>` prints what
+   the job keeps and what it can delete, with sizes (a hard-linked file counted
+   once): the job's `bulk/` (the source copy, split parts and renders, per-line
+   references, kept takes, sign sheets, logs) and VoiceStudio's folders for its
+   parts (every `dub_jobs/<slug>-...`, with their `exports/` history). It checks
+   the published dub against the hashes recorded when it was published. With
+   the user's acceptance or cleanup request, `cleanup <slug> --delete` deletes
+   exactly that list, only the job's own folders and never through a link, and
+   records `cleaned` (when, bytes freed) in `job.json`. It refuses while the dub
+   isn't verified beside the original, since `bulk/` then holds the only copy;
+   `--force` deletes anyway, for a job the user has explicitly abandoned.
+   Deletion is permanent: rendering the job again needs a fresh prep. Record
+   the result and the measured free-space change in the job's `NOTES.md`.
+3. **Review leftovers separately.** Inventory jobs left from earlier cleanup or
+   experiments on their own; a folder's age is not proof it is unused. Keep
+   requested review clips and experiments out of `bulk/` (in `scratch/`).
 4. **Review dependency caches separately.** Once all users of the cache are
    idle, `uv cache prune` removes dangling entries and cached environments.
    A broader, authorized `uv cache clean` clears regenerable package and

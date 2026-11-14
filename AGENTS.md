@@ -53,15 +53,17 @@ cloned or shared are final.
   `python scripts/setup.py` (`python3` on macOS/Linux) initializes the pinned
   `vendor/VoiceStudio` submodule and installs its Python environment. Use
   `--init-only` to update sources while keeping an existing GPU environment.
-- A job's working files are in its own folder, `work/jobs/<slug>/`: its
-  `job.json`, report and `NOTES.md`, its cast (`voices.json`, `voices/`), its
-  logs, the source link and split parts (`media/`) and each part's work
-  (`parts/NN/`); VoiceStudio's folder for a part is `dub_jobs/<slug>-NN`. A part
-  is still named `<slug>-NN` on the command line. Put anything you make for a
-  job yourself (probe scripts, frames, logs, listening experiments) in its
-  `scratch/`, never in `work/` or the job's folder at large. See the
-  [file table](docs/directing.md#files). Publish the final verified video beside
-  the original library source as described in step 6.
+- A job's working files are in its own folder, `work/jobs/<slug>/`. What is
+  worth keeping sits at its top: `job.json`, report and `NOTES.md`, its cast
+  (`voices.json`, `voices/`), each part's work (`parts/NN/`) and `scratch/`.
+  Everything the job can make again is in its `bulk/`: the working copy of the
+  source, split parts and renders, per-line references, kept takes, sign sheets
+  and logs. VoiceStudio's folder for a part is `dub_jobs/<slug>-NN`, outside the
+  job, and disposable too. A part is still named `<slug>-NN` on the command
+  line. Put anything you make for a job yourself (probe scripts, frames,
+  listening experiments) in its `scratch/`, never in `work/`, `bulk/` or the
+  job's folder at large. See the [file table](docs/directing.md#files). The
+  final verified video is published beside the original library source (step 6).
 - `work/NOTES.md` (git-ignored, may not exist) has this machine's paths,
   hardware and installs; each job's `NOTES.md` has the show's: story, cast,
   word choices. Read both, and add to the job's when you learn something about
@@ -119,11 +121,11 @@ work; you direct.
    the user to choose. For English dubs, honor requests for American English
    (`--voices american`) or both (`--voices both`); with both, the actor's voice
    plays by default. Other target languages use the actor's voice.
-   Record the original video's absolute library path and intended sibling
-   delivery path in the job's `NOTES.md`. Use a job-local source copy for the
-   pipeline: `deliver.py` replaces its input, so never give it the only library
-   original. The final handover is a separate `<original name> (dubbed)` file
-   beside that original (see step 6), even when work runs on another drive.
+   Give `new` the original library video: it copies it into the job's
+   `bulk/media/source/` (delivery replaces that copy, never the original) and
+   records the original's path. The final handover is a separate
+   `<original name> (dubbed)` file beside that original (see step 6), even when
+   work runs on another drive. Note the library path in the job's `NOTES.md`.
    Look at the video's length and skim it for blocks that stay in the original
    (a channel card, commercial breaks, credits) so they can be split off whole.
    Keeping original audio does not exclude on-screen text: review film titles,
@@ -146,7 +148,9 @@ work; you direct.
    CPU; renders each part in each voice as soon as you mark its script ready,
    with QA rounds, ahead of any prep still to do; and delivers when every part
    is done. Follow it with `scripts/dub_anything.py status <slug>` and the logs in
-   `work/jobs/<slug>/logs/`.
+   `work/jobs/<slug>/bulk/logs/`. To audit the finished parts before anything is
+   packaged, `scripts/dub_anything.py hold <slug> --reason "..."` holds delivery
+   until `hold <slug> --release`.
 3. **Direct, part by part** ([docs/directing.md](docs/directing.md)). Cast the
    voices (`cast.py`, `frames.py`, the job's `voices.json`) from the first parts
    ([Prep, draft and cast](docs/directing/prep-and-cast.md)).
@@ -195,34 +199,28 @@ work; you direct.
    flags after a fresh take (or three rounds). Reword what a voice can't say (that part renders
    and delivers again by itself). Leave names and near-misses for the user's
    ears.
-6. **Hand over.** Place the verified `<name> (dubbed)` video alongside the
-   original library video, preserving the original file and its name. Package
-   against the job-local source copy first, then copy the verified result to a
-   temporary sibling in the original's folder, check its SHA-256 against the
-   verified delivery, and publish it under the final name. Do not overwrite an
-   unrelated existing file. Record the final library path and hash in the job's
-   `NOTES.md` and delivery receipt, and give the user that path. The file has
+6. **Hand over.** Delivery packages into the job's working copy of the source,
+   then publishes the verified `<name> (dubbed)` video beside the original
+   library video by itself: copied under a hidden temporary name, checked by
+   SHA-256 against the delivery, then renamed, never over an unrelated file.
+   Its path and hash are in `job.json` (`delivered.published`) and the report.
+   Note them in the job's `NOTES.md` and give the user that path. The file has
    the dub tracks first (the default voice plays), the original audio after
    them, the dub's subtitles on, and the original's transcript (with signs:
    Matroska, the dub's subtitles styled with the signs placed, and a signs-only track). Every
    copied stream was checked against its source before the working source
    copy was replaced. Give the user the listen list with film times, and send
    a notification if they may be away.
-7. **Close out storage for every job.** After verified delivery, report the
-   retained working size and record cleanup as pending while the user listens.
-   Once the user accepts the dub or requests cleanup, carry out the authorized
-   cleanup without asking again: `scripts/dub_anything.py cleanup <slug>` moves
-   the job's VoiceStudio folders (including all timestamped exports), split
-   parts, renders and takes to `videos/_to-delete/<slug>/`. It also moves the
-   `media/` source link and logs: first identify the retained source, delivery,
-   voice references and any listening experiments in `scratch/` that must
-   survive. The job's folder keeps scripts, states, the cast, reports and notes.
-   **Moving files on the same drive frees no space.** When the user authorizes
-   reclaiming space, verify the staged inventory and retained files, then
-   remove only the authorized disposable files. Otherwise give the holding
-   path and size for the user to delete. Record the result and measured free
-   space change in the job's `NOTES.md`. See [storage cleanup](docs/directing/package.md#7-storage-cleanup)
-   for source preservation, old exports, idle dependency caches and unfinished jobs.
+7. **Close out storage for every job.** After verified delivery,
+   `scripts/dub_anything.py cleanup <slug>` lists what the job keeps and what
+   it can delete (its `bulk/` and its VoiceStudio folders, exports included),
+   with sizes, and checks the published dub's hash. Report the deletable size
+   and record cleanup as pending while the user listens. Once the user accepts
+   the dub or requests cleanup, carry it out without asking again:
+   `cleanup <slug> --delete` deletes exactly that list, and refuses while the
+   dub isn't verified beside the original. Record the freed space in the job's
+   `NOTES.md`. See [storage cleanup](docs/directing/package.md#7-storage-cleanup)
+   for what must survive, idle dependency caches and unfinished jobs.
 
 **Subtitles only.** When the user wants a video subtitled rather than dubbed,
 make the job with `--voices none` (any two languages with a module in
@@ -297,9 +295,9 @@ sound wrong: `scripts/register.py report`, `build`, `route --apply`, `check`.
 - Preserve original sources, delivered videos, voice references and requested
   review artifacts. Final deliveries belong beside the original library video;
   packaging may replace only the job-local working source after every copied
-  stream is verified. Stage disposable files in `videos/_to-delete/`; delete them only
-  within an explicit cleanup authorization, after checking the resolved paths,
-  staged inventory and retained files. A request to reclaim space authorizes
+  stream is verified. Delete a job's `bulk/` and VoiceStudio folders only
+  within an explicit cleanup authorization, with `dub_anything.py cleanup
+  <slug> --delete` after its listing checks out. A request to reclaim space authorizes
   deleting the identified generated intermediates and regenerable caches in
   that scope; avoid repeated confirmation. Preserve unfinished jobs unless the
   user explicitly abandons them.

@@ -443,7 +443,7 @@ def context(name, script, rendered, policy, candidates, seed, indices=None):
         reference = rendered.get(lid, {}).get("line_ref")
         if not reference:
             continue
-        path = work / "refs" / f"{lid}_{reference}.wav"
+        path = core.bulk_of(work) / "refs" / f"{lid}_{reference}.wav"
         if not path.is_file():
             raise ValueError(f"declared per-line reference is missing: {path}")
         line_references[lid] = {
@@ -548,7 +548,7 @@ def trial(
             store.recover()
             if (control or apply or apply_control or restore) and store.receipt(0) is None:
                 raise ValueError("archive the common first baseline before control/apply/restore actions")
-            if store.receipt(0) is None and core.load_json(work / "takes" / "kept.json", {}).get(lid):
+            if store.receipt(0) is None and core.load_json(core.bulk_of(work) / "takes" / "kept.json", {}).get(lid):
                 raise ValueError("normal QA repair history exists; cannot relabel its result as the common first take")
             store.capture(0, rendered[lid].get("seed"))
             stores[index] = store

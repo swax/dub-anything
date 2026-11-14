@@ -1,4 +1,5 @@
-"""Everything a job makes lives in its folder, work/jobs/<slug>/; clips prepped by hand keep work/<name>."""
+"""Everything a job makes lives in its folder, work/jobs/<slug>/, what it can make again in bulk/;
+clips prepped by hand keep work/<name>."""
 
 import contextlib
 import io
@@ -51,15 +52,39 @@ class JobLayoutTests(unittest.TestCase):
         core.use_job(None)
         return core.job_dir(slug)
 
-    def test_new_job_keeps_its_media_logs_and_scratch_in_its_folder(self):
+    def test_new_job_keeps_what_it_can_make_again_in_bulk(self):
         home = self.new_job("show")
         job = runner.load_job("show")
-        self.assertEqual(pathlib.Path(job["video"]), home / "media" / "show.mp4")
+        original = self.root / "show.mp4"
+        self.assertEqual(pathlib.Path(job["video"]), home / "bulk" / "media" / "show.mp4")
         self.assertTrue(pathlib.Path(job["video"]).exists())
-        for folder in ("media", "parts", "logs", "scratch"):
+        # Delivery replaces its source: a working copy in bulk/, never the original.
+        self.assertEqual(pathlib.Path(job["source"]), home / "bulk" / "media" / "source" / "show.mp4")
+        self.assertTrue(pathlib.Path(job["source"]).exists())
+        self.assertEqual(job["original"], str(original))
+        self.assertTrue(original.exists())
+        for folder in ("parts", "scratch"):
             self.assertTrue((home / folder).is_dir(), folder)
-        self.assertEqual(core.split_dir("show"), home / "media" / "split")
-        self.assertFalse((self.root / "videos").exists())
+        for folder in ("media", "logs"):
+            self.assertFalse((home / folder).exists(), folder)
+        self.assertEqual(core.split_dir("show"), home / "bulk" / "split")
+        self.assertEqual(core.bulk_of(core.part_dir("show-01")), home / "bulk" / "parts" / "01")
+        self.assertEqual(core.bulk_of(core.part_dir("show-01.us")), home / "bulk" / "parts" / "01.us")
+        clip = self.work / "clip"
+        self.assertEqual(core.bulk_of(clip), clip)  # a clip prepped by hand keeps everything together
+
+    def test_a_working_copy_inside_the_job_is_used_as_is(self):
+        home = core.job_dir("show")
+        copy = home / "bulk" / "media" / "source" / "show.mp4"
+        copy.parent.mkdir(parents=True)
+        copy.touch()
+        argv = ["dub_anything.py", "new", str(copy), "--slug", "show"]
+        with patch.object(sys, "argv", argv), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                runner.main()
+        job = runner.load_job("show")
+        self.assertEqual(pathlib.Path(job["source"]), copy)
+        self.assertNotIn("original", job)
 
     def test_part_names_resolve_into_the_job_and_back(self):
         home = self.new_job("show")
@@ -127,30 +152,83 @@ class JobLayoutTests(unittest.TestCase):
         (self.jobs / "show-03").mkdir(parents=True)
         self.assertEqual(core.new_vs_job_id("show-03"), "show-03-2")
 
-    def test_cleanup_stages_media_logs_takes_and_every_voicestudio_folder(self):
+    def delivered_job(self, publish=True):
         home = self.new_job("show")
-        split = home / "media" / "split"
+        split = home / "bulk" / "split"
         split.mkdir(parents=True)
         (split / "parts.json").write_text(json.dumps({"parts": [{"name": "show-01"}]}), encoding="utf-8")
         part = core.part_dir("show-01")
-        (part / "takes").mkdir(parents=True)
-        (part / "segments.json").write_text('{"job_id": "show-01"}', encoding="utf-8")
+        part.mkdir(parents=True)
         (part / "script.json").write_text('{"lines": []}', encoding="utf-8")
+        refs = core.bulk_of(part) / "refs"
+        refs.mkdir(parents=True)
+        (refs / "L01.wav").write_bytes(b"x" * 10)
         for name in ("show-01", "show-01-2", "showcase-01"):
             (self.jobs / name).mkdir(parents=True)
         job = runner.load_job("show")
-        job["delivered"] = {"path": "x"}
+        out = pathlib.Path(job["source"]).with_name("show (dubbed).mkv")
+        out.write_bytes(b"dub")
+        job["delivered"] = {"path": str(out)}
+        if publish:
+            with contextlib.redirect_stdout(io.StringIO()):
+                job["delivered"]["published"] = runner.publish(job, out)
         runner.save_job(job)
+        return home, part
+
+    def cleanup(self, **flags):
+        args = types.SimpleNamespace(**{"slug": "show", "delete": False, "force": False, **flags})
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            code = runner.cmd_cleanup(args)
+        return code, out.getvalue()
+
+    def test_cleanup_lists_then_deletes_only_bulk_and_the_jobs_voicestudio_folders(self):
+        home, part = self.delivered_job()
+        published = self.root / "show (dubbed).mkv"
+        self.assertEqual(published.read_bytes(), b"dub")
+        code, listing = self.cleanup()
+        self.assertEqual(code, 0)
+        self.assertIn("published, SHA-256 matches", listing)
+        self.assertTrue((home / "bulk").is_dir())  # listing alone deletes nothing
+        code, _ = self.cleanup(delete=True)
+        self.assertEqual(code, 0)
+        self.assertFalse((home / "bulk").exists())
+        self.assertEqual(sorted(p.name for p in self.jobs.iterdir()), ["showcase-01"])
+        for kept in (part / "script.json", home / "scratch", home / "job.json", published, self.root / "show.mp4"):
+            self.assertTrue(kept.exists(), kept)
+        self.assertGreater(runner.load_job("show")["cleaned"]["freed"], 0)
+
+    def test_cleanup_keeps_a_dub_that_exists_only_in_bulk(self):
+        home, _ = self.delivered_job(publish=False)
+        with self.assertRaises(SystemExit):
+            self.cleanup(delete=True)
+        self.assertTrue((home / "bulk").is_dir())
+        code, _ = self.cleanup(delete=True, force=True)
+        self.assertFalse((home / "bulk").exists())
+
+    def test_cleanup_refuses_when_the_published_dub_changed(self):
+        home, _ = self.delivered_job()
+        (self.root / "show (dubbed).mkv").write_bytes(b"something else")
+        with self.assertRaises(SystemExit):
+            self.cleanup(delete=True)
+        self.assertTrue((home / "bulk").is_dir())
+
+    def test_publishing_replaces_only_its_own_earlier_copy(self):
+        self.new_job("show")
+        job = runner.load_job("show")
+        out = pathlib.Path(job["source"]).with_name("show (dubbed).mkv")
+        out.write_bytes(b"first")
+        sidecar = out.with_name("show (dubbed).en.srt")
+        sidecar.write_text("1", encoding="utf-8")
         with contextlib.redirect_stdout(io.StringIO()):
-            runner.cmd_cleanup(types.SimpleNamespace(slug="show", force=False))
-        hold = self.root / "videos" / "_to-delete" / "show"
-        self.assertEqual(sorted(p.name for p in (hold / "dub_jobs").iterdir()), ["show-01", "show-01-2"])
-        self.assertTrue((self.jobs / "showcase-01").exists())
-        self.assertTrue((hold / "media" / "split" / "parts.json").exists())
-        self.assertTrue((hold / "media" / "show.mp4").exists())
-        self.assertTrue((hold / "parts" / "show-01" / "takes").is_dir())
-        self.assertTrue((part / "script.json").exists())
-        self.assertTrue((home / "scratch").is_dir())
+            first = runner.publish(job, out)
+            self.assertEqual([pathlib.Path(f["path"]).name for f in first["files"]], [out.name, sidecar.name])
+            out.write_bytes(b"second")
+            second = runner.publish(job, out, first)  # its own earlier delivery: replaced
+            self.assertEqual((self.root / out.name).read_bytes(), b"second")
+            (self.root / out.name).write_bytes(b"the user's own file")
+            self.assertIsNone(runner.publish(job, out, second))  # changed since: left alone
+        self.assertEqual((self.root / out.name).read_bytes(), b"the user's own file")
+        self.assertFalse(list(self.root.glob(".*.partial")))
 
 
 if __name__ == "__main__":

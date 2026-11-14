@@ -44,7 +44,7 @@ import sys
 import numpy as np
 
 import ass
-from core import part_dir, part_name
+from core import bulk_of, part_dir, part_name
 import subs
 from languages import LANGUAGES, pair_of
 
@@ -310,8 +310,8 @@ def preview(work, video, w, h, which=None, target=None):
     dialogue = [
         (l["start"], l["end"], LANGUAGES[tgt].subtitle(l["text"])) for l in script["lines"] + script.get("captions", [])
     ]
-    out = work / "signs"
-    out.mkdir(exist_ok=True)
+    out = bulk_of(work) / "signs"
+    out.mkdir(parents=True, exist_ok=True)
     ass.write(out / "preview.ass", w, h, dialogue, signs, lang=tgt, subtitle_layout=script.get("subtitle_layout", []))
     tiles = []
     for k, s in pick:
@@ -422,8 +422,8 @@ def main():
     cands = track(readings, shot_cuts, 1 / args.fps, t_end)
     logo = logos(cands)
     cands = [c for c in cands if id(c) not in logo]
-    out = work / "signs"
-    out.mkdir(exist_ok=True)
+    out = bulk_of(work) / "signs"
+    out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.jpg"):
         old.unlink()
     for k, c in enumerate(cands, 1):

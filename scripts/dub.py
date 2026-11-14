@@ -49,6 +49,7 @@ import requests
 import soundfile as sf
 
 from core import (
+    bulk_of,
     HERE,
     HF_CACHE,
     JOBS,
@@ -341,13 +342,14 @@ def emo_refs(work, job_id, lines, ids, alpha):
     overrides the default; 0 turns it off. Returns {id: (path, alpha)}."""
     vocals = JOBS / job_id / "vocals.wav"
     info = sf.info(str(vocals))
-    (work / "emo").mkdir(exist_ok=True)
+    emo = bulk_of(work) / "emo"
+    emo.mkdir(parents=True, exist_ok=True)
     refs = {}
     for line, i in zip(lines, ids):
         a = line.get("emo_alpha", alpha)
         if not a:
             continue
-        path = work / "emo" / f"{i}_{line['start']:.2f}-{line['end']:.2f}.wav"
+        path = emo / f"{i}_{line['start']:.2f}-{line['end']:.2f}.wav"
         if not path.exists():
             audio, sr = sf.read(
                 str(vocals),

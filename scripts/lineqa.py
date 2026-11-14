@@ -44,7 +44,7 @@ import time
 
 import soundfile as sf
 
-from core import langs, load_json, part_dir, report_result, save_json, take_wav, whisper_setup
+from core import bulk_of, langs, load_json, part_dir, report_result, save_json, take_wav, whisper_setup
 from languages import LANGUAGES
 from voicecast import line_id
 
@@ -143,10 +143,11 @@ def check(name, ear, show_all, reroll, only=None, observations=None):
     # made with, and the best of them is put back if the fresh take is worse.
     rendered = load_json(work / "rendered.json", {})
     converted = load_json(work / "converted.json", {})  # "american": the take is a converted copy
-    kept_path = work / "takes" / "kept.json"
+    takes = bulk_of(work) / "takes"
+    kept_path = takes / "kept.json"
     kept = load_json(kept_path, {})
     # Fresh takes each flagged line has had, per way of making it (rolls_key).
-    rolls_path = work / "takes" / "rolls.json"
+    rolls_path = takes / "rolls.json"
     rolls = load_json(rolls_path, {})
     flagged, restored = [], []
     for i, line in enumerate(lines):
@@ -197,9 +198,9 @@ def check(name, ear, show_all, reroll, only=None, observations=None):
             k.update(notes=notes_now, ratio=round(ratio_now, 3))
         best = max(earlier, key=lambda k: (not k["notes"], k["ratio"]), default=None)
         if best and better(best, take):
-            shutil.copy2(work / "takes" / best["file"], wav)
+            shutil.copy2(takes / best["file"], wav)
             if best.get("src"):
-                shutil.copy2(work / "takes" / best["src"], src)
+                shutil.copy2(takes / best["src"], src)
                 converted[lid] = file_sha(wav)
             rendered[lid] = best["settings"]
             restored.append(lid)
@@ -218,13 +219,13 @@ def check(name, ear, show_all, reroll, only=None, observations=None):
                     flagged[-1]["reconvert"] = True
                     notes = notes + [f"IndexTTS's take is fine ({engine_got!r}): converting it again"]
             if reroll and not any(k["sha"] == take["sha"] for k in kept.get(lid, [])):
-                (work / "takes").mkdir(exist_ok=True)
+                takes.mkdir(parents=True, exist_ok=True)
                 n = len(kept.get(lid, []))
                 take["file"] = f"{lid}_{n}.wav"
-                shutil.copy2(wav, work / "takes" / take["file"])
+                shutil.copy2(wav, takes / take["file"])
                 if lid in converted and src.exists():
                     take["src"] = f"{lid}_{n}.src.wav"
-                    shutil.copy2(src, work / "takes" / take["src"])
+                    shutil.copy2(src, takes / take["src"])
                 kept.setdefault(lid, []).append(take)
             if flagged[-1].get("reconvert"):
                 entry = next(k for k in kept[lid] if k["sha"] == take["sha"])

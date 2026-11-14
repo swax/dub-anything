@@ -8,16 +8,19 @@ Usage:
   scripts/dub_anything.py report <slug>              write and print the report (work/jobs/<slug>/report.md)
   scripts/dub_anything.py hold <slug> [--reason TEXT | --release]
                                                      hold delivery for the director's final audits, or release it
-  scripts/dub_anything.py cleanup <slug>             after delivery, move the bulk to videos/_to-delete/<slug>/
+  scripts/dub_anything.py cleanup <slug> [--delete]  what the job keeps and what it can delete; --delete deletes it
 
-Everything a job makes is in work/jobs/<slug>/ (see core.py, "where a job's work lives").
+Everything a job makes is in work/jobs/<slug>/ (see core.py, "where a job's work lives"):
+what is worth keeping at its top, what it can make again in its bulk/.
 
 A job (work/jobs/<slug>/job.json) is one source video, the language pair (Japanese
 -> English unless --source/--target say otherwise; the American voice is English
 only) and the voices to dub it in ("both" plays the actor's voice by default),
 optionally casting from earlier jobs' voices too (--voices-from). The source is
-hard-linked into the job's media/<slug>.<ext> so the split keeps working after
-delivery renames it. With --voices none the job subtitles the video instead of
+copied into the job's bulk/media/source/ (delivery replaces that copy, never the
+original) and hard-linked as bulk/media/<slug>.<ext>, which the split reads and
+delivery leaves alone. Delivery then publishes the dub beside the original video,
+checked by SHA-256 (publish), so the job's bulk/ can be deleted afterwards. With --voices none the job subtitles the video instead of
 dubbing it: any two languages with a module (languages/), no VoiceStudio
 backend, nothing to render. Its parts are prepped from their audio alone
 (dub.py prep --subtitles-only), separated and drafted the same way; a part is
@@ -46,7 +49,7 @@ and when a render runs out of GPU memory, since its cache keeps what it loaded. 
 keeps waiting for scripts until delivery, and stops early when a part is blocked,
 so the agent can tell the user. Exit codes: 0 done or idle, 2 needs the director,
 1 error. Every GPU step waits for the GPU lock (gpulock.py); logs are in
-work/jobs/<slug>/logs/.
+work/jobs/<slug>/bulk/logs/.
 
 hold puts a marker (work/jobs/<slug>/delivery-hold) that stops run short of
 assembly and delivery: every part still renders and goes through QA, so the
@@ -98,6 +101,7 @@ from core import (
     RESULT_ENV,
     ROOT,
     VOICE_LABEL,
+    bulk_dir,
     job_dir,
     langs,
     load_json,
@@ -252,7 +256,7 @@ def tool(job, label, cmd, logname):
     it reported (core.report_result, kept beside the log as <logname>.result.json).
     The runner decides from the report; the output is for messages and the log."""
     pause_checkpoint()
-    logs = job_dir(job["slug"]) / "logs"
+    logs = bulk_dir(job["slug"]) / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     log(f"{label} ...")
@@ -413,7 +417,7 @@ def second(job, ps):
         and not original_only(p)
     ]
     if todo:
-        logs = job_dir(job["slug"]) / "logs"
+        logs = bulk_dir(job["slug"]) / "logs"
         logs.mkdir(parents=True, exist_ok=True)
         f = open(logs / f"second-{time.strftime('%H%M%S')}.log", "w", encoding="utf-8")
         log(f"second.py over {len(todo)} parts in the background (CPU)")
@@ -809,13 +813,59 @@ def adopt_fingerprints(job, ps):
         save_job(job)
 
 
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def publish(job, delivered, earlier=None):
+    """Put a verified copy of the delivery (and its sidecar subtitles) beside the
+    original video, under the delivered name ("<name> (dubbed).mkv"), so that
+    nothing in the job's bulk/ is needed afterwards. Each file is copied under a
+    hidden temporary name, compared with the delivery by SHA-256 and only then
+    renamed. It replaces only what this job published there before (the same path
+    with the hash it recorded), never another file. `earlier` is the previous
+    "published" record. Returns the new record, or None when the job has no
+    original to publish beside (it was made inside the job) or publishing failed."""
+    if not job.get("original"):
+        return None
+    folder = pathlib.Path(job["original"]).parent
+    delivered = pathlib.Path(delivered)
+    sidecars = sorted(
+        f for f in delivered.parent.iterdir() if f != delivered and f.name.startswith(delivered.stem + ".")
+    )
+    before = {f["path"]: f["sha256"] for f in (earlier or {}).get("files", [])}
+    files = []
+    for f in [delivered] + sidecars:
+        target = folder / f.name
+        if target.exists() and before.get(str(target)) != file_sha256(target):
+            problem(job, f"not publishing over {target}: it isn't this job's earlier delivery")
+            return None
+        tmp = folder / f".{f.name}.partial"
+        shutil.copy2(f, tmp)
+        digest = file_sha256(f)
+        if file_sha256(tmp) != digest:
+            tmp.unlink(missing_ok=True)
+            problem(job, f"the copy of {f.name} beside the original doesn't match the delivery")
+            return None
+        os.replace(tmp, target)
+        files.append({"path": str(target), "sha256": digest, "size": target.stat().st_size})
+    log(f"published {files[0]['path']} (SHA-256 checked)")
+    return {"path": files[0]["path"], "files": files, "at": time.strftime("%Y-%m-%d %H:%M")}
+
+
 def deliver_job(job, ps):
     import deliver
 
     sha = delivery_sha(job, ps)
     done = job.get("delivered") or {}
     if done.get("state") == sha and pathlib.Path(done.get("path", "")).exists():
-        return True
+        if done.get("published") or not job.get("original"):
+            return True
+        return delivered(job, pathlib.Path(done["path"]), sha, done)  # publishing failed last time
     if subtitles_only(job):
         ok, out, result = tool(
             job, "assemble subtitles", [PY, "scripts/assemble.py", job["slug"], "--subtitles"], "assemble"
@@ -824,11 +874,7 @@ def deliver_job(job, ps):
             return problem(job, f"assemble.py failed for the subtitles: {last_error(out)}")
         log(f"deliver into {pathlib.Path(job['source']).name}")
         out = deliver.deliver_subtitles(job["source"], pathlib.Path(result["output"]), job_langs(job))
-        job["source"] = str(out)
-        job["delivered"] = {"path": str(out), "at": time.strftime("%Y-%m-%d %H:%M"), "state": sha}
-        job.pop("problems", None)
-        save_job(job)
-        return True
+        return delivered(job, out, sha, done)
     dubs = {}
     for voice in job["voices"]:
         cmd = [PY, "scripts/assemble.py", job["slug"], "--voice", voice]
@@ -842,10 +888,21 @@ def deliver_job(job, ps):
     out = deliver.deliver(
         job["source"], dubs, job["default"], job_langs(job), quicktime_audio=bool(job.get("quicktime_audio"))
     )
+    return delivered(job, out, sha, done)
+
+
+def delivered(job, out, sha, done):
+    """Record a delivery and publish it beside the original (publish)."""
     job["source"] = str(out)
     job["delivered"] = {"path": str(out), "at": time.strftime("%Y-%m-%d %H:%M"), "state": sha}
     job.pop("problems", None)
     save_job(job)
+    if job.get("original"):
+        published = publish(job, out, done.get("published"))
+        if published is None:
+            return False
+        job["delivered"]["published"] = published
+        save_job(job)
     return True
 
 
@@ -853,7 +910,9 @@ def report(job, ps, quiet=False):
     """work/jobs/<slug>/report.md: what to listen for, with film times."""
     md = [f"# {job['title']}", ""]
     if job.get("delivered"):
-        md += [f"Delivered: `{job['delivered']['path']}` ({job['delivered']['at']})", ""]
+        published = job["delivered"].get("published")
+        where = published["path"] if published else job["delivered"]["path"]
+        md += [f"Delivered: `{where}` ({job['delivered']['at']})", ""]
     src, tgt = job_langs(job)
     md += [
         f"{NAMES[src]} -> {NAMES[tgt]}; "
@@ -974,21 +1033,33 @@ def cmd_new(args):
     missing = [other for other in args.voices_from if not job_file(other).exists()]
     if missing:
         raise SystemExit(f"--voices-from: no job {', '.join(missing)}")
-    # Everything the job makes goes in its folder (core.py, "where a job's work lives").
+    # Everything the job makes goes in its folder (core.py, "where a job's work lives"):
+    # what is worth keeping at its top, what it can make again in bulk/.
     home = job_dir(slug)
-    for folder in ("media", "parts", "logs", "scratch"):
+    for folder in ("parts", "scratch"):
         (home / folder).mkdir(parents=True, exist_ok=True)
-    link = home / "media" / f"{slug}{src.suffix.lower()}"
+    media = bulk_dir(slug) / "media"
+    # Delivery replaces the file it delivers into, so it gets a working copy of the
+    # source, never the original: that stays as it is, and delivery publishes the dub
+    # beside it (publish). A copy the director already made inside the job is used as is.
+    inside = home.resolve() in src.parents
+    work_copy = src if inside else media / "source" / src.name
+    if not work_copy.exists():
+        work_copy.parent.mkdir(parents=True, exist_ok=True)
+        print(f"copying the source to {work_copy} ...")
+        shutil.copy2(src, work_copy)
+    # The split reads the source under the job's own name, which delivery leaves alone.
+    link = media / f"{slug}{src.suffix.lower()}"
     if not link.exists():
         try:
-            os.link(src, link)
+            os.link(work_copy, link)
         except OSError as error:
             print(f"(can't hard-link the source: {error}; copying it to {link})")
-            shutil.copy2(src, link)
+            shutil.copy2(work_copy, link)
     job = {
         "slug": slug,
         "title": src.stem,
-        "source": str(src),
+        "source": str(work_copy),
         "video": str(link),
         "langs": [args.source, args.target],
         "voices": voices,
@@ -999,6 +1070,8 @@ def cmd_new(args):
         "quicktime_audio": args.quicktime_audio,
         "created": time.strftime("%Y-%m-%d %H:%M"),
     }
+    if not inside:
+        job["original"] = str(src)
     if args.voices_from:
         job["voices_from"] = args.voices_from
     save_job(job)
@@ -1299,42 +1372,98 @@ def cmd_report(args):
     report(job, parts(job))
 
 
+def disposable(job):
+    """What a job can make again: its bulk/ and VoiceStudio's folders for its parts
+    (every <slug>-... folder, a re-prep's included). Slugs have no hyphen, so
+    another job's folders never match."""
+    slug = job["slug"]
+    return [d for d in [bulk_dir(slug)] if d.exists()] + sorted(core.JOBS.glob(f"{slug}-*"))
+
+
+def tree_size(paths):
+    """Bytes under the paths, a file hard-linked twice counted once."""
+    seen, total = set(), 0
+    for root in paths:
+        root = pathlib.Path(root)
+        files = [root] if root.is_file() else (pathlib.Path(d) / f for d, _, fs in os.walk(root) for f in fs)
+        for f in files:
+            try:
+                st = os.stat(f, follow_symlinks=False)
+            except OSError:
+                continue
+            if (st.st_dev, st.st_ino) not in seen:
+                seen.add((st.st_dev, st.st_ino))
+                total += st.st_size
+    return total
+
+
+def gib(n):
+    return f"{n / 2**30:.2f} GiB"
+
+
 def cmd_cleanup(args):
-    """Move what a finished job no longer needs into one folder the user deletes: the
-    VoiceStudio jobs (every <slug>-... folder, retakes of a prep included), split parts
-    and renders, the pre-dub source link, per-line references, kept takes and logs.
-    Scripts, states, the cast, notes, scratch and the report stay in the job's folder."""
+    """List what a delivered job keeps and what it can delete; with --delete, delete it.
+    Kept: everything at the top of work/jobs/<slug>/ (scripts, states, the cast, notes,
+    scratch, the report) and the dub published beside the original. Deleted: the job's
+    bulk/ (the source copy, split parts and renders, per-line references, kept takes,
+    sign sheets, logs) and VoiceStudio's folders for its parts. Before deleting, the
+    published files are checked against the hashes recorded when they were published:
+    a dub that exists only in bulk/ is deleted only with --force."""
     job = load_job(args.slug)
-    if not job.get("delivered") and not args.force:
-        raise SystemExit("not delivered yet (--force to clean up anyway)")
-    hold = core.ROOT / "videos" / "_to-delete" / job["slug"]
-    home = job_dir(job["slug"])
-    moved = 0
+    slug = job["slug"]
+    home = job_dir(slug)
+    keep = sorted(p for p in home.iterdir() if p.name != "bulk")
+    print(f"{slug}: keep {gib(tree_size(keep))} in {home}:")
+    print("  " + "  ".join(p.name + ("/" if p.is_dir() else "") for p in keep))
+    done = job.get("delivered") or {}
+    safe = bool(done.get("published"))
+    for f in (done.get("published") or {}).get("files", []):
+        ok = pathlib.Path(f["path"]).exists() and file_sha256(f["path"]) == f["sha256"]
+        safe &= ok
+        print(f"  {f['path']}: " + ("published, SHA-256 matches" if ok else "MISSING OR CHANGED since publishing"))
+    if not done:
+        print("  not delivered yet")
+    elif not done.get("published"):
+        print(f"  the dub was not published beside an original: {done['path']} is the only copy")
+    drop = disposable(job)
+    sizes = {d: tree_size([d]) for d in drop}
+    print(f"delete {gib(sum(sizes.values()))}:")
+    backend = [d for d in drop if d.parent == core.JOBS]
+    for d in drop:
+        if d not in backend:
+            print(f"  {d}  {gib(sizes[d])}")
+    if backend:
+        names = f"{backend[0].name}" + (f" ... {backend[-1].name}" if len(backend) > 1 else "")
+        n = sum(sizes[d] for d in backend)
+        print(f"  {core.JOBS}: {len(backend)} VoiceStudio folders, {names}  {gib(n)}")
+    if not args.delete:
+        print("nothing deleted: --delete deletes these" + ("" if safe else " (with --force, see above)"))
+        return 0
+    if not safe and not args.force:
+        raise SystemExit("not deleting: the dub isn't verified beside the original (--force deletes anyway)")
 
-    def mv(src, dst):
-        nonlocal moved
-        if src.exists():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            os.rename(src, dst)
-            moved += 1
+    def writable(func, path, _):
+        os.chmod(path, 0o666)  # Windows refuses to delete a read-only file
+        func(path)
 
-    for p in parts(job):
-        for voice in ("actor", "american"):
-            name = voice_part(p["name"], voice)
-            j = job_dir_of(name)
-            if j and j.exists():
-                mv(j, hold / "dub_jobs" / j.name)
-            for sub in ("refs", "emo", "takes"):
-                mv(part_dir(name) / sub, hold / "parts" / name / sub)
-    # VoiceStudio folders are named for their parts: catch any a re-prep left behind.
-    for j in sorted(core.JOBS.glob(f"{job['slug']}-*")):
-        mv(j, hold / "dub_jobs" / j.name)
-    mv(home / "media" / "split", hold / "media" / "split")
-    mv(pathlib.Path(job["video"]), hold / "media" / pathlib.Path(job["video"]).name)
-    mv(home / "logs", hold / "logs")
-    job["cleaned"] = {"to": str(hold), "at": time.strftime("%Y-%m-%d %H:%M")}
+    failed = []
+    for d in drop:
+        # Only the job's own folders, never through a link to somewhere else.
+        mine = d == bulk_dir(slug) or (d.parent == core.JOBS and d.name.startswith(f"{slug}-"))
+        if not mine or d.is_symlink() or os.path.realpath(d) != os.path.abspath(d):
+            failed.append(f"{d}: not one of the job's own folders")
+            continue
+        try:
+            shutil.rmtree(d, onerror=writable)
+        except OSError as error:
+            failed.append(f"{d}: {error}")
+    freed = sum(n for d, n in sizes.items() if not d.exists())
+    job["cleaned"] = {"at": time.strftime("%Y-%m-%d %H:%M"), "freed": freed}
     save_job(job)
-    print(f"moved {moved} items to {hold}; delete that folder when you're happy with the delivery")
+    print(f"deleted {gib(freed)}")
+    for line in failed:
+        print(f"  not deleted: {line}")
+    return 1 if failed else 0
 
 
 def main():
@@ -1385,7 +1514,8 @@ def main():
         if name == "run":
             b.add_argument("--watch", action="store_true", help="keep waiting for scripts until delivered")
         if name == "cleanup":
-            b.add_argument("--force", action="store_true")
+            b.add_argument("--delete", action="store_true", help="delete what it lists (it only lists without)")
+            b.add_argument("--force", action="store_true", help="delete even when the dub isn't safely published")
     h = sub.add_parser("hold", help="hold delivery for the director's audits, or --release it")
     h.add_argument("slug")
     h.add_argument("--reason", help="why delivery waits (shown by status and run)")

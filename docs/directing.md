@@ -23,7 +23,9 @@ without changing the machine's CUDA/cuDNN dependencies.
 ## Files
 
 A job's working files live in `work/jobs/<slug>/` (`<slug>` is the
-name `dub_anything.py new` gave it):
+name `dub_anything.py new` gave it). What is worth keeping sits at the top of
+that folder; everything the job can make again is in its `bulk/`, which is
+deleted once the listener accepts the dub:
 
 | Path in the job's folder | What |
 |---|---|
@@ -32,23 +34,29 @@ name `dub_anything.py new` gave it):
 | `voices.json`, `voices/<key>.wav`, `profiles.json` | The cast: per character, clean clips of the actor plus their exact transcript; the joined references; their VoiceStudio profiles |
 | `parts/NN/script.json` | Part `<slug>-NN`'s directed dub, the real work product |
 | `parts/NN/segments.json`, `ja.srt` | Raw machine transcript, the VoiceStudio job id and the language pair (`prep` overwrites them; the `.srt` is named for the source language) |
-| `parts/NN/` | The rest of the part's work: `draft.json`, `state.json`, `refs/`, `takes/`, `signs/`... `parts/NN.us/` is its American voice |
-| `media/` | A link to the source video; `media/split/` its parts and `parts.json`; `media/split/dubbed/` the renders |
-| `logs/` | The runner's logs, one per step |
+| `parts/NN/` | The rest of the part's work: `draft.json`, `state.json`, `signs.json`, `heard.json`... `parts/NN.us/` is its American voice |
 | `scratch/` | Your own scripts, probes, frames and listening experiments: never anywhere else in the repo |
+| `bulk/media/` | The working copy of the source (`source/`, which delivery replaces) and `<slug>.<ext>`, the link the split reads |
+| `bulk/split/` | The parts and `parts.json`; `bulk/split/dubbed/` the renders and the assembled dub |
+| `bulk/parts/NN/` | A part's per-line references (`refs/`), kept takes (`takes/`), emotion references and sign sheets (`signs/`) |
+| `bulk/logs/` | The runner's logs, one per step |
 
 A part is still named `<slug>-NN` on every command line; the scripts find its
-folder (`core.part_dir`). The docs write a part's folder as `<part>/`.
-VoiceStudio keeps each part's stems and takes in its own data folder,
-`dub_jobs/<slug>-NN` (`<slug>-NN-us` for the American voice). `work/NOTES.md`
-holds only what is true of this machine (paths, hardware, installs). A clip
-prepped by hand, outside a job, keeps the older layout: `work/<name>/` and the
-shared `work/voices.json`.
+folders (`core.part_dir`, and `core.bulk_of` for its bulk). The docs write a
+part's folder as `<part>/`; its `refs/`, `takes/` and `signs/` are in its bulk
+folder. VoiceStudio keeps each part's stems and takes in its own data folder,
+`dub_jobs/<slug>-NN` (`<slug>-NN-us` for the American voice): disposable too.
+`work/NOTES.md` holds only what is true of this machine (paths, hardware,
+installs). A clip prepped by hand, outside a job, keeps the older layout:
+everything in `work/<name>/`, and the shared `work/voices.json`.
 
-The final verified video is published beside the original library source,
-preserving that original. Keep its library path and SHA-256 in the job's notes
-and delivery receipt; see [Package](directing/package.md). Working media stays
-in the job until authorized cleanup.
+`dub_anything.py new` copies the source into `bulk/media/source/`, so delivery
+never touches the original, and records the original's path. Delivery then
+publishes the dub beside the original (`<name> (dubbed).mkv`), checked by
+SHA-256, and records it in `job.json` (`delivered.published`); see
+[Package](directing/package.md). `dub_anything.py cleanup <slug>` lists what
+the job keeps and what it can delete; `--delete` deletes `bulk/` and the
+job's VoiceStudio folders once the published copy checks out.
 
 `work/` and `videos/` are git-ignored: they hold the source, transcripts of it
 and references to real voices.

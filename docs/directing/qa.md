@@ -71,7 +71,7 @@ older final jobs without these receipts stay unchanged until reopened or revised
   A word the voice can't say needs rewording. Every take is a new roll of the
   dice, so re-check after each render. A fresh take can also come out worse
   than the one it replaced: `--reroll` keeps each replaced take
-  (`<part>/takes/`), and the next check puts the best one back when the
+  (`takes/` in the part's bulk folder), and the next check puts the best one back when the
   new take transcribes worse. The next `generate` then only re-mixes. What
   Whisper heard in each take is kept by the take's hash
   (`<part>/heard.json`), so the check after a round listens only to the

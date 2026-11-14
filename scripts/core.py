@@ -23,16 +23,22 @@ WORK = ROOT / "work"
 
 # ---- where a job's work lives ----
 #
-# A job (dub_anything.py new) keeps everything it makes in one folder, work/jobs/<slug>/:
+# A job (dub_anything.py new) keeps everything it makes in one folder, work/jobs/<slug>/.
+# What is worth keeping sits at its top:
 #   job.json, report.md, NOTES.md      what the job is, where it stands, the show's notes
 #   voices.json, voices/, profiles.json   its cast (job.json's "voices_from" borrows others')
-#   logs/, scratch/                     the runner's logs; the director's own scripts and probes
-#   media/<slug>.<ext>                  a link to the source video
-#   media/split/                        its parts (<slug>-NN.mp4, parts.json); renders in dubbed/
-#   parts/NN/, parts/NN.us/             each part's work: script, draft, state, refs, takes
-# and VoiceStudio's folder for a part is named after it (<slug>-NN, <slug>-NN-us). A part
-# is still named <slug>-NN on every command line; part_dir finds its folder. A clip prepped
-# by hand, outside a job, keeps the older layout: work/<name> and the shared work/voices.json.
+#   scratch/                            the director's own scripts and probes
+#   parts/NN/, parts/NN.us/             each part's work: script, draft, segments, state
+# and everything the job can make again goes in its bulk/ (bulk_dir), deleted after delivery:
+#   bulk/media/                         the working copy of the source (delivery replaces it)
+#   bulk/split/                         its parts (<slug>-NN.mp4, parts.json); renders in dubbed/
+#   bulk/parts/NN/                      a part's per-line references, kept takes, emotion
+#                                       references and sign sheets (bulk_of)
+#   bulk/logs/                          the runner's logs
+# VoiceStudio's folder for a part is outside the job, in its own data folder, named after
+# it (<slug>-NN, <slug>-NN-us): disposable too. A part is still named <slug>-NN on every
+# command line; part_dir finds its folder. A clip prepped by hand, outside a job, keeps the
+# older layout: work/<name> holds everything, and the shared work/voices.json its cast.
 PART_NAME = re.compile(r"(?P<slug>[a-z0-9_]+)-(?P<nn>\d+)(?P<suffix>(?:\.[a-z]+)?)")
 _job = {"slug": None}
 
@@ -113,11 +119,27 @@ def script_files():
     return [(n, part_dir(n) / "script.json") for n in part_names() if (part_dir(n) / "script.json").exists()]
 
 
+def bulk_dir(slug):
+    """Everything a job can make again (its source copy, split parts and renders, per-line
+    references, kept takes, sign sheets, logs): work/jobs/<slug>/bulk. Deleting it after
+    delivery loses nothing a later fix needs but the time to make it again."""
+    return job_dir(slug) / "bulk"
+
+
+def bulk_of(work):
+    """Where a part's bulky, regenerable files go (refs/, takes/, emo/, signs/): the job's
+    bulk/parts/NN[.us] for a job's part, the part's own folder for a clip prepped by hand."""
+    work = pathlib.Path(work)
+    if work.parent.name == "parts" and (work.parent.parent / "job.json").exists():
+        return bulk_dir(work.parent.parent.name) / "parts" / work.name
+    return work
+
+
 def split_dir(slug):
-    """Where split.py puts a video's parts: the job's media/split, or for a video
+    """Where split.py puts a video's parts: the job's bulk/split, or for a video
     split by hand, videos/<stem>-parts."""
     if (job_dir(slug) / "job.json").exists():
-        return job_dir(slug) / "media" / "split"
+        return bulk_dir(slug) / "split"
     return ROOT / "videos" / f"{slug}-parts"
 
 

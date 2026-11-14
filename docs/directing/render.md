@@ -296,7 +296,7 @@ Borrowed gaps and overflow budgets can carry an English take into an original
 laugh even after the reference window is corrected. Check the actual take's end
 and its audible tail against the original sound being protected.
 
-New source checks save recognized word margins in `refs/source-review.json`.
+New source checks save recognized word margins in `refs/source-review.json` (in the part's bulk folder).
 `fit.py` and generation print a reference-review prompt when at least 0.8 seconds
 and a quarter of the reference follow its last recognized word, with at least
 0.35 seconds of audible energy after a 0.25-second alignment allowance. Quiet

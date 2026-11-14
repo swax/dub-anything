@@ -160,7 +160,7 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
     # Spelling is not speech: a language that can read its text aloud (Japanese, as kana)
     # compares readings too, so 南条さん heard as なんじょうさん still matches.
     reading = getattr(LANGUAGES[src], "source_reading", None)
-    cache_path = work / "refs" / "clean.json"
+    cache_path = core.bulk_of(work) / "refs" / "clean.json"
     cache = core.load_json(cache_path, {})
     keys = source_check_keys(work, lines, dips, cast_lines)
     if any(k not in cache for k in keys):
@@ -198,7 +198,7 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
             if (cast_lines and embed)
             else {}
         )
-        review_path = work / "refs" / "source-review.json"
+        review_path = core.bulk_of(work) / "refs" / "source-review.json"
         reviews = core.load_json(review_path, {})
         source_stat = (core.JOBS / job_id / "vocals.wav").stat()
         for line, key in zip(lines, keys):
@@ -268,11 +268,12 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
     voices = voicecast.load_voices()
     src = core.langs(core.part_name(work))[0]
     vocals, sr = sf.read(core.JOBS / job_id / "vocals.wav", dtype="float32")
-    (work / "refs").mkdir(exist_ok=True)
+    refs_dir = core.bulk_of(work) / "refs"
+    refs_dir.mkdir(parents=True, exist_ok=True)
     refs = {}
     repeated = {key for key, count in Counter(ids).items() if count > 1}
     checks = unclean_windows(work, job_id, lines, ids, dips, cast_lines)
-    reviews = core.load_json(work / "refs" / "source-review.json", {})
+    reviews = core.load_json(refs_dir / "source-review.json", {})
     keys = source_check_keys(work, lines, dips, cast_lines) if reviews else [None] * len(lines)
     source_stat = (core.JOBS / job_id / "vocals.wav").stat()
     source = {"job": job_id, "size": source_stat.st_size, "mtime_ns": source_stat.st_mtime_ns}
@@ -331,11 +332,7 @@ def line_refs(work, job_id, lines, ids, verbose=True, dips=False, cast_lines=Fal
             raise ValueError(
                 f"Repeated line {i} would share a per-line source reference; add distinct take values to its occurrences"
             )
-        path = (
-            work
-            / "refs"
-            / f"{i}_{line['start']:.2f}-{line['end']:.2f}{f'_{cut:.2f}' if cut else ''}_{reference_sig}.wav"
-        )
+        path = refs_dir / f"{i}_{line['start']:.2f}-{line['end']:.2f}{f'_{cut:.2f}' if cut else ''}_{reference_sig}.wav"
         if not path.exists():
             sf.write(path, audio, sr)
         refs[i] = (str(path), transcript)
