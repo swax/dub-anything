@@ -261,6 +261,49 @@ class IncrementalRenderTests(unittest.TestCase):
             self.run_generate(self.args(), wait=wait, fill=True, spans=[(0, 0.5), (0, 0.5)])
         self.assertEqual(len(self.requests), 1)
 
+    def test_unrelated_failed_adjustment_keeps_the_word_reroll_due(self):
+        self.write("rendered.json", {"L0": self.settings, "L2": {**self.settings, "speed": 0.8}})
+        self.write("reroll.json", [{"id": "L2"}])
+        before = (self.root / "L0.wav").read_bytes()
+
+        def wait(*args):
+            if len(self.requests) == 1:
+                return self.overflow(*args)
+            sf.write(self.root / "L2.wav", np.full(8000, 0.2), 16000)
+            return {"type": "done"}
+
+        self.run_generate(self.args(), wait=wait, fill=True)
+        self.assertEqual(len(self.requests), 2)
+        self.assertEqual(self.requests[0]["regen_only"], ["L0", "L2"])
+        self.assertEqual(self.requests[1]["regen_only"], ["L2"])
+        self.assertEqual((self.root / "L0.wav").read_bytes(), before)
+        self.assertFalse((self.work / "reroll.json").exists())
+
+    def test_requested_word_failure_after_unrelated_recovery_still_blocks(self):
+        self.write("rendered.json", {"L0": self.settings, "L2": {**self.settings, "speed": 0.8}})
+        self.write("reroll.json", [{"id": "L2"}])
+        before = (self.work / "generate-result.json").read_bytes()
+
+        def wait(*args):
+            if len(self.requests) == 1:
+                return self.overflow(*args)
+            raise dub.BackendTaskError(
+                "task", {"type": "error", "segment": 1, "segment_id": "L2", "error_code": "dub_timing_overflow"}
+            )
+
+        with self.assertRaises(SystemExit):
+            self.run_generate(self.args(), wait=wait, fill=True)
+        self.assertEqual(len(self.requests), 2)
+        self.assertIn("L2", self.requests[1]["regen_only"])
+        self.assertEqual((self.work / "generate-result.json").read_bytes(), before)
+
+    def test_last_unrelated_rejection_cannot_skip_unpublished_word_rerolls(self):
+        self.write("reroll.json", [{"id": "L2"}])
+        with patch.object(dub, "FILL_PASSES", 0), self.assertRaises(SystemExit):
+            self.run_generate(self.args(), wait=self.overflow, fill=True)
+        self.assertEqual(len(self.requests), 1)
+        self.assertIn("L2", self.requests[0]["regen_only"])
+
     def test_failed_full_regeneration_cannot_reuse_a_previous_publication(self):
         args = self.args()
         args.full = True

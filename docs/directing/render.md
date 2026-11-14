@@ -173,6 +173,12 @@ delivery of its line and ends where the actor stops:
   fitting natural take, `"speed": 1.0` can keep its pace fixed for later passes.
   In the `"american"` voice a slowed take really is slower (see "Voice"), so there
   fill can make up for English somewhat short of the actor.
+
+  A requested word re-roll must publish fresh audio before a cached assembly can
+  finish it. If another line's automatic pace change is rejected, that unrelated
+  line may keep its fitting published pace while the requested word re-roll
+  stays due on the next pass. This preserves the good take without silently
+  cancelling the requested repair.
   `"predict_speed": true` in the `render` block (or `--predict-speed`) renders
   each new line at the speed `fit.py`'s prediction asks for instead of at
   natural pace first. A prediction can speed up a new take, but slowing waits

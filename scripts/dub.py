@@ -985,6 +985,7 @@ class PartRender:
         self.queued = load_json(work / "reroll.json", []) if script else []
         self.reroll = {r["id"] for r in self.queued if not r.get("reconvert") and not r.get("settled")}
         self.forced_regeneration = args.full or self.only is not None or bool(self.reroll)
+        self.pending_rerolls = bool(self.reroll)
         self.reconvert = {r["id"] for r in self.queued if r.get("reconvert")}
         self.fitting_paces = {}  # rejected automatic adjustments can reuse a validated published pace
         self.spans = actor_spans(job_id, self.lines) if mode["fill"] else None
@@ -1346,7 +1347,10 @@ class PartRender:
                 args._generation.doc["previous_engine"] = prev_engine
                 args._generation.save()
             done, ids, synthesized, recovered_adjustment, stopped = self._passes()
-            if done is None and recovered_adjustment and not self.forced_regeneration:
+            can_remix = not self.forced_regeneration or (
+                not args.full and self.only is None and not self.pending_rerolls
+            )
+            if done is None and recovered_adjustment and can_remix:
                 done, ids = self._remix_published()
             if done is None:
                 self._report_overflow(stopped)
@@ -1367,7 +1371,9 @@ class PartRender:
         args, mode, job_id, tgt = self.args, self.mode, self.job_id, self.tgt
         done, synthesized, stopped = None, False, None
         for n in range(1 + (FILL_PASSES if mode["fill"] else 0)):
-            segments, ids, settings, regen = self.plan(first=n == 0)
+            # An unrelated failed pace adjustment publishes none of this pass,
+            # so its requested word re-rolls remain due on the recovery pass.
+            segments, ids, settings, regen = self.plan(first=n == 0 or self.pending_rerolls)
             if n and not regen and (done is not None or not self.fitting_paces):
                 break  # every take ends on the actor, or is as fast or slow as fill allows
             if args.match_level and self.script:
@@ -1379,6 +1385,7 @@ class PartRender:
             try:
                 done = self.run(self.request(segments, ids, regen))
                 published = True
+                self.pending_rerolls = False
             except RuntimeError as e:
                 if args._generation is not None and args._generation.unknown():
                     raise
@@ -1407,7 +1414,7 @@ class PartRender:
             print(f"    ({time.time() - t0:.0f} s)")
             synthesized |= regen is None or bool(regen)
             if done is None:
-                if not mode["fill"] or n == FILL_PASSES or self.forced_regeneration:
+                if not mode["fill"] or n == FILL_PASSES or (self.forced_regeneration and not recovered_adjustment):
                     break
                 if not any(take_wav(job_id, lid, tgt).exists() for lid in ids):
                     print("  no published takes to measure; revise the reported line before retrying")
@@ -1446,7 +1453,8 @@ class PartRender:
             and args.timing == "concise"
             and args.engine == "omnivoice"
             and not self.american
-            and not self.forced_regeneration
+            and not args.full
+            and self.only is None
             and isinstance(e, BackendTaskError)
             and e.event.get("type") == "error"
             and e.event.get("error_code") == "dub_timing_overflow"
