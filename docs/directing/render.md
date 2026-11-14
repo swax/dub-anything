@@ -158,7 +158,11 @@ delivery of its line and ends where the actor stops:
   rejected pass overflowed. For an automatic OmniVoice pace adjustment, the
   client can reuse the published pace when the reference and other settings
   still match and the take fits the current room. It resubmits the mix for
-  backend validation. Explicit paces and forced regenerations are never
+  backend validation. If different rejected adjustments consume every fill
+  pass, one final assembly can reuse the complete published set, with no
+  synthesis, only when every take still matches its requested conditioning
+  and quality and fits its current room. That assembly must itself succeed;
+  a failed attempt is never an exportable success. Explicit paces and forced regenerations are never
   replaced with an older cached success. If recovery is unavailable, use the
   reported line number to revise its text or checked window. After reviewing a
   fitting natural take, `"speed": 1.0` can keep its pace fixed for later passes.

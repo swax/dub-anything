@@ -189,6 +189,53 @@ class IncrementalRenderTests(unittest.TestCase):
         self.assertEqual({lid: (self.root / (lid + ".wav")).read_bytes() for lid in before}, before)
         self.assertEqual(dub.load_json(self.work / "rendered.json")["L0"], self.settings)
 
+    def test_last_fill_rejection_still_requires_a_successful_cached_remix(self):
+        before = {lid: (self.root / (lid + ".wav")).read_bytes() for lid in ("L0", "L2")}
+
+        def wait(*args):
+            if len(self.requests) <= 2:
+                index = len(self.requests) - 1
+                raise dub.BackendTaskError(
+                    "task",
+                    {
+                        "type": "error",
+                        "segment": index,
+                        "segment_id": ["L0", "L2"][index],
+                        "error_code": "dub_timing_overflow",
+                    },
+                )
+            return {"type": "done", "segments_processed": 2}
+
+        with patch.object(dub, "FILL_PASSES", 1):
+            self.run_generate(self.args(), wait=wait, fill=True, spans=[(0, 0.9), (0, 0.9)])
+        self.assertEqual(len(self.requests), 3)
+        self.assertEqual(self.requests[-1]["regen_only"], [])
+        self.assertFalse(any("speed" in s for s in self.requests[-1]["segments"]))
+        self.assertEqual({lid: (self.root / (lid + ".wav")).read_bytes() for lid in before}, before)
+        self.assertEqual(dub.load_json(self.work / "rendered.json"), {"L0": self.settings, "L2": self.settings})
+        self.assertEqual(dub.load_json(self.work / "generate-result.json")["segments_processed"], 2)
+
+    def test_recovery_remix_failure_cannot_claim_a_completed_render(self):
+        before = (self.work / "generate-result.json").read_bytes()
+
+        def wait(*args):
+            if len(self.requests) <= 2:
+                index = len(self.requests) - 1
+                raise dub.BackendTaskError(
+                    "task",
+                    {
+                        "type": "error",
+                        "segment": index,
+                        "segment_id": ["L0", "L2"][index],
+                        "error_code": "dub_timing_overflow",
+                    },
+                )
+            raise dub.BackendTaskError("task", {"type": "error", "error": "remix failed"})
+
+        with patch.object(dub, "FILL_PASSES", 1), self.assertRaisesRegex(dub.BackendTaskError, "remix failed"):
+            self.run_generate(self.args(), wait=wait, fill=True, spans=[(0, 0.9), (0, 0.9)])
+        self.assertEqual((self.work / "generate-result.json").read_bytes(), before)
+
     def test_overflow_recovery_does_not_override_directed_pace(self):
         self.lines[0]["speed"] = 0.8
         self.write("script.json", {"lines": self.lines})

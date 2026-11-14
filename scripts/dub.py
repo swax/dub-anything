@@ -779,6 +779,45 @@ def _fitting_published_pace(requested, published, row):
     return old if 0 < speech <= room - 0.02 else None
 
 
+def _published_remix_paces(ids, settings, rendered, rows, directed=()):
+    """A complete fitting publication usable after automatic fill is exhausted.
+
+    Only pace may differ from the requested settings. A new reference, quality
+    setting or directed pace still needs synthesis, and every take must fit.
+    """
+    by_index = {row["i"]: row for row in rows}
+    paces = {}
+    for index, lid in enumerate(ids):
+        requested, published = settings.get(lid), rendered.get(lid)
+        row = by_index.get(index, {})
+        if (
+            not requested
+            or not published
+            or {k: v for k, v in requested.items() if k != "speed"}
+            != {k: v for k, v in published.items() if k != "speed"}
+        ):
+            return None
+        old, new = published.get("speed", 1.0), requested.get("speed", 1.0)
+        if any(
+            isinstance(s, bool)
+            or not isinstance(s, (int, float))
+            or not math.isfinite(s)
+            or not FILL_SPEED[0] <= s <= FILL_SPEED[1]
+            for s in (old, new)
+        ) or (lid in directed and old != new):
+            return None
+        speech, room = row.get("speech"), row.get("room")
+        if (
+            speech is None
+            or room is None
+            or not all(math.isfinite(x) for x in (speech, room))
+            or not 0 < speech <= room - 0.02
+        ):
+            return None
+        paces[lid] = old
+    return paces or None
+
+
 def _record_published_settings(rendered, settings, job, target, started, regen, *, published, selected=None):
     """Associate settings with takes the backend successfully published."""
     if not published:
@@ -1254,6 +1293,7 @@ def _cmd_generate(args):
             )
             t0 = time.time()
             published = False
+            recovered_adjustment = False
             try:
                 done = run(request(segments, ids, regen))
                 published = True
@@ -1288,6 +1328,7 @@ def _cmd_generate(args):
                             pace = _fitting_published_pace(settings[lid], rendered.get(lid), row)
                             if pace is not None:
                                 fitting_paces[lid] = pace
+                                recovered_adjustment = True
                                 print(
                                     f"  L{index:02d}: keeping fitting published pace {pace:g}; rejected adjustment was not published"
                                 )
@@ -1317,6 +1358,30 @@ def _cmd_generate(args):
                 print(
                     "  a line overflows its room; the next fill pass re-times it, or re-rolls it at the fastest speed"
                 )
+        if done is None and recovered_adjustment and not forced_regeneration:
+            # A different rejected slowdown can consume each fill pass. Even
+            # the last rejection gets one cache-only assembly, provided the
+            # entire current publication still matches and fits. Require a new
+            # successful backend result; the failed attempt is never success.
+            segments, ids, settings, _ = plan(first=False)
+            paces = _published_remix_paces(
+                ids,
+                settings,
+                rendered,
+                fit_rows(args.name, args.overflow),
+                directed={lid for lid, line in zip(ids, script["lines"]) if "speed" in line},
+            )
+            if paces is not None:
+                fitting_paces.update(paces)
+                for segment, lid in zip(segments, ids):
+                    _override_speed(segment, settings[lid], paces[lid])
+                if args.match_level:
+                    level(segments, ids)
+                print("  fill adjustments exhausted; re-mix the complete fitting publication (no synthesis)")
+                t0 = time.time()
+                done = run(request(segments, ids, []))
+                _record_published_settings(rendered, settings, job_id, tgt, t0, [], published=True)
+                save_json(rendered_path, rendered)
         if done is None:
             # VoiceStudio stops at the first overflow; report them all so one
             # pass of edits fixes every line.

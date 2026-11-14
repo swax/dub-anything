@@ -7,12 +7,42 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
-from dub import _fill_speed, _fitting_published_pace, _override_speed
+from dub import _fill_speed, _fitting_published_pace, _override_speed, _published_remix_paces
 from dub_anything import ready_problems
 import core
 
 
 class FillSpeedTests(unittest.TestCase):
+    def test_final_remix_requires_every_published_take_to_fit(self):
+        settings = {"a": {"steps": 32, "speed": 0.8}, "b": {"steps": 32, "speed": 0.8}}
+        published = {"a": {"steps": 32}, "b": {"steps": 32}}
+        rows = [{"i": 0, "speech": 0.8, "room": 1.3}, {"i": 1, "speech": 0.8, "room": 1.3}]
+        self.assertEqual(_published_remix_paces(["a", "b"], settings, published, rows), {"a": 1.0, "b": 1.0})
+        for bad in (None, 0, float("nan"), 1.29, 1.4):
+            with self.subTest(bad=bad):
+                self.assertIsNone(
+                    _published_remix_paces(["a", "b"], settings, published, [rows[0], {**rows[1], "speech": bad}])
+                )
+        self.assertIsNone(_published_remix_paces(["a", "b"], settings, published, rows[:1]))
+
+    def test_final_remix_cannot_reuse_another_lines_old_conditioning_or_quality(self):
+        rows = [{"i": 0, "speech": 0.8, "room": 1.3}, {"i": 1, "speech": 0.8, "room": 1.3}]
+        for field in ("line_ref", "fallback_sig", "steps", "seed", "effect", "instruct"):
+            with self.subTest(field=field):
+                settings = {"a": {"steps": 32, "speed": 0.8}, "b": {field: "new", "speed": 0.8}}
+                published = {"a": {"steps": 32}, "b": {field: "old"}}
+                self.assertIsNone(_published_remix_paces(["a", "b"], settings, published, rows))
+        self.assertIsNone(_published_remix_paces(["a"], {"a": {"steps": 32}}, {}, rows))
+
+    def test_final_remix_respects_directed_pace_and_validates_all_speeds(self):
+        rows = [{"i": 0, "speech": 0.8, "room": 1.3}]
+        settings, published = {"a": {"speed": 0.8}}, {"a": {"speed": 1.0}}
+        self.assertIsNone(_published_remix_paces(["a"], settings, published, rows, directed={"a"}))
+        for bad in (True, float("nan"), 0.7, 1.3, "fast"):
+            with self.subTest(bad=bad):
+                self.assertIsNone(_published_remix_paces(["a"], {"a": {"speed": bad}}, published, rows))
+                self.assertIsNone(_published_remix_paces(["a"], settings, {"a": {"speed": bad}}, rows))
+
     def test_rejected_adjustment_can_reuse_fitting_published_pace(self):
         spec = {"steps": 32, "line_ref": "own"}
         self.assertEqual(_fitting_published_pace({**spec, "speed": 0.8}, spec, {"speech": 0.8, "room": 1.3}), 1.0)
