@@ -1,6 +1,11 @@
 """Keep the VoiceStudio backend running.
 
-Usage: scripts/backend.py status | start | stop | restart
+Usage: scripts/backend.py status | start | stop [--now] | restart [--now] | unload [--now]
+
+Every job on this machine shares the one backend. stop, restart and unload take it
+away from whatever is using it, so they wait for the GPU lock (gpulock.py) first:
+a render or a prep in progress, this job's or another's, finishes its step. --now
+doesn't wait: for a backend that is wedged while a tool still holds the lock.
 
 start launches the backend detached from the shell that asks (on Windows through
 the process service, so it outlives an agent's session), with OMNIVOICE_DATA_DIR,
@@ -8,8 +13,8 @@ OMNIVOICE_CACHE_DIR and the full PATH set, and waits until /health says ok. The
 log goes to backend.log beside the data folder (or $VOICESTUDIO_LOG). The
 checkout is $VOICESTUDIO_DIR, else the pinned vendor/VoiceStudio submodule,
 else (macOS) the desktop app's runtime, else VoiceStudio beside this repo.
-dub_anything.py calls ensure() before GPU work, restarts a backend that
-stopped answering, and unload()s what prep loaded before rendering.
+dub_anything.py calls ensure() before GPU work and restarts a backend that ran
+out of memory; a render unloads what a prep loaded first (release_prep).
 """
 
 import argparse
@@ -21,6 +26,7 @@ import subprocess
 import sys
 import time
 
+import gpulock
 from gpu import ROCM_ENV, rocm_env
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -331,9 +337,50 @@ def restart():
     return start()
 
 
+# A prep loads transcription and diarisation into the backend, which keeps them
+# loaded: a render beside them runs out of GPU memory. Every job shares the
+# backend, so what says "a prep ran" is a file every job's tools see, not a note
+# in one runner: prep leaves it (mark_prep), and the next render, of any job,
+# unloads those models while it holds the GPU lock (release_prep), so no prep can
+# load them again between the unload and the render. The mark names the backend
+# process it was left for: a backend started since has nothing of a prep's loaded.
+PREP_MARK = ROOT / "work" / "backend.prep-loaded"
+
+
+def mark_prep():
+    PREP_MARK.parent.mkdir(exist_ok=True)
+    PREP_MARK.write_text(str(listening_pid() or ""), encoding="utf-8")
+
+
+def prep_loaded():
+    """Whether the running backend may still hold a prep's models."""
+    try:
+        marked = PREP_MARK.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    running = listening_pid()
+    return not marked or not running or marked == str(running)
+
+
+def release_prep():
+    """Before a render, by the tool that holds the GPU lock: unload what a prep
+    loaded into the backend since it last rendered, and restart it when unloading
+    leaves the memory held. False when the backend won't come back."""
+    if not prep_loaded():
+        return True
+    print("  unloading the models prep loaded into the backend", flush=True)
+    if not unload():
+        print("  unloading left GPU memory held: restarting the backend", flush=True)
+        if not restart():
+            return False
+    PREP_MARK.unlink(missing_ok=True)
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["status", "start", "stop", "restart"])
+    ap.add_argument("cmd", choices=["status", "start", "stop", "restart", "unload"])
+    ap.add_argument("--now", action="store_true", help="don't wait for the tool that is using the GPU")
     args = ap.parse_args()
     if args.cmd == "status":
         h, pid = health(), listening_pid()
@@ -344,8 +391,13 @@ def main():
             + f"; log {log_path()}"
         )
         sys.exit(0 if h and h.get("status") == "ok" else 1)
+    if args.cmd in ("stop", "restart", "unload") and not args.now:
+        # A render or a prep, of any job, is using the backend while it holds the GPU.
+        gpulock.hold_gpu("backend.py")
     if args.cmd == "stop":
         stop()
+    elif args.cmd == "unload":
+        sys.exit(0 if unload() else 1)
     else:
         sys.exit(0 if (restart() if args.cmd == "restart" else start()) else 1)
 

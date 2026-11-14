@@ -82,6 +82,10 @@ cloned or shared are final.
   `scripts/backend.py start` starts it detached from your shell, so it outlives
   your session, and waits until it answers (`restart` after a driver/system
   update, or when renders crawl). `scripts/dub_anything.py run` starts it too.
+  Every job on the machine shares it: `stop`, `restart` and `unload` wait for
+  the GPU lock, so a render in progress (yours or another job's) finishes its
+  step first. `--now` skips the wait, for a backend wedged under a tool that
+  still holds the lock.
 - Tools in their own environments (`scripts/dub_anything.py run` starts them itself):
   - `separate.py`:
     macOS: `uv run --no-project --python 3.11 --with torch --with audio-separator --with onnxruntime python scripts/separate.py <clip> ...`
@@ -101,6 +105,9 @@ cloned or shared are final.
 - One GPU job at a time is enforced: every GPU tool waits for the GPU lock
   (`gpulock.py`) before it loads a model, and prints who holds it. So you can run
   `asr_words.py` or `fit.py` while `scripts/dub_anything.py run` renders; they queue.
+  Several jobs can run at once the same way: their steps take turns on the GPU,
+  so two dubs finish no sooner than one after the other. A job has one `run` at
+  a time: a second one on the same job is refused and names the first.
 
 ## A dub, start to finish
 

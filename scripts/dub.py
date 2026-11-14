@@ -68,6 +68,7 @@ from core import (
     take_wav,
     update_json,
 )
+import backend
 import gpu
 from gpulock import hold_gpu
 from languages import LANGUAGES, NAMES, PAIR, PAIRS
@@ -399,6 +400,8 @@ def cmd_prep(args):
     if (args.source, args.target) not in PAIRS:
         raise SystemExit(f"{args.source} -> {args.target}: the scripts know {sorted(PAIRS)}")
     require_shared_media()
+    # Before the backend loads anything for it, so a prep that fails halfway counts too.
+    backend.mark_prep()
 
     print(f"upload {video.name} ({NAMES[args.source]} -> {NAMES[args.target]})")
     with open(video, "rb") as f:
@@ -1703,6 +1706,9 @@ def main():
         else None
     )
     held = time.perf_counter()
+    # With the GPU held, so no prep, of this job or another, loads its models back in between.
+    if not backend.release_prep():
+        raise SystemExit("the backend won't restart (scripts/backend.py status)")
     flush_gpu()
     try:
         args.fn(args)

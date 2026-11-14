@@ -167,18 +167,130 @@ class UnloadTests(unittest.TestCase):
         with patch("urllib.request.urlopen", side_effect=OSError("refused")):
             self.assertFalse(backend.unload())
 
-    def test_the_runner_restarts_only_when_unloading_is_not_enough(self):
+    def marked(self, tmp, pid=4242):
+        """A prep's mark, left while backend process `pid` was the one running."""
+        mark = pathlib.Path(tmp) / "work" / "backend.prep-loaded"
+        with patch.object(backend, "PREP_MARK", mark), patch.object(backend, "listening_pid", return_value=pid):
+            backend.mark_prep()
+        return mark
+
+    def test_a_render_restarts_only_when_unloading_is_not_enough(self):
         for unloaded, restarts in ((True, 0), (False, 1)):
             with (
                 self.subTest(unloaded=unloaded),
-                patch.dict(runner.BACKEND, {"dirty": True}),
-                patch.object(runner.backend, "unload", return_value=unloaded),
-                patch.object(runner.backend, "restart", return_value=True) as restart,
+                tempfile.TemporaryDirectory() as tmp,
+                patch.object(backend, "PREP_MARK", self.marked(tmp)) as mark,
+                patch.object(backend, "listening_pid", return_value=4242),
+                patch.object(backend, "unload", return_value=unloaded) as unload,
+                patch.object(backend, "restart", return_value=True) as restart,
                 contextlib.redirect_stdout(io.StringIO()),
             ):
-                runner.clean_backend({"slug": "sample"})
+                self.assertTrue(backend.release_prep())
                 self.assertEqual(restart.call_count, restarts)
-                self.assertFalse(runner.BACKEND["dirty"])
+                self.assertFalse(mark.exists())
+                self.assertTrue(backend.release_prep())  # nothing of a prep's is left: no second unload
+                self.assertEqual(unload.call_count, 1)
+
+    def test_the_mark_is_for_every_job_and_for_the_backend_that_was_running(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(backend, "PREP_MARK", self.marked(tmp)),
+            patch.object(backend, "unload", return_value=True) as unload,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            # Another job's render sees it: the mark is a file, not a note in one runner.
+            with patch.object(backend, "listening_pid", return_value=4242):
+                self.assertTrue(backend.prep_loaded())
+            # A backend started since holds nothing of that prep's.
+            with patch.object(backend, "listening_pid", return_value=5555):
+                self.assertFalse(backend.prep_loaded())
+                self.assertTrue(backend.release_prep())
+            unload.assert_not_called()
+
+    def test_a_backend_that_will_not_come_back_keeps_the_mark(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(backend, "PREP_MARK", self.marked(tmp)) as mark,
+            patch.object(backend, "listening_pid", return_value=4242),
+            patch.object(backend, "unload", return_value=False),
+            patch.object(backend, "restart", return_value=False),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertFalse(backend.release_prep())
+            self.assertTrue(mark.exists())
+
+
+class SharedBackendTests(unittest.TestCase):
+    """Jobs share one backend: taking it away waits for whoever is using the GPU."""
+
+    def command(self, *argv):
+        with (
+            patch.object(sys, "argv", ["backend.py", *argv]),
+            patch.object(backend.gpulock, "hold_gpu") as hold,
+            patch.object(backend, "stop") as stop,
+            patch.object(backend, "start", return_value=True),
+            patch.object(backend, "unload", return_value=True),
+            self.assertRaises(SystemExit) if argv[0] != "stop" else contextlib.nullcontext(),
+        ):
+            backend.main()
+        return hold, stop
+
+    def test_stop_restart_and_unload_wait_for_the_gpu(self):
+        for cmd in ("stop", "restart", "unload"):
+            hold, _ = self.command(cmd)
+            hold.assert_called_once_with("backend.py")
+
+    def test_now_does_not_wait_and_start_never_does(self):
+        hold, stop = self.command("restart", "--now")
+        hold.assert_not_called()
+        stop.assert_called_once()
+        self.assertFalse(self.command("start")[0].called)
+
+    def test_a_render_out_of_memory_restarts_the_backend_as_a_step_that_waits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp) / "work"
+            part = work / "sample-01"
+            part.mkdir(parents=True)
+            core.save_json(part / "script.json", {"lines": [{"start": 0, "end": 1, "voice": "a", "text": "x"}]})
+            steps = []
+
+            def tool(job, label, cmd, logname):
+                steps.append(cmd[1:3])
+                return (False, "CUDA out of memory", {}) if "generate" in cmd else (True, "", {})
+
+            with (
+                patch.object(core, "WORK", work),
+                patch.object(runner, "tool", side_effect=tool),
+                patch.object(runner, "cast_sha", return_value="cast"),
+                patch.object(runner.backend, "restart") as direct,
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(runner.advance({"slug": "sample"}, "sample-01"), "busy")
+            self.assertEqual(steps, [["scripts/dub.py", "generate"], ["scripts/backend.py", "restart"]])
+            direct.assert_not_called()
+
+
+class OneRunTests(unittest.TestCase):
+    def test_a_job_has_one_run_at_a_time(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(core, "WORK", pathlib.Path(tmp) / "work"):
+            with runner.only_run("sample", "run --watch"):
+                # A second process: the lock is the operating system's, held per open file.
+                code = (
+                    "import sys, pathlib; sys.path.insert(0, sys.argv[1]); import core, dub_anything as r\n"
+                    "core.WORK = pathlib.Path(sys.argv[2])\n"
+                    "with r.only_run('sample'): pass"
+                )
+                scripts = str(pathlib.Path(runner.__file__).parent)
+                second = __import__("subprocess").run(
+                    [sys.executable, "-c", code, scripts, str(pathlib.Path(tmp) / "work")],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(second.returncode, 0)
+                self.assertIn("another dub_anything.py is working on this job", second.stderr)
+                self.assertIn("run --watch", second.stderr)
+            with runner.only_run("sample"):  # released with the first: the next run starts
+                pass
 
 
 if __name__ == "__main__":

@@ -43,7 +43,6 @@ class CurrentTakeGateTests(unittest.TestCase):
             patch.object(runner, "line_id", side_effect=lambda line: line["id"]),
             patch.object(runner, "langs", return_value=("ja", "en")),
             patch.object(runner, "take_wav", side_effect=lambda job, lid, target: self.wav(lid)),
-            patch.object(runner, "clean_backend"),
             contextlib.redirect_stdout(io.StringIO()),
         ):
             patcher.__enter__()

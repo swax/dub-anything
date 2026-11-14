@@ -123,11 +123,13 @@ class PrepReportTests(unittest.TestCase):
                 patch.object(dub, "separate"),
                 patch.object(dub, "ensure_diarizer"),
                 patch.object(dub, "sse", return_value=iter([("error", event)])),
+                patch.object(dub.backend, "mark_prep") as marked,
                 patch.dict(core.os.environ, {core.RESULT_ENV: str(reported)}),
                 contextlib.redirect_stdout(io.StringIO()),
                 self.assertRaises(RuntimeError),
             ):
                 dub.cmd_prep(args)
+            marked.assert_called_once()  # a prep that fails may have loaded its models all the same
             return core.load_json(reported, {})
 
     def test_silent_part_is_reported_and_other_failures_are_not(self):

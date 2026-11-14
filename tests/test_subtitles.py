@@ -71,7 +71,6 @@ class SubtitleJobTests(unittest.TestCase):
             ):
                 self.assertEqual(runner.prepare_step(job, [{"name": "sample-01", "file": "p.mp4"}]), "busy")
             self.assertIn("--subtitles-only", tool.call_args.args[2])
-            self.assertFalse(runner.BACKEND["dirty"])
 
     def test_a_ready_part_is_final_without_rendering(self):
         with tempfile.TemporaryDirectory() as tmp:

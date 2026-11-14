@@ -44,8 +44,11 @@ voice renders in <part>.us, from a copy of the director's script (a line's
 final in every voice: assemble.py per voice, deliver.py into the source (renamed
 "<name> (dubbed)"), and the report. A part that overflows is blocked until its
 script changes, and one whose render fails twice until run starts again; the
-others carry on. The backend is restarted before the first render after a prep,
-and when a render runs out of GPU memory, since its cache keeps what it loaded. --watch
+others carry on. A render unloads what a prep loaded into the backend first
+(backend.release_prep, by dub.py generate while it holds the GPU), and the backend is
+restarted when a render runs out of GPU memory, since its cache keeps what it loaded.
+Jobs share the backend and the GPU: every step that uses or restarts them waits for
+the GPU lock, and each job has one run at a time (only_run). --watch
 keeps waiting for scripts until delivery, and stops early when a part is blocked,
 so the agent can tell the user. Exit codes: 0 done or idle, 2 needs the director,
 1 error. Every GPU step waits for the GPU lock (gpulock.py); logs are in
@@ -90,6 +93,7 @@ before jobs had folders is only reported: its parts aren't where run would look.
 """
 
 import argparse
+import contextlib
 import hashlib
 import json
 import math
@@ -104,6 +108,7 @@ import time
 import backend
 import core
 import gpu
+import gpulock
 import subtitles
 from core import (
     RESULT_ENV,
@@ -181,6 +186,7 @@ AMERICAN_RENDER = {"line_ref": False, "fill": True, "dips": False, "cast_lines":
 ACTOR_RENDER = {"line_ref": True, "fill": True, "dips": True, "cast_lines": True, "voice": "actor"}
 ENV = {**backend.full_env(), "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
 GPU_FULL = re.compile(r"out of memory|Generation failed", re.I)  # the backend's cache filled the card
+BACKEND_RESTART = [PY, "scripts/backend.py", "restart"]
 RETRY = ("render failed", "lineqa failed")  # problems a new run retries; the rest wait for a script change
 
 
@@ -397,9 +403,6 @@ def prepare_step(job, ps):
             if not ok:
                 problem(job, f"prep {p['name']} failed: {last_error(out)}")
                 return "failed"
-            # Prep loads transcription and diarisation into the backend, which keeps them
-            # loaded: renders beside them run out of GPU memory.
-            BACKEND["dirty"] = not subtitles_only(job)
             return "busy"
     todo = [n for n in names if not (job_dir_of(n) / "separator.json").exists()]
     if todo:
@@ -418,21 +421,6 @@ def prepare_step(job, ps):
         problem(job, "draft.py failed (see its log)")
         return "failed"
     return "busy"
-
-
-BACKEND = {"dirty": False}  # prep has run since the backend last started
-
-
-def clean_backend(job):
-    """Before a render, unload what prep loaded into the backend since it last
-    rendered; restart it when unloading leaves the memory held."""
-    if BACKEND["dirty"]:
-        log("unloading the models prep loaded into the backend")
-        if not backend.unload():
-            log("unloading left GPU memory held: restarting the backend")
-            if not backend.restart():
-                raise SystemExit(problem(job, "the backend won't restart (scripts/backend.py status)") or 2)
-        BACKEND["dirty"] = False
 
 
 SECOND_RUN = {}
@@ -710,7 +698,6 @@ def advance(job, name):
         save()
         return "busy"
     if stage in ("render", "remix"):
-        clean_backend(job)
         what = {"render": "render" if not st["round"] else f"round {st['round']}", "remix": "re-mix"}[stage]
         ok, out, result = tool(
             job,
@@ -730,9 +717,8 @@ def advance(job, name):
             elif st["fails"] >= 2:
                 st["problem"] = f"render failed twice: {last_error(out)}"
             elif GPU_FULL.search(out):
-                log("the backend ran out of GPU memory: restarting it")
-                backend.restart()
-                BACKEND["dirty"] = False
+                # As a step of its own, which waits for the GPU: another job may be mid-render.
+                tool(job, "restart the backend (out of GPU memory)", BACKEND_RESTART, "backend-restart")
             else:
                 backend.ensure()
             save()
@@ -1371,8 +1357,37 @@ def cmd_status(args):
         print(f"  problem: {t}")
 
 
+@contextlib.contextmanager
+def only_run(slug, what="run"):
+    """One run per job: a second one would render the same parts, write over the
+    first one's states and deliver twice. The lock is the operating system's, so it
+    goes with the process that holds it, however it ends."""
+    home = job_dir(slug)
+    home.mkdir(parents=True, exist_ok=True)
+    with open(home / "run.lock", "a+") as lock:
+        try:
+            gpulock._try_lock(lock)
+        except OSError:
+            owner = load_json(home / "run.owner", {})
+            who = f" ({owner['what']}, pid {owner['pid']}, since {owner['since']})" if owner else ""
+            raise SystemExit(
+                f"{slug}: another dub_anything.py is working on this job{who}: "
+                f"follow it with status {slug}, or stop it before starting another"
+            ) from None
+        try:
+            save_json(home / "run.owner", {"what": what, "pid": os.getpid(), "since": time.strftime("%m-%d %H:%M")})
+            yield
+        finally:
+            gpulock._unlock(lock)
+
+
 def cmd_run(args):
     job = load_job(args.slug)
+    with only_run(job["slug"], "run --watch" if args.watch else "run"):
+        return run_job(args, job)
+
+
+def run_job(args, job):
     if not subtitles_only(job) and not backend.ensure():
         raise SystemExit("the VoiceStudio backend won't start (scripts/backend.py status)")
     if not split(job):
@@ -1574,6 +1589,12 @@ def cmd_cleanup(args):
         return 0
     if not safe and not args.force:
         raise SystemExit("not deleting: the dub isn't verified beside the original (--force deletes anyway)")
+    with only_run(slug, "cleanup --delete"):  # not under a run that is still using them
+        return delete_bulk(job, drop, own, sizes)
+
+
+def delete_bulk(job, drop, own, sizes):
+    slug = job["slug"]
 
     def writable(func, path, _):
         os.chmod(path, 0o666)  # Windows refuses to delete a read-only file
