@@ -33,6 +33,7 @@ class JapaneseSourceNumbersTests(unittest.TestCase):
             ("一週間で二名様、二泊三日です。", "1週間で2名様、2泊3日です。"),
             ("三点差で四十代の三着です。", "3点差で40代の3着です。"),
             ("三連勝のあと二連敗です。", "3連勝のあと2連敗です。"),
+            ("五対四、次は二対零です。", "5対4、次は2対0です。"),
         ):
             with self.subTest(want=want, heard=heard):
                 self.assertEqual(ja.normalize_source(want), ja.normalize_source(heard))
@@ -155,6 +156,13 @@ class SourceWindowNumberTests(unittest.TestCase):
         self.lines[0]["ja"] = prefix + "横三、縦五です。"
         self.heard = prefix + "横5、縦3です。"
         self.assertIn("number differs", self.check()[0][0])
+
+    def test_a_changed_score_is_rejected_in_either_position(self):
+        self.lines[0]["ja"] = "こちらの試合は五対四で終了しました。"
+        for score in ("6対4", "5対3", "4対5"):
+            with self.subTest(score=score):
+                self.heard = f"こちらの試合は{score}で終了しました。"
+                self.assertIn("number differs", self.check()[0][0])
 
     def test_wrong_speaker_still_rejects_an_equivalent_number(self):
         self.audio[: self.sr] = 0.4

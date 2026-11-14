@@ -56,9 +56,7 @@ SOURCE_NUMBER = re.compile(
 )
 # Counters after a single kanji numeral, which make it a number: 三週間 is 3週間.
 # Other single-numeral compounds (一緒, 千葉, 一般) stay words.
-COUNTERS = (
-    "円年月日時分秒人個枚本台回歳才番号冊杯匹頭軒件割倍組階度歩勝敗位週名代着足通曲羽泊晩箱缶袋皿錠粒隻両畳坪品点周局戦"
-)
+COUNTERS = "円年月日時分秒人個枚本台回歳才番号冊杯匹頭軒件割倍組階度歩勝敗位週名代着足通曲羽泊晩箱缶袋皿錠粒隻両畳坪品点周局戦対"
 MULTI_COUNTERS = ("連勝", "連敗")
 
 
