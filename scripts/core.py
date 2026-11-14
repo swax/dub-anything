@@ -126,20 +126,47 @@ def bulk_dir(slug):
     return job_dir(slug) / "bulk"
 
 
+# A job keeps the layout it was made in, so one made by an earlier version still finds
+# its split, its logs and its parts' references where that version put them:
+#   "bulk"    as above
+#   "folder"  made before bulk/: media/<slug>.<ext> and media/split/, logs/, and each
+#             part's refs/, takes/, emo/ and signs/ in its own parts/NN/
+#   "flat"    made before a job had a folder for its work at all: its parts were
+#             work/<slug>-NN and its cast the shared work/voices.json. Only its
+#             job.json and report are in work/jobs/<slug>/, and no tool here reads the rest.
+BULKY = ("refs", "takes", "emo", "signs")  # a part's regenerable folders (bulk_of)
+
+
+def job_layout(slug):
+    home = job_dir(slug)
+    if (home / "bulk").is_dir() or not (home / "job.json").exists():
+        return "bulk"
+    if (home / "media").is_dir():
+        return "folder"
+    return "bulk" if (home / "parts").is_dir() else "flat"
+
+
+def logs_dir(slug):
+    """The runner's logs for a job."""
+    return (job_dir(slug) if job_layout(slug) == "folder" else bulk_dir(slug)) / "logs"
+
+
 def bulk_of(work):
-    """Where a part's bulky, regenerable files go (refs/, takes/, emo/, signs/): the job's
-    bulk/parts/NN[.us] for a job's part, the part's own folder for a clip prepped by hand."""
+    """Where a part's bulky, regenerable files go (BULKY): the job's bulk/parts/NN[.us]
+    for a job's part, the part's own folder for a clip prepped by hand or a job made
+    before bulk/."""
     work = pathlib.Path(work)
     if work.parent.name == "parts" and (work.parent.parent / "job.json").exists():
-        return bulk_dir(work.parent.parent.name) / "parts" / work.name
+        slug = work.parent.parent.name
+        return work if job_layout(slug) == "folder" else bulk_dir(slug) / "parts" / work.name
     return work
 
 
 def split_dir(slug):
-    """Where split.py puts a video's parts: the job's bulk/split, or for a video
-    split by hand, videos/<stem>-parts."""
+    """Where split.py puts a video's parts: the job's bulk/split (media/split for a
+    job made before bulk/), or for a video split by hand, videos/<stem>-parts."""
     if (job_dir(slug) / "job.json").exists():
-        return bulk_dir(slug) / "split"
+        return job_dir(slug) / "media" / "split" if job_layout(slug) == "folder" else bulk_dir(slug) / "split"
     return ROOT / "videos" / f"{slug}-parts"
 
 
@@ -338,27 +365,36 @@ def take_wav(job_id, lid, tgt, kind="seg"):
     return JOBS / job_id / f"{kind}_{tgt}_{lid}.wav"
 
 
-def load_json(path, default=None):
-    # Windows can briefly refuse a read while another process swaps the file in (save_json).
+def read_text(path):
+    """A file's text, or None when there is no such file."""
+    # Windows can briefly refuse a read while another process swaps the file in (save_text).
     for pause in (0.02, 0.05, 0.1, None):
         try:
-            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+            return pathlib.Path(path).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
         except PermissionError:
             if pause is None:
                 raise
             time.sleep(pause)
 
 
-def save_json(path, value, indent=1):
-    """Write JSON so a reader sees the old file or the new one, never part of one:
+def load_json(path, default=None):
+    text = read_text(path)
+    return default if text is None else json.loads(text)
+
+
+def save_text(path, text, newline=None):
+    """Write a file so a reader sees the old one or the new one, never part of one:
     the runner, the director and the tools read each other's files while they work,
-    and a write cut short would otherwise leave JSON that stops the next reader."""
+    and a write cut short would otherwise leave a file that stops the next reader, or
+    one whose being there says a step is done. `newline` is open()'s."""
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
     try:
-        with temporary.open("w", encoding="utf-8") as stream:
-            json.dump(value, stream, ensure_ascii=False, indent=indent)
+        with temporary.open("w", encoding="utf-8", newline=newline) as stream:
+            stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
         # Windows refuses the swap while a reader or a scanner has the file open.
@@ -372,6 +408,41 @@ def save_json(path, value, indent=1):
                 time.sleep(pause)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def save_json(path, value, indent=1):
+    """Write JSON in one step (save_text)."""
+    save_text(path, json.dumps(value, ensure_ascii=False, indent=indent))
+
+
+# A script.json has several writers: the director, and the tools that complete or
+# correct it (the runner's render defaults, the ready mark, edges.py's window moves,
+# register.py's routing). None of them holds a lock the director's editor would
+# respect, so a tool writes only what it read: if the file changed since, it reads
+# again (update_json) or leaves the file alone and says so (save_text_unchanged).
+def save_text_unchanged(path, text, was, newline=None):
+    """save_text, unless the file is no longer the text `was` it was read as
+    (read_text). Returns whether it was written."""
+    if read_text(path) != was:
+        return False
+    save_text(path, text, newline)
+    return True
+
+
+def update_json(path, change, indent=1, tries=5):
+    """Apply change(value) to a JSON file another writer may be editing: change gets
+    what the file holds (None without one) and returns what to write, or None to
+    leave it. A file that changed while change worked is read and changed again,
+    never overwritten. Returns what the file holds afterwards."""
+    for _ in range(tries):
+        was = read_text(path)
+        value = None if was is None else json.loads(was)
+        new = change(value)
+        if new is None:
+            return value
+        if save_text_unchanged(path, json.dumps(new, ensure_ascii=False, indent=indent), was):
+            return new
+    raise RuntimeError(f"{path} keeps changing: nothing written")
 
 
 RESULT_ENV = "DUB_RESULT_FILE"  # where the runner asks a tool to leave what it decided

@@ -65,6 +65,9 @@ def show(rows, show_all):
                 print(f"      {note}")
 
 
+CHECKED = {}  # part -> its script as it was checked, which is the one --ready marks
+
+
 def check(name, apply=True, show_all=False):
     """Print one part's report; return how many things must be fixed, or None if it can't be checked."""
     work = part_dir(name)
@@ -75,6 +78,7 @@ def check(name, apply=True, show_all=False):
     if seg is None or script is None:
         print(f"== {name}: {'not prepped' if seg is None else 'no script.json yet'}")
         return None
+    CHECKED[name] = script
     job = job_of(name)
     subs = bool(seg.get("subtitles_only") or (job and runner.subtitles_only(job)))
     voices = [] if subs else job["voices"] if job else [script.get("render", {}).get("voice", "actor")]
@@ -105,6 +109,7 @@ def check(name, apply=True, show_all=False):
         )
     else:
         moved, ends, joins = edges.analyse(name, apply)
+        CHECKED[name] = load_json(work / "script.json")  # with its edges moved: what the rest checks
         messages = edges.messages(moved, ends, joins)
         fixed = [text for fix, text in messages if fix]
         left = [text for fix, text in messages if not fix]
@@ -164,13 +169,12 @@ def main():
         blocked += must != 0
         if must is None:
             continue
-        script = load_json(part_dir(name) / "script.json")
+        script = CHECKED.get(name)
         if must:
             print(f"next: fix the {must} marked !, then scripts/check.py {name}" + (" --ready" if args.ready else ""))
         elif args.ready and script is not None:
-            if script["lines"] and not script.get("ready"):
-                script["ready"] = True
-                runner.write_json(part_dir(name) / "script.json", script)
+            if script["lines"]:
+                runner.mark_ready(name, script)  # not a script saved again while this ran
             print("ready: it renders when dub_anything.py run gets to it")
         elif script is not None and script["lines"] and not script.get("ready"):
             print(f"next: nothing to fix; review the rest, then scripts/check.py {name} --ready")

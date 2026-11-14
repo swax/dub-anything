@@ -50,6 +50,13 @@ folder. VoiceStudio keeps each part's stems and takes in its own data folder,
 installs). A clip prepped by hand, outside a job, keeps the older layout:
 everything in `work/<name>/`, and the shared `work/voices.json`.
 
+A job keeps the layout it was made in. One made before `bulk/` has `media/`
+(with `media/split/`) and `logs/` at its top and each part's `refs/`, `takes/`
+and `signs/` in `parts/NN/`: every tool still finds them there, and `cleanup`
+lists those folders. One made before jobs had folders (parts in
+`work/<slug>-NN/`, its cast in the shared `work/voices.json`) is only reported
+by `status`: `run` and `cleanup` refuse it. Its voices can still be borrowed.
+
 `dub_anything.py new` copies the source into `bulk/media/source/`, so delivery
 never touches the original, and records the original's path. Delivery then
 publishes the dub beside the original (`<name> (dubbed).mkv`), checked by
@@ -90,6 +97,11 @@ Each job has its own cast. A later episode can borrow an earlier one's:
 `dub_anything.py new <video> --voices-from <earlier slug>` lets its scripts use
 the earlier job's voices as they were built there, read-only. A new voice goes
 in the new job's own `voices.json`, under a key the borrowed cast doesn't use.
+A borrowed voice is the lender's `voices/<key>.wav`, never cut again: the stems
+it came from go with the lender's cleanup. `new` says how many of the lender's
+voices have that file; one that doesn't can be used only while those stems are
+still there. From a job made before each job had its own cast, the voices
+borrowed are the shared `work/voices.json` entries cut from that job's parts.
 
 A character can have a second reference in another register, built by
 `scripts/register.py build` (see "The reference sets the register" in [gotchas](directing/gotchas.md)). Its entry
@@ -297,7 +309,12 @@ be fixed (`OVER?`, `risk` on a window under 1 s, a broken script, `FAST`,
 lines, the lines falling back to the character's reference and why). It
 rewrites the windows edges moves, so re-read those lines before editing them.
 Fix, run it again, and `scripts/check.py <part> --ready` marks the part ready
-once nothing must be fixed. The tools still run on their own, with every line
+once nothing must be fixed. A tool never writes over a script saved since it
+read it: if you save while `check.py`, `edges.py --apply` or `register.py`
+works, it writes nothing (or leaves the ready mark off) and says to run it
+again. A `script.json` that isn't valid JSON doesn't stop `run`: the part
+waits, `status` shows `INVALID SCRIPT`, and after a minute `run --watch` stops
+for you as it does for a blocked part. The tools still run on their own, with every line
 (`--all` prints every line here too).
 
 ## Other languages

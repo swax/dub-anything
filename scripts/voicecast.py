@@ -21,9 +21,27 @@ def load_voices():
     Only its own is ever written (update_voices)."""
     voices = {}
     for other in core.borrowed_casts():
-        voices.update(core.load_json(core.cast_dir(other) / "voices.json", {}))
+        voices.update(cast_of(other)[1])
     voices.update(core.load_json(core.voices_file(), {}))
     return voices
+
+
+def cast_of(slug):
+    """(folder, voices) of another job's cast, for a job that borrows it. A job made
+    before each job had a cast of its own has no voices.json: its voices are the
+    entries of the shared work/voices.json built from its parts ("from", or a clip
+    naming one), and their audio is in work/voices/."""
+    home = core.cast_dir(slug)
+    if (home / "voices.json").exists():
+        return home, core.load_json(home / "voices.json", {})
+
+    def source(spec):
+        clip = spec.get("from") or next((c[0] for c in spec.get("clips", []) if len(c) == 3), "")
+        m = core.PART_NAME.fullmatch(clip) if isinstance(clip, str) else None
+        return m and m["slug"]
+
+    shared = core.load_json(core.WORK / "voices.json", {})
+    return core.WORK, {key: spec for key, spec in shared.items() if source(spec) == slug}
 
 
 def voice_home(key):
@@ -31,8 +49,9 @@ def voice_home(key):
     if key in core.load_json(core.voices_file(), {}):
         return core.cast_dir()
     for other in reversed(core.borrowed_casts()):
-        if key in core.load_json(core.cast_dir(other) / "voices.json", {}):
-            return core.cast_dir(other)
+        home, voices = cast_of(other)
+        if key in voices:
+            return home
     return core.cast_dir()
 
 
@@ -66,9 +85,7 @@ def update_voices(change):
                 time.sleep(0.2)
         voices = core.load_json(path, {})
         result = change(voices)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(voices, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(path)
+        core.save_json(path, voices)  # in one step, and patient with a reader that has it open
         # Closing the file releases the lock.
     return result
 
@@ -98,22 +115,36 @@ def voice_wav(key, rebuild=False):
     """voices/<key>.wav in the job's cast folder: the voice's clips from voices.json
     joined with 0.3 s pauses. Built when missing, when rebuild is set, or when the
     voice's entry no longer matches the profile it was last uploaded as. A voice
-    borrowed from another job's cast is that job's file, as it was built there."""
+    borrowed from another job's cast is that job's file, as it was built there,
+    whatever `rebuild` says: its entry is the lender's to change, and the stems it
+    was cut from are deleted with the lender's bulk once that job is delivered."""
     import numpy as np
     import soundfile as sf
 
     spec = load_voices()[key]
     ref = voice_path(key)
-    if ref.parent != core.voices_dir() and not rebuild:
+    if ref.parent != core.voices_dir():
         return ref
-    ref = core.voices_dir() / f"{key}.wav"
     uploaded = core.load_json(core.profiles_file(), {}).get(key, {})
     if ref.exists() and not rebuild and uploaded.get("sig") == voice_sig(key):
         return ref
     sources, parts = {}, []
     for clip, a, b in voice_clips(spec):
         if clip not in sources:
-            sources[clip] = sf.read(core.vocals_wav(clip), dtype="float32")
+            segments = core.segments_of(clip)
+            stems = core.JOBS / segments["job_id"] / "vocals.wav" if segments else None
+            if stems is None or not stems.exists():
+                lender = voice_home(key)
+                raise SystemExit(
+                    f"voice {key}: no separated voices for {clip} to cut its reference from"
+                    + (f" ({stems} is gone)" if stems else " (the part isn't prepped)")
+                    + (
+                        f"; it is borrowed, and {lender / 'voices' / (key + '.wav')} was never built"
+                        if lender != core.cast_dir()
+                        else ""
+                    )
+                )
+            sources[clip] = sf.read(stems, dtype="float32")
         audio, sr = sources[clip]
         gap = np.zeros((int(0.3 * sr),) + audio.shape[1:], dtype="float32")
         parts += [audio[int(a * sr) : int(b * sr)], gap]

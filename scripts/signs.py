@@ -44,7 +44,7 @@ import sys
 import numpy as np
 
 import ass
-from core import bulk_of, part_dir, part_name
+from core import bulk_of, part_dir, part_name, save_json
 import subs
 from languages import LANGUAGES, pair_of
 
@@ -435,13 +435,10 @@ def main():
         f"{len(cands)} candidates; {len(bounds) - 1} shots on {len(sheets)} sheet(s) in {out}",
         file=sys.stderr,
     )
-    (work / "signs.json").write_text(
-        json.dumps(
-            {"video": str(video), "source_lang": src, "target_lang": tgt, "cuts": shot_cuts, "candidates": cands},
-            ensure_ascii=False,
-            indent=1,
-        ),
-        encoding="utf-8",
+    # In one step: the runner takes the file's being there for a part whose signs are read.
+    save_json(
+        work / "signs.json",
+        {"video": str(video), "source_lang": src, "target_lang": tgt, "cuts": shot_cuts, "candidates": cands},
     )
     for c in cands:
         b = c["box"]

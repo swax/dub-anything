@@ -78,7 +78,15 @@ in DUB_RESULT_FILE, the tool leaves its facts there (core.report_result: a silen
 part, the lines that overflow, the takes QA put back, the assembled file) and run
 reads them back; the file stays beside the step's log as <log>.result.json. Job,
 state and script files are replaced in one step (core.save_json), so a run stopped
-mid-write leaves the earlier file.
+mid-write leaves the earlier file. The director's script.json is theirs: run adds
+its render defaults and the ready mark to the file as it is at that moment
+(core.update_json), never over an edit made meanwhile, and a script that isn't
+valid JSON (a slip in an edit, an editor caught mid-write) waits instead of stopping
+the run: after UNREADABLE_GRACE it counts as a blocked part.
+
+A job keeps the layout it was made in (core.job_layout): one made before bulk/
+still finds its split, logs and references, and cleanup lists those. One made
+before jobs had folders is only reported: its parts aren't where run would look.
 """
 
 import argparse
@@ -103,11 +111,14 @@ from core import (
     VOICE_LABEL,
     bulk_dir,
     job_dir,
+    job_layout,
     langs,
     load_json,
+    logs_dir,
     part_dir,
     save_json,
     split_dir,
+    update_json,
     take_wav,
     use_job,
     voice_part,
@@ -116,12 +127,13 @@ from core import (
 from languages import LANGUAGES, NAMES, PAIR, PAIRS
 from lengths import FILL_SPEED, actor_ends, speech_length
 from references import fallback_voice
-from voicecast import line_id, load_voices, voice_sig
+from voicecast import cast_of, line_id, load_voices, voice_sig
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 QA_ROUNDS = 3  # rounds of fresh takes for flagged lines after the first check
 MAX_REMIX_QA_RECHECKS = 2  # additional QA passes when a re-mix changes checked audio
 PREP_CHUNK = 4  # parts prepped, separated and drafted together, after the first part
+UNREADABLE_GRACE = 60  # s a script may stay unreadable before run --watch stops for the director
 PY = backend.vs_python()
 UV = ["uv", "run", "--no-project"]
 ROCM_TORCH = gpu.uv_torch_args()  # AMD: VoiceStudio's ROCm build of torch, in the tools' environments too
@@ -179,10 +191,19 @@ def job_file(slug):
     return job_dir(slug) / "job.json"
 
 
-def load_job(slug):
+FLAT = (
+    "made before a job kept its work in its own folder (its parts were work/<slug>-NN, its "
+    "cast the shared work/voices.json): this version can't run, clean up or re-deliver it. "
+    "Its job.json and report are all it reads; make a new job to dub the video again"
+)
+
+
+def load_job(slug, flat_ok=False):
     job = load_json(job_file(slug))
     if not job:
         raise SystemExit(f"no job {slug!r} (scripts/dub_anything.py new <video>)")
+    if job_layout(slug) == "flat" and not flat_ok:
+        raise SystemExit(f"{slug}: {FLAT}")
     # The job's cast is the one every tool reads and writes, here and in the tools it starts.
     use_job(slug)
     ENV["DUB_JOB"] = slug
@@ -221,6 +242,26 @@ def parts(job):
     return pj["parts"] if pj else []
 
 
+class ScriptError(Exception):
+    """A part's script.json that can't be used as it is right now."""
+
+
+UNREADABLE = {}  # part -> why its script can't be read, as ready() last found it
+
+
+def load_script(name):
+    """A part's script.json, or None before there is one. ScriptError when it isn't
+    valid JSON or has no list of lines: the director's slip, or their editor caught
+    mid-write, so callers wait for it rather than stop."""
+    try:
+        script = load_json(part_dir(name) / "script.json")
+    except ValueError as error:
+        raise ScriptError(f"{name}: script.json isn't valid JSON ({error})") from error
+    if script is not None and not (isinstance(script, dict) and isinstance(script.get("lines"), list)):
+        raise ScriptError(f'{name}: script.json needs a "lines" list')
+    return script
+
+
 def write_json(path, data):
     """Write a file only when its contents change, and then in one step (core.save_json)."""
     text = json.dumps(data, ensure_ascii=False, indent=1)
@@ -256,7 +297,7 @@ def tool(job, label, cmd, logname):
     it reported (core.report_result, kept beside the log as <logname>.result.json).
     The runner decides from the report; the output is for messages and the log."""
     pause_checkpoint()
-    logs = bulk_dir(job["slug"]) / "logs"
+    logs = logs_dir(job["slug"])
     logs.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     log(f"{label} ...")
@@ -297,7 +338,10 @@ def split(job):
 
 
 def original_only(p):
-    script = load_json(part_dir(p["name"]) / "script.json")
+    try:
+        script = load_script(p["name"])
+    except ScriptError:
+        return False
     return script is not None and not script["lines"]
 
 
@@ -417,7 +461,7 @@ def second(job, ps):
         and not original_only(p)
     ]
     if todo:
-        logs = bulk_dir(job["slug"]) / "logs"
+        logs = logs_dir(job["slug"])
         logs.mkdir(parents=True, exist_ok=True)
         f = open(logs / f"second-{time.strftime('%H%M%S')}.log", "w", encoding="utf-8")
         log(f"second.py over {len(todo)} parts in the background (CPU)")
@@ -447,7 +491,14 @@ def last_error(out):
 
 
 def ready(p):
-    script = load_json(part_dir(p["name"]) / "script.json")
+    """Whether the director has marked the part's script ready (or left it original).
+    A script that can't be read isn't ready, and why is kept in UNREADABLE."""
+    try:
+        script = load_script(p["name"])
+    except ScriptError as error:
+        UNREADABLE[p["name"]] = str(error)
+        return False
+    UNREADABLE.pop(p["name"], None)
     return script is not None and (not script["lines"] or bool(script.get("ready")))
 
 
@@ -468,17 +519,26 @@ def variant(job, p, voice):
     """The voice's work folder for part p, set up (script, VoiceStudio job, stems); None if it isn't ready."""
     name = voice_part(p["name"], voice)
     base = part_dir(p["name"])
-    script = load_json(base / "script.json")
+    script = load_script(p["name"])
     if voice == "actor":
         want = {**ACTOR_RENDER, "line_ref": PAIRS[langs(p["name"])]["line_ref"]}
         if load_json(base / "rendered.json"):
             # Rendered before "cast_lines" existed: dub.py reads it missing as off, and
             # writing it would change the script's record and render the part again.
             want.pop("cast_lines")
+
+        def complete(current):
+            # Complete it before the first render, so dub.py doesn't change the script under
+            # it: on the file as it is now, which the director may have saved again since.
+            if not current or not current.get("lines") or all(k in current.get("render", {}) for k in want):
+                return None
+            return {**current, "render": {**want, **current.get("render", {})}}
+
         if script["lines"] and any(k not in script.get("render", {}) for k in want):
-            # Complete it before the first render, so dub.py doesn't change the script under it.
-            script["render"] = {**want, **script.get("render", {})}
-            write_json(base / "script.json", script)
+            try:
+                update_json(base / "script.json", complete)
+            except ValueError as error:
+                raise ScriptError(f"{p['name']}: script.json isn't valid JSON ({error})") from error
         return name
     work = part_dir(name)
     work.mkdir(parents=True, exist_ok=True)
@@ -567,7 +627,7 @@ def cast_changed(st, script):
 def finished(p, voice):
     """Part p is final in this voice for its current script: a script edited after
     its part's turn in a pass still needs that part rendered again."""
-    script = load_json(part_dir(p["name"]) / "script.json")
+    script = load_script(p["name"])
     if not script["lines"]:
         return True
     st = load_json(part_dir(voice_part(p["name"], voice)) / "state.json", {})
@@ -611,7 +671,7 @@ def current_take_hashes(name, script):
 def advance(job, name):
     """One step for a part in one voice: 'busy' (did something), 'final', or 'blocked'."""
     work = part_dir(name)
-    script = load_json(work / "script.json")
+    script = load_script(name)
     if not script["lines"]:
         return "final"
     path = work / "state.json"
@@ -752,7 +812,7 @@ def delivery_sha(job, ps):
     if job.get("quicktime_audio"):
         h.update(b"quicktime-audio")
     for p in ps:
-        script = load_json(part_dir(p["name"]) / "script.json") or {"lines": []}
+        script = load_script(p["name"]) or {"lines": []}
         shown = {k: v for k, v in without_remarks(script).items() if k != "ready"}
         h.update(json.dumps(shown, sort_keys=True, ensure_ascii=False).encode())
         for voice in job["voices"]:
@@ -795,7 +855,7 @@ def adopt_fingerprints(job, ps):
     # Read before the states change: the earlier fingerprint covers them whole.
     delivered = bool(done) and done.get("state") == legacy_delivery_sha(job, ps)
     for p in ps:
-        script = load_json(part_dir(p["name"]) / "script.json")
+        script = load_script(p["name"])
         if not script or not script["lines"]:
             continue
         for voice in job["voices"]:
@@ -927,7 +987,11 @@ def report(job, ps, quiet=False):
     listen, original, flags, cues = [], [], {v: [] for v in job["voices"]}, []
     timing = {v: [] for v in job["voices"]}
     for p in ps:
-        script = load_json(part_dir(p["name"]) / "script.json")
+        try:
+            script = load_script(p["name"])
+        except ScriptError as error:
+            problems.append(str(error))
+            continue
         if script is None:
             problems.append(f"{p['name']}: not directed yet")
             continue
@@ -1033,6 +1097,17 @@ def cmd_new(args):
     missing = [other for other in args.voices_from if not job_file(other).exists()]
     if missing:
         raise SystemExit(f"--voices-from: no job {', '.join(missing)}")
+    for other in args.voices_from:
+        folder, lent = cast_of(other)
+        built = sum((folder / "voices" / f"{key}.wav").exists() for key in lent)
+        print(f"casting from {other}: {len(lent)} voices, {built} with their reference audio built")
+        if not lent:
+            print(f"  {other} has no voices yet: this job can use them as that one's cast is built")
+        if built < len(lent):
+            print(
+                f"  the other {len(lent) - built} can only be used while {other}'s separated voices "
+                "are still there to cut them from (they go with its cleanup)"
+            )
     # Everything the job makes goes in its folder (core.py, "where a job's work lives"):
     # what is worth keeping at its top, what it can make again in bulk/.
     home = job_dir(slug)
@@ -1201,9 +1276,20 @@ def cmd_ready(args):
             raise SystemExit(f"{name}: cannot mark ready:\n  " + "\n  ".join(problems))
         pending.append((name, script))
     for name, script in pending:
-        script["ready"] = True
-        write_json(part_dir(name) / "script.json", script)
+        mark_ready(name, script)
         print(f"{name}: ready")
+
+
+def mark_ready(name, checked):
+    """Set a part's ready mark on the script that was checked: if the file was saved
+    again since, what it holds now wasn't checked, and it is left without the mark."""
+
+    def mark(current):
+        if current != checked:
+            raise SystemExit(f"{name}: script.json changed while it was checked: not marked ready, check it again")
+        return None if current.get("ready") else {**current, "ready": True}
+
+    update_json(part_dir(name) / "script.json", mark)
 
 
 def cmd_hold(args):
@@ -1223,7 +1309,7 @@ def cmd_hold(args):
 
 
 def cmd_status(args):
-    job = load_job(args.slug)
+    job = load_job(args.slug, flat_ok=True)
     ps = parts(job)
     print(
         f"{job['slug']}: {pathlib.Path(job['source']).name}; {' -> '.join(job_langs(job))}; "
@@ -1231,11 +1317,17 @@ def cmd_status(args):
         + (f"; delivered {job['delivered']['at']}" if job.get("delivered") else "")
         + (f"; delivery held: {held(job)}" if held(job) else "")
     )
-    if not ps:
+    if job_layout(job["slug"]) == "flat":
+        print(f"  {FLAT}")
+    elif not ps:
         print("  not split yet")
     for p in ps:
         name = p["name"]
-        script = load_json(part_dir(name) / "script.json")
+        try:
+            script = load_script(name)
+        except ScriptError as error:
+            print(f"  {name}  {film_time(p['start'])}  INVALID SCRIPT  {error}")
+            continue
         prep = "prepped" if (part_dir(name) / "segments.json").exists() else "-"
         sep = "separated" if job_dir_of(name) and (job_dir_of(name) / "separator.json").exists() else "-"
         draft = "drafted" if (part_dir(name) / "draft.json").exists() else "-"
@@ -1288,7 +1380,10 @@ def cmd_run(args):
     ps = parts(job)
     job.pop("problems", None)
     save_job(job)
-    adopt_fingerprints(job, ps)
+    try:
+        adopt_fingerprints(job, ps)
+    except ScriptError as error:
+        return problem(job, f"{error}: fix it and start run again") or 2
     # A later failure on a previously blocked part is new, including the same
     # failure after the director has changed its script.
     known = set()
@@ -1302,29 +1397,41 @@ def cmd_run(args):
                 write_json(path, st)
             if st.get("problem"):
                 known.add((voice_part(p["name"], v), st.get("script"), st["problem"]))
-    seen, new_block, held_logged = set(), False, None
+    seen, new_block, held_logged, unreadable = set(), False, None, {}
     while True:
         pause_checkpoint()
         second(job, ps)
         busy = blocked = False
         for p in ps:
-            if not ready(p) or not (original_only(p) or drafted(p)):
-                continue
-            for voice in job["voices"]:
-                name = variant(job, p, voice)
-                if name is None:
-                    blocked = True
+            try:
+                if not ready(p) or not (original_only(p) or drafted(p)):
                     continue
-                while (state := advance(job, name)) == "busy":
-                    busy = True
-                if state == "blocked":
-                    blocked = True
-                    st = load_json(part_dir(name) / "state.json", {})
-                    block = (name, st.get("script"), st.get("problem"))
-                    if block not in seen:
-                        seen.add(block)
-                        log(f"BLOCKED {name}: {st.get('problem')}")
-                        new_block |= block not in known
+                for voice in job["voices"]:
+                    name = variant(job, p, voice)
+                    if name is None:
+                        blocked = True
+                        continue
+                    while (state := advance(job, name)) == "busy":
+                        busy = True
+                    if state == "blocked":
+                        blocked = True
+                        st = load_json(part_dir(name) / "state.json", {})
+                        block = (name, st.get("script"), st.get("problem"))
+                        if block not in seen:
+                            seen.add(block)
+                            log(f"BLOCKED {name}: {st.get('problem')}")
+                            new_block |= block not in known
+            except ScriptError as error:  # saved between ready()'s look and the render's
+                UNREADABLE[p["name"]] = str(error)
+        # A script that can't be read may be a save in progress: the part waits. One
+        # that stays that way is the director's to fix, like any blocked part.
+        unreadable = {name: unreadable.get(name, time.time()) for name in UNREADABLE}
+        for name, since in unreadable.items():
+            if (name, UNREADABLE[name]) not in seen:
+                seen.add((name, UNREADABLE[name]))
+                log(f"WAITING {UNREADABLE[name]}")
+            if not args.watch or time.time() - since >= UNREADABLE_GRACE:
+                blocked = new_block = True
         if not busy:
             # Preparation fills the time no ready part needs: renders never wait for
             # the rest of the video to be prepped.
@@ -1334,7 +1441,10 @@ def cmd_run(args):
             busy = step == "busy"
         # With --signs, signs.py reads every part before delivery, however early the parts were ready.
         signs_read = not job.get("signs") or all((part_dir(p["name"]) / "signs.json").exists() for p in ps)
-        final = signs_read and all(ready(p) and all(finished(p, v) for v in job["voices"]) for p in ps)
+        try:
+            final = signs_read and all(ready(p) and all(finished(p, v) for v in job["voices"]) for p in ps)
+        except ScriptError:
+            final = False
         if final and (reason := held(job)):
             # Everything is rendered and checked: the director audits it before it's packaged.
             if reason != held_logged:
@@ -1349,12 +1459,18 @@ def cmd_run(args):
         if final:
             if SECOND_RUN.get(job["slug"]):
                 SECOND_RUN[job["slug"]][0].wait()
-            if not deliver_job(job, ps):
-                return 2
+            try:
+                if not deliver_job(job, ps):
+                    return 2
+            except ScriptError as error:  # saved again just as everything was final
+                log(f"WAITING {error}")
+                continue
             path = report(job, ps, quiet=True)
             log(f"delivered {job['delivered']['path']}; report {path}")
             return 0
         if (new_block and args.watch) or (blocked and not busy and not args.watch):
+            for name in unreadable:
+                problem(job, UNREADABLE[name])
             log("waiting on the director: see scripts/dub_anything.py status " + job["slug"])
             report(job, ps, quiet=True)
             return 2
@@ -1368,16 +1484,27 @@ def cmd_run(args):
 
 
 def cmd_report(args):
-    job = load_job(args.slug)
+    job = load_job(args.slug, flat_ok=True)
     report(job, parts(job))
 
 
+def bulk_folders(slug):
+    """A job's own regenerable folders: its bulk/, or for a job made before bulk/
+    (core.job_layout) what has gone there since: media/, logs/ and each part's
+    references, takes and sign sheets (core.BULKY)."""
+    home = job_dir(slug)
+    if job_layout(slug) != "folder":
+        return [bulk_dir(slug)]
+    nested = [part / sub for part in sorted((home / "parts").glob("*")) for sub in core.BULKY]
+    return [home / "media", home / "logs"] + nested
+
+
 def disposable(job):
-    """What a job can make again: its bulk/ and VoiceStudio's folders for its parts
-    (every <slug>-... folder, a re-prep's included). Slugs have no hyphen, so
-    another job's folders never match."""
+    """What a job can make again: its bulk/ (bulk_folders) and VoiceStudio's folders
+    for its parts (every <slug>-... folder, a re-prep's included). Slugs have no
+    hyphen, so another job's folders never match."""
     slug = job["slug"]
-    return [d for d in [bulk_dir(slug)] if d.exists()] + sorted(core.JOBS.glob(f"{slug}-*"))
+    return [d for d in bulk_folders(slug) if d.exists()] + sorted(core.JOBS.glob(f"{slug}-*"))
 
 
 def tree_size(paths):
@@ -1412,8 +1539,11 @@ def cmd_cleanup(args):
     job = load_job(args.slug)
     slug = job["slug"]
     home = job_dir(slug)
-    keep = sorted(p for p in home.iterdir() if p.name != "bulk")
-    print(f"{slug}: keep {gib(tree_size(keep))} in {home}:")
+    own = bulk_folders(slug)
+    keep = sorted(p for p in home.iterdir() if p not in own)
+    # An earlier layout keeps a part's regenerable folders inside the part's own.
+    nested = [d for d in own if d.parent != home and d.exists()]
+    print(f"{slug}: keep {gib(tree_size(keep) - tree_size(nested))} in {home}:")
     print("  " + "  ".join(p.name + ("/" if p.is_dir() else "") for p in keep))
     done = job.get("delivered") or {}
     safe = bool(done.get("published"))
@@ -1430,8 +1560,11 @@ def cmd_cleanup(args):
     print(f"delete {gib(sum(sizes.values()))}:")
     backend = [d for d in drop if d.parent == core.JOBS]
     for d in drop:
-        if d not in backend:
+        if d not in backend and d not in nested:
             print(f"  {d}  {gib(sizes[d])}")
+    if nested:
+        names = ", ".join(f"{sub}/" for sub in core.BULKY)
+        print(f"  {home / 'parts'}: {len(nested)} folders ({names})  {gib(sum(sizes[d] for d in nested))}")
     if backend:
         names = f"{backend[0].name}" + (f" ... {backend[-1].name}" if len(backend) > 1 else "")
         n = sum(sizes[d] for d in backend)
@@ -1449,7 +1582,7 @@ def cmd_cleanup(args):
     failed = []
     for d in drop:
         # Only the job's own folders, never through a link to somewhere else.
-        mine = d == bulk_dir(slug) or (d.parent == core.JOBS and d.name.startswith(f"{slug}-"))
+        mine = d in own or (d.parent == core.JOBS and d.name.startswith(f"{slug}-"))
         if not mine or d.is_symlink() or os.path.realpath(d) != os.path.abspath(d):
             failed.append(f"{d}: not one of the job's own folders")
             continue

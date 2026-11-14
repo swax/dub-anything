@@ -124,5 +124,8 @@ for i, (a, b) in enumerate(zip(cuts, cuts[1:]), 1):
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{a:.3f}", "-i", str(video), "-t", f"{b - a:.3f}",
                     "-map", "0:v:0", "-map", "0:a:0", "-c:v", args.encoder, *quality, "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(dst)], check=True)  # fmt: skip
     parts.append({"name": name, "file": str(dst), "start": a, "end": b})
-(out / "parts.json").write_text(json.dumps({"video": str(video), "parts": parts}, indent=2), encoding="utf-8")
+# In one step: the runner takes the file's being there for a video that is split.
+manifest = out / "parts.json.tmp"
+manifest.write_text(json.dumps({"video": str(video), "parts": parts}, indent=2), encoding="utf-8")
+manifest.replace(out / "parts.json")
 print(f"wrote {len(parts)} parts to {out}")

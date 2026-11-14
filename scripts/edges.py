@@ -45,7 +45,7 @@ import sys
 
 import numpy as np
 
-from core import JOBS, load_json, part_dir
+from core import JOBS, load_json, part_dir, read_text, save_text_unchanged
 from references import DIP_DB, end_dip
 from faster_whisper.audio import decode_audio
 
@@ -138,7 +138,8 @@ def analyse(name, apply=False, min_shift=0.015):
     """The edge moves for a part, written to script.json with `apply`: (moved
     starts, tails at ends, shared boundaries) as (i, old, new, text[, cut, fix])."""
     path = part_dir(name) / "script.json"
-    script = load_json(path)
+    was = read_text(path)  # the script the moves are measured on: --apply writes over no other
+    script = json.loads(was)
     lines = script["lines"]
     captions = script.get("captions", [])
     audio = decode_audio(
@@ -207,7 +208,11 @@ def analyse(name, apply=False, min_shift=0.015):
                 parts.append(f"  {json.dumps(key)}: [\n{body}\n  ]" if val else f"  {json.dumps(key)}: []")
             else:
                 parts.append(f"  {json.dumps(key)}: {json.dumps(val, ensure_ascii=False)}")
-        path.write_bytes(("{\n" + ",\n".join(parts) + "\n}\n").encode("utf-8"))
+        if not save_text_unchanged(path, "{\n" + ",\n".join(parts) + "\n}\n", was, newline="\n"):
+            raise SystemExit(
+                f"{name}: script.json was saved again while its edges were measured: "
+                "nothing written, so that edit stands. Run this again"
+            )
     return moved, tails, joins
 
 

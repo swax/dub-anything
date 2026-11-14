@@ -49,7 +49,6 @@ the cast, merge or split lines, then write script.json.
 
 import argparse
 import glob
-import json
 import os
 import re
 import sys
@@ -66,6 +65,7 @@ from core import (
     langs,
     load_json,
     part_dir,
+    save_json,
     script_files,
     whisper_setup,
 )
@@ -504,7 +504,8 @@ def suggest(name, work, audio, phrases, spans, cast, embed_once):
         }
         for p in phrases
     ]
-    (work / "draft.json").write_text(json.dumps({"lines": lines}, ensure_ascii=False, indent=1), encoding="utf-8")
+    # In one step: the runner takes the file's being there for a part that is drafted.
+    save_json(work / "draft.json", {"lines": lines})
 
 
 if __name__ == "__main__":

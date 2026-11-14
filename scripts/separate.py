@@ -30,7 +30,7 @@ import shutil
 import sys
 import tempfile
 
-from core import cache_root, default_data_dir, part_dir
+from core import cache_root, default_data_dir, part_dir, save_json
 from gpulock import hold_gpu
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -113,7 +113,7 @@ def main():
                 shutil.copy2(job / stem, keep)  # htdemucs's, from VoiceStudio's own separation
         swap_in(vocals, job / "vocals.wav")
         swap_in(bed, job / "no_vocals.wav")
-        mark.write_text(json.dumps({"model": args.model}), encoding="utf-8")
+        save_json(mark, {"model": args.model}, indent=None)  # in one step: it says the stems are in
         kept = (job / "vocals.htdemucs.wav").exists()
         print(f"{clip}: stems from {args.model}" + (" (htdemucs kept as *.htdemucs.wav)" if kept else ""))
     shutil.rmtree(tmp, ignore_errors=True)

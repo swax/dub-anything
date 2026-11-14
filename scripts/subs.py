@@ -51,7 +51,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from core import part_dir
+from core import part_dir, save_json
 from gpulock import hold_gpu
 from languages import LANGUAGES, pair_of
 
@@ -467,18 +467,15 @@ def main():
         else track(readings, 1 / args.fps, anywhere=args.open)
     )
     print(f"{len(readings)} frames, {n} read, {len(events)} captions", file=sys.stderr)
-    (work / "subs.json").write_text(
-        json.dumps(
-            {
-                "video": str(video),
-                "fps": args.fps,
-                "mode": "auto" if args.auto else "open" if args.open else "closed",
-                "events": events,
-            },
-            ensure_ascii=False,
-            indent=1,
-        ),
-        encoding="utf-8",
+    # In one step: the runner takes the file's being there for a part whose captions are read.
+    save_json(
+        work / "subs.json",
+        {
+            "video": str(video),
+            "fps": args.fps,
+            "mode": "auto" if args.auto else "open" if args.open else "closed",
+            "events": events,
+        },
     )
     for e in events:
         who = ("≪" if e["off"] else "") + (f"({e['name']})" if e["name"] else "")

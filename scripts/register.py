@@ -34,7 +34,7 @@ import sys
 import numpy as np
 
 import draft
-from core import JOBS, langs, load_json, part_dir, said, script_files, take_wav
+from core import JOBS, langs, load_json, part_dir, read_text, said, save_text_unchanged, script_files, take_wav
 from references import bare
 from voicecast import line_id, load_voices, update_voices, voice_clips, voice_path
 from faster_whisper.audio import decode_audio
@@ -293,12 +293,20 @@ def cer(a, b):
     return prev[-1] / max(1, len(a))
 
 
+def save_script(clip, path, script, was):
+    """Write a part's script back in one step, unless it was saved again since it was
+    read as `was`: that edit stands, and the routing is run again on it."""
+    if not save_text_unchanged(path, json.dumps(script, ensure_ascii=False, indent=1), was):
+        raise SystemExit(f"{clip}: script.json was saved again meanwhile: nothing written to it. Run this again")
+
+
 def cmd_route(args):
     show = Show()
     refs = {b: show.refs(b) for b in show.fam if len(show.fam[b]) > 1 and b in show.norm}
     for clip in args.clips:
         path = part_dir(clip) / "script.json"
-        script = load_json(path)
+        was = read_text(path)
+        script = json.loads(was)
         changed = 0
         measured = {i: f for c, i, _, f in (x for ls in show.lines.values() for x in ls) if c == clip}
         for i, line in enumerate(script["lines"]):
@@ -317,7 +325,7 @@ def cmd_route(args):
                 line["voice"] = best
                 changed += 1
         if changed and args.apply:
-            path.write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
+            save_script(clip, path, script, was)
         if changed:
             print(f"{clip}: {changed} lines {'moved' if args.apply else 'to move (run with --apply)'}")
 
@@ -374,14 +382,15 @@ def cmd_drop(args):
         raise SystemExit(f"{args.voice} is not an extra reference (no register_of)")
     for clip in clips_of(None):
         path = part_dir(clip) / "script.json"
-        script = load_json(path)
+        was = read_text(path)
+        script = json.loads(was)
         n = 0
         for line in script["lines"]:
             if line.get("voice") == args.voice:
                 line["voice"] = base
                 n += 1
         if n:
-            path.write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
+            save_script(clip, path, script, was)
             print(f"{clip}: {n} lines back to {base}; run scripts/dub.py generate {clip}")
     update_voices(lambda voices: voices.pop(args.voice))
 

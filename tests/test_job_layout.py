@@ -230,6 +230,107 @@ class JobLayoutTests(unittest.TestCase):
         self.assertEqual((self.root / out.name).read_bytes(), b"the user's own file")
         self.assertFalse(list(self.root.glob(".*.partial")))
 
+    def lend_hero(self, built=True):
+        """ep01 with a voice cut from its first part, whose stems are gone (cleaned up); ep02 borrows it."""
+        self.new_job("ep01")
+        core.use_job("ep01")
+        voicecast.update_voices(lambda v: v.update({"hero": {"from": "ep01-01", "clips": [[0, 1]]}}))
+        core.save_json(core.part_dir("ep01-01") / "segments.json", {"job_id": "ep01-01"})
+        wav = core.job_dir("ep01") / "voices" / "hero.wav"
+        if built:
+            wav.parent.mkdir()
+            wav.write_bytes(b"RIFF")
+        self.new_job("ep02", "--voices-from", "ep01")
+        core.use_job("ep02")
+        return wav
+
+    def test_a_borrowed_voice_is_never_rebuilt_from_the_lenders_deleted_stems(self):
+        wav = self.lend_hero()
+        # What dub.ensure_voice asks for before it uploads a voice's profile.
+        self.assertEqual(voicecast.voice_wav("hero", rebuild=True), wav)
+        self.assertFalse((core.job_dir("ep02") / "voices").exists())
+
+    def test_a_borrowed_voice_that_was_never_built_says_what_is_missing(self):
+        self.lend_hero(built=False)
+        with self.assertRaises(SystemExit) as stopped:
+            voicecast.voice_wav("hero", rebuild=True)
+        self.assertIn("ep01-01", str(stopped.exception))
+        self.assertIn("borrowed", str(stopped.exception))
+
+    def test_a_job_made_before_per_job_casts_lends_its_voices_from_the_shared_cast(self):
+        old = core.job_dir("oldshow")
+        old.mkdir(parents=True)
+        core.save_json(old / "job.json", {"slug": "oldshow", "voices": ["actor"]})
+        shared = {
+            "hero": {"from": "oldshow-03", "clips": [[0, 1]]},
+            "pooled": {"clips": [["oldshow-07", 2, 3]]},
+            "stranger": {"from": "othershow-01", "clips": [[0, 1]]},
+        }
+        core.save_json(self.work / "voices.json", shared)
+        (self.work / "voices").mkdir()
+        (self.work / "voices" / "hero.wav").write_bytes(b"RIFF")
+        self.assertEqual(core.job_layout("oldshow"), "flat")
+        self.new_job("ep02", "--voices-from", "oldshow")
+        core.use_job("ep02")
+        self.assertEqual(sorted(voicecast.load_voices()), ["hero", "pooled"])
+        self.assertEqual(voicecast.voice_wav("hero", rebuild=True), self.work / "voices" / "hero.wav")
+
+    def earlier_job(self):
+        """A delivered job as the version before bulk/ left it: media/, logs/ and each part's references in its folder."""
+        home = self.new_job("show")
+        (home / "bulk" / "media").rename(home / "media")
+        (home / "bulk").rmdir()
+        split = home / "media" / "split"
+        split.mkdir()
+        core.save_json(split / "parts.json", {"parts": [{"name": "show-01", "start": 0, "end": 9}]})
+        (home / "logs").mkdir()
+        (home / "logs" / "split.log").write_text("x", encoding="utf-8")
+        part = home / "parts" / "01"
+        (part / "refs").mkdir(parents=True)
+        (part / "refs" / "L01.wav").write_bytes(b"x" * 10)
+        (part / "script.json").write_text('{"lines": []}', encoding="utf-8")
+        (self.jobs / "show-01").mkdir(parents=True)
+        job = json.loads((home / "job.json").read_text(encoding="utf-8"))
+        job["video"] = str(home / "media" / "show.mp4")
+        job["delivered"] = {"path": str(self.root / "show (dubbed).mkv"), "at": "then"}
+        core.save_json(home / "job.json", job)
+        return home, part
+
+    def test_a_job_made_before_bulk_still_finds_its_split_logs_and_references(self):
+        home, part = self.earlier_job()
+        self.assertEqual(core.job_layout("show"), "folder")
+        self.assertEqual(core.split_dir("show"), home / "media" / "split")
+        self.assertEqual(core.logs_dir("show"), home / "logs")
+        self.assertEqual(core.bulk_of(part), part)
+        self.assertEqual([p["name"] for p in runner.parts(runner.load_job("show"))], ["show-01"])
+
+    def test_cleanup_of_a_job_made_before_bulk_deletes_what_bulk_holds_now(self):
+        home, part = self.earlier_job()
+        _, listing = self.cleanup()
+        self.assertIn(str(home / "media"), listing)
+        self.assertIn("1 folders", listing)
+        self.assertTrue((part / "refs").exists())  # listing alone deletes nothing
+        code, _ = self.cleanup(delete=True, force=True)
+        self.assertEqual(code, 0)
+        for gone in (home / "media", home / "logs", part / "refs", self.jobs / "show-01"):
+            self.assertFalse(gone.exists(), gone)
+        for kept in (part / "script.json", home / "job.json", home / "scratch"):
+            self.assertTrue(kept.exists(), kept)
+
+    def test_a_job_made_before_job_folders_is_reported_not_run(self):
+        old = core.job_dir("oldshow")
+        old.mkdir(parents=True)
+        job = {"slug": "oldshow", "source": "x.mp4", "voices": ["actor"], "delivered": {"at": "then"}}
+        core.save_json(old / "job.json", job)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            runner.cmd_status(types.SimpleNamespace(slug="oldshow"))
+        self.assertIn("made before a job kept its work in its own folder", out.getvalue())
+        self.assertNotIn("not split yet", out.getvalue())
+        for command in (runner.cmd_run, runner.cmd_cleanup):
+            with self.assertRaises(SystemExit) as stopped:
+                command(types.SimpleNamespace(slug="oldshow", watch=False, delete=False, force=False))
+            self.assertIn("made before", str(stopped.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

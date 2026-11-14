@@ -66,6 +66,7 @@ from core import (
     save_json,
     srt_time,
     take_wav,
+    update_json,
 )
 import gpu
 from gpulock import hold_gpu
@@ -81,7 +82,7 @@ from lengths import (
     take_length,
 )
 from references import fallback_voice, line_refs, reference_settings, reference_signature
-from voicecast import line_id, load_voices, voice_sig, voice_wav
+from voicecast import line_id, load_voices, voice_home, voice_sig, voice_wav
 
 API = os.environ.get("VOICESTUDIO_API", "http://127.0.0.1:3900")
 # How VoiceStudio's transcription says it found no speech (its error event has no code for it).
@@ -539,6 +540,12 @@ def ensure_voice(key):
     old = cache.get(key)
     if old and old["sig"] == sig and requests.get(f"{API}/profiles/{old['id']}", timeout=30).ok:
         return old["id"]
+    lender = voice_home(key)
+    if lender != cache_path.parent:
+        # A borrowed voice: the profile its own job uploaded serves, while it is still there.
+        lent = load_json(lender / "profiles.json", {}).get(key)
+        if lent and lent.get("sig") == sig and requests.get(f"{API}/profiles/{lent['id']}", timeout=30).ok:
+            return lent["id"]
 
     ref = voice_wav(key, rebuild=True)
     with open(ref, "rb") as f:
@@ -612,10 +619,7 @@ def seeded_voice(work, key, seed):
     if profile.get("seed") != seed or profile.get("ref_text") != text:
         raise RuntimeError("backend did not persist the requested seed/reference transcript")
     cache[sig] = {**identity, "id": profile["id"], "transport": "clone_profile_seed"}
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
-    temp.replace(path)
+    save_json(path, cache)
     return profile["id"]
 
 
@@ -857,7 +861,8 @@ def render_mode(work, script, args, pair=PAIR):
         }
         if fresh:
             mode.setdefault("cast_lines", True)
-        save_json(work / "script.json", script)
+        # Into the file as it is now: the director may have saved it again since it was read.
+        update_json(work / "script.json", lambda current: current and {**current, "render": mode})
         print(
             f"  render mode written to script.json: {mode}"
             + ("" if fresh else " (this part was rendered before some of these became the default)")
