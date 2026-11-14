@@ -32,13 +32,17 @@ class JapaneseSourceNumbersTests(unittest.TestCase):
             ("本当に三週間だぞ。", "本当に3週間だぞ。"),
             ("一週間で二名様、二泊三日です。", "1週間で2名様、2泊3日です。"),
             ("三点差で四十代の三着です。", "3点差で40代の3着です。"),
+            ("三連勝のあと二連敗です。", "3連勝のあと2連敗です。"),
         ):
             with self.subTest(want=want, heard=heard):
                 self.assertEqual(ja.normalize_source(want), ja.normalize_source(heard))
 
     def test_names_and_non_numeric_compounds_stay_written_as_they_are(self):
-        text = "一緒に三田さんと千葉で十分な時間をとって一般の話をする。"
+        text = "一緒に三田さんと千葉で十分な時間をとって精一杯一般の話をする。"
         self.assertEqual(ja.normalize_source(text), (text, []))
+
+    def test_a_real_cup_count_is_preserved_beside_a_non_numeric_compound(self):
+        self.assertEqual(ja.normalize_source("精一杯働いて一杯飲む。"), ("精一杯働いて1杯飲む。", ["1"]))
 
     def test_leading_zeroes_and_changed_signs_remain_distinct(self):
         self.assertNotEqual(ja.normalize_source("03号"), ja.normalize_source("3号"))
@@ -140,6 +144,11 @@ class SourceWindowNumberTests(unittest.TestCase):
         self.lines[0]["ja"] = prefix + "三千六百円です。"
         self.heard = prefix + "3,700円です。"
         self.assertIn("number differs", self.check()[0][0])
+
+    def test_non_numeric_compounds_do_not_add_a_quantity_to_the_source_check(self):
+        self.lines[0]["ja"] = "精いっぱい準備して三連勝です。"
+        self.heard = "精一杯準備して3連勝です。"
+        self.assertEqual(self.check()[0], (None, None))
 
     def test_swapped_values_are_rejected_in_their_original_order(self):
         prefix = "図に書いてある大きさをもう一度確認してお伝えします。"

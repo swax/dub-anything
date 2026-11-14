@@ -59,6 +59,7 @@ SOURCE_NUMBER = re.compile(
 COUNTERS = (
     "円年月日時分秒人個枚本台回歳才番号冊杯匹頭軒件割倍組階度歩勝敗位週名代着足通曲羽泊晩箱缶袋皿錠粒隻両畳坪品点周局戦"
 )
+MULTI_COUNTERS = ("連勝", "連敗")
 
 
 def _source_integer(token):
@@ -100,12 +101,18 @@ def normalize_source_numbers(text):
     def replace(match):
         original = match.group()
         following = text[match.end() : match.end() + 1]
+        if original == "一" and text[max(0, match.start() - 1) : match.end() + 1] == "精一杯":
+            return original  # An ordinary word, not a count of cups.
         if (
             len(original) == 1
             and original in "零" + DIGITS + "十百千万億兆"
             and following
             and "\u4e00" <= following <= "\u9fff"
-            and (following not in COUNTERS or original + following == "十分")
+            and (
+                following not in COUNTERS
+                and not text[match.end() :].startswith(MULTI_COUNTERS)
+                or original + following == "十分"
+            )
         ):
             return original  # 一緒, 千葉, and ambiguous 十分 are not inferred numbers.
         token = original.translate(SOURCE_DIGITS).replace("点", ".")

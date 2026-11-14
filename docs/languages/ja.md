@@ -19,7 +19,8 @@ mixed forms such as `3万6千円` and `三万六千円`. Values keep their order
 leading zeroes; a changed amount is rejected even inside an otherwise matching
 long sentence. A single kanji numeral counts as a number before a counter
 (`三週間` and `3週間`, `二泊三日`, `二名`); compounds such as `一緒`, `一般` and
-`千葉` stay intact. Ambiguous `十分` stays written as-is rather than assuming it
+`千葉` stay intact. Consecutive wins and losses (`三連勝`, `三連敗`) keep their
+counts too. `精一杯` stays a word; its `一杯` is not a cup count. Ambiguous `十分` stays written as-is rather than assuming it
 means ten minutes. When the written words still differ, the check compares
 their kana readings (`kana.readings`, pykakasi in its own environment), so a
 line written `南条さん` is not rejected because Whisper wrote `なんじょうさん`;
