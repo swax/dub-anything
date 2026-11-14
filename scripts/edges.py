@@ -33,9 +33,10 @@ Captions mark speech kept in the original audio. New moves cannot cross those
 windows, even when their English text is empty. Existing overlaps are left for
 the director to judge.
 
---apply writes the moves to script.json. It's timing only: the next
-`dub.py generate` re-mixes without re-synthesizing. An earlier start also
-starts the take a little earlier, closer to the actor's mouth.
+--apply writes the moves to script.json. With a fixed voice reference, the next
+`dub.py generate` can re-mix cached speech. Per-line references change with the
+window, so those takes must be synthesized again. An earlier start also starts
+the take a little earlier, closer to the actor's mouth.
 """
 
 import argparse
