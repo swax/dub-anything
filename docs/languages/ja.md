@@ -13,6 +13,18 @@ draft as kana, and `subs.py` reads burned-in Japanese captions. Into English
 there are both voices (the actor's and the American), and per-line references
 are on (research.md, findings 6 and 8).
 
+The per-line reference check compares written numeric values before its normal
+character-error check: `三千六百円`, `3,600円` and full-width digits agree, as do
+mixed forms such as `3万6千円` and `三万六千円`. Values keep their order, signs and
+leading zeroes; a changed amount is rejected even inside an otherwise matching
+long sentence. Ordinary kanji and kana are not made interchangeable by this
+check, and compounds such as `一緒` and `千葉` stay intact. Ambiguous `十分`
+stays written as-is rather than assuming it means ten minutes. VAD and speaker
+checks still apply. The numeric policy is part of the Japanese source-check cache key: old
+decisions are rechecked, including the speaker comparison a previous text
+rejection may have skipped. This can select a different reference on the next
+render; it does not change an already delivered movie by itself.
+
 Reazon can return only the last phrase of a long focused range while SenseVoice
 recovers the whole stretch. For disputed words, split the range at pauses and
 check one short phrase at a time. Confirm the earlier phrases before relying

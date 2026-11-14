@@ -443,6 +443,7 @@ def end_dip(db, start, end):
 def source_check_keys(work, lines, dips=False, cast_lines=False):
     """Source-check cache keys shared by eligibility and diagnostic reports."""
     src = langs(part_name(work))[0]
+    policy = getattr(LANGUAGES[src], "SOURCE_CHECK_VERSION", "")
     rivals = hashlib.sha1(
         "|".join(f"{v}:{voice_sig(v)}" for v in sorted({line["voice"] for line in lines})).encode()
     ).hexdigest()[:8]
@@ -452,6 +453,7 @@ def source_check_keys(work, lines, dips=False, cast_lines=False):
         + f"_{rivals}"
         + ("_dips" if dips else "")
         + ("_cast" if cast_lines else "")
+        + (f"_{policy}" if policy else "")
         for line in lines
     ]
 
@@ -469,12 +471,14 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
     plus lines cast to them in the show's other parts, draft.cast_centroids) say so
     too: a reference alone can miss much of a character's range. Cached in
     refs/clean.json by what the check reads (window, voice and its clips, original
-    words, and the clips of every voice it's compared with), not by the take: rewording the
+    words, the language's source-check policy, and the clips of every voice it's
+    compared with), not by the take: rewording the
     dub's text keeps it, and rebuilding another of the clip's voices checks its lines
     again. Lines cast in other parts aren't in the key, so a decision stays put
     while the show's other parts are directed. Whisper listens in the part's source
     language, and the line's original words are its field named for it."""
     src = langs(part_name(work))[0]
+    normalize = getattr(LANGUAGES[src], "normalize_source", lambda text: (text, []))
     cache_path = work / "refs" / "clean.json"
     cache = load_json(cache_path, {})
     keys = source_check_keys(work, lines, dips, cast_lines)
@@ -537,8 +541,12 @@ def unclean_windows(work, job_id, lines, ids, dips=False, cast_lines=False):
                     "source": {"job": job_id, "size": source_stat.st_size, "mtime_ns": source_stat.st_mtime_ns},
                     **speech_margins(found, len(x) / sr),
                 }
-                err = cer(bare(said(line, src)), bare(heard))
-                if err > LINE_REF_CER:
+                expected, expected_numbers = normalize(said(line, src))
+                observed, observed_numbers = normalize(heard)
+                err = cer(bare(expected), bare(observed))
+                if expected_numbers != observed_numbers:
+                    why = f"number differs: {expected_numbers} -> {observed_numbers}"
+                elif err > LINE_REF_CER:
                     why = f"heard as '{heard}' ({err:.0%} off)"
                 elif b - a >= 0.6:
                     e = embed(x)

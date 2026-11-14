@@ -53,14 +53,15 @@ cloned or shared are final.
   `python scripts/setup.py` (`python3` on macOS/Linux) initializes the pinned
   `vendor/VoiceStudio` submodule and installs its Python environment. Use
   `--init-only` to update sources while keeping an existing GPU environment.
-- Everything a job makes is in its own folder, `work/jobs/<slug>/`: its
+- A job's working files are in its own folder, `work/jobs/<slug>/`: its
   `job.json`, report and `NOTES.md`, its cast (`voices.json`, `voices/`), its
   logs, the source link and split parts (`media/`) and each part's work
   (`parts/NN/`); VoiceStudio's folder for a part is `dub_jobs/<slug>-NN`. A part
   is still named `<slug>-NN` on the command line. Put anything you make for a
   job yourself (probe scripts, frames, logs, listening experiments) in its
   `scratch/`, never in `work/` or the job's folder at large. See the
-  [file table](docs/directing.md#files).
+  [file table](docs/directing.md#files). Publish the final verified video beside
+  the original library source as described in step 6.
 - `work/NOTES.md` (git-ignored, may not exist) has this machine's paths,
   hardware and installs; each job's `NOTES.md` has the show's: story, cast,
   word choices. Read both, and add to the job's when you learn something about
@@ -118,6 +119,11 @@ work; you direct.
    the user to choose. For English dubs, honor requests for American English
    (`--voices american`) or both (`--voices both`); with both, the actor's voice
    plays by default. Other target languages use the actor's voice.
+   Record the original video's absolute library path and intended sibling
+   delivery path in the job's `NOTES.md`. Use a job-local source copy for the
+   pipeline: `deliver.py` replaces its input, so never give it the only library
+   original. The final handover is a separate `<original name> (dubbed)` file
+   beside that original (see step 6), even when work runs on another drive.
    Look at the video's length and skim it for blocks that stay in the original
    (a channel card, commercial breaks, credits) so they can be split off whole.
    Keeping original audio does not exclude on-screen text: review film titles,
@@ -189,13 +195,19 @@ work; you direct.
    flags after a fresh take (or three rounds). Reword what a voice can't say (that part renders
    and delivers again by itself). Leave names and near-misses for the user's
    ears.
-6. **Hand over.** The source file is now `<name> (dubbed)`: the dub tracks
-   first (the default voice plays), the original audio after them, the dub's
-   subtitles on, and the original's transcript (with signs: Matroska, the dub's
-   subtitles styled with the signs placed, and a signs-only track). Every
-   copied stream was checked against
-   its source before the file was replaced. Give the user the path and the
-   listen list with film times, and send a notification if they may be away.
+6. **Hand over.** Place the verified `<name> (dubbed)` video alongside the
+   original library video, preserving the original file and its name. Package
+   against the job-local source copy first, then copy the verified result to a
+   temporary sibling in the original's folder, check its SHA-256 against the
+   verified delivery, and publish it under the final name. Do not overwrite an
+   unrelated existing file. Record the final library path and hash in the job's
+   `NOTES.md` and delivery receipt, and give the user that path. The file has
+   the dub tracks first (the default voice plays), the original audio after
+   them, the dub's subtitles on, and the original's transcript (with signs:
+   Matroska, the dub's subtitles styled with the signs placed, and a signs-only track). Every
+   copied stream was checked against its source before the working source
+   copy was replaced. Give the user the listen list with film times, and send
+   a notification if they may be away.
 7. **Close out storage for every job.** After verified delivery, report the
    retained working size and record cleanup as pending while the user listens.
    Once the user accepts the dub or requests cleanup, carry out the authorized
@@ -279,8 +291,9 @@ sound wrong: `scripts/register.py report`, `build`, `route --apply`, `check`.
   command keeps its hand layout, flag beside value, with `# fmt: skip`. List any
   formatting-only commit in `.git-blame-ignore-revs`.
 - Preserve original sources, delivered videos, voice references and requested
-  review artifacts. Delivery replaces the source only after every copied stream
-  is verified. Stage disposable files in `videos/_to-delete/`; delete them only
+  review artifacts. Final deliveries belong beside the original library video;
+  packaging may replace only the job-local working source after every copied
+  stream is verified. Stage disposable files in `videos/_to-delete/`; delete them only
   within an explicit cleanup authorization, after checking the resolved paths,
   staged inventory and retained files. A request to reclaim space authorizes
   deleting the identified generated intermediates and regenerable caches in

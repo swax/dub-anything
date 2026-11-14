@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 import unicodedata
+from decimal import Decimal, localcontext
 
 UV_RUN = ["uv", "run", "--no-project", "--python", "3.12", "--with", "pykakasi", "python"]
 DIGITS = "〇一二三四五六七八九"
@@ -44,6 +45,86 @@ def kansuji(n):
 
 UNITS = {"十": 10, "百": 100, "千": 1000}
 BIG = {"万": 10**4, "億": 10**8}
+
+# Source-reference checks retain ordinary kanji spelling: only written numeric
+# forms are equivalent here, not homophones or dictionary readings.
+SOURCE_DIGITS = str.maketrans("零" + DIGITS, "0" + "0123456789")
+SOURCE_PLACES = {**UNITS, **BIG, "兆": 10**12}
+SOURCE_NUMBER = re.compile(
+    r"(?:マイナス|[-−+])?[0-9零〇一二三四五六七八九十百千万億兆]+"
+    r"(?:[.点][0-9零〇一二三四五六七八九]+[万億兆]?)?"
+)
+COUNTERS = "円年月日時分秒人個枚本台回歳才番号冊杯匹頭軒件割倍組階度歩勝敗位"
+
+
+def _source_integer(token):
+    if token.isdecimal():
+        return token  # Preserve leading zeroes in identifiers, e.g. 〇三号 / 03号.
+    total = section = 0
+    current = None
+    small, big = 10000, 10**16
+    for c in token:
+        if c.isdecimal():
+            current = (current or 0) * 10 + int(c)
+        else:
+            place = SOURCE_PLACES[c]
+            if place < 10000:
+                if place >= small or current == 0:
+                    return None
+                section += (current or 1) * place
+                small = place
+            else:
+                if place >= big or not section + (current or 0):
+                    return None
+                total += (section + (current or 0)) * place
+                section = 0
+                small, big = 10000, place
+            current = None
+    return str(total + section + (current or 0))
+
+
+def normalize_source_numbers(text):
+    """Canonical source text and ordered written numbers; no kana/ASR dependency.
+
+    Accept digit, kanji and mixed place-value forms. Preserve leading zeroes,
+    signs, nonnumeric compounds and unrecognized numeral syntax for review.
+    """
+    text = unicodedata.normalize("NFKC", text)
+    text = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", text)
+    values = []
+
+    def replace(match):
+        original = match.group()
+        following = text[match.end() : match.end() + 1]
+        if (
+            len(original) == 1
+            and original in "零" + DIGITS + "十百千万億兆"
+            and following
+            and "\u4e00" <= following <= "\u9fff"
+            and (following not in COUNTERS or original + following == "十分")
+        ):
+            return original  # 一緒, 千葉, and ambiguous 十分 are not inferred numbers.
+        token = original.translate(SOURCE_DIGITS).replace("点", ".")
+        negative = token.startswith(("-", "−", "マイナス"))
+        token = re.sub(r"^(?:マイナス|[-−+])", "", token)
+        whole, dot, fraction = token.partition(".")
+        value = _source_integer(whole)
+        if value is None:
+            return original
+        if dot:
+            scale = SOURCE_PLACES[fraction[-1]] if fraction[-1] in SOURCE_PLACES else 1
+            if scale != 1:
+                fraction = fraction[:-1]
+            with localcontext() as context:
+                context.prec = len(value) + len(fraction) + 16
+                value = format(Decimal(value + "." + fraction) * scale, "f")
+            if "." in value:
+                value = value.rstrip("0").rstrip(".")
+        value = ("-" if negative else "") + value
+        values.append(value)
+        return value
+
+    return SOURCE_NUMBER.sub(replace, text), values
 
 
 def numbers(text):

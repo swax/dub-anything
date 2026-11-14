@@ -17,22 +17,34 @@ official subtitles). It also writes sidecar `.en.srt` / `.ja.srt` files.
 `--voice american` assembles the American renders instead.
 
 ```powershell
-& $py scripts\deliver.py <source video> actor=<actor assembled.mp4> american=<american assembled.mp4>
+& $py scripts\deliver.py <job-local source video> actor=<actor assembled.mp4> american=<american assembled.mp4>
 ```
 
-`deliver.py` puts the dubs into the source file itself: each voice's English
-track first (the default voice's plays; with both, the actor's), then the
-source's own audio and subtitles untouched, with English subtitles per voice and
+`deliver.py` puts the dubs into its input file, so give it a **job-local working
+source copy**, preserving the original library file and its name. It puts each
+voice's English track first (the default voice's plays; with both, the actor's),
+then the source's own audio and subtitles untouched, with English subtitles per voice and
 the Japanese transcript. Every copied stream is checked against its input before
-the new file replaces the source, renamed `<name> (dubbed)`. Delivering again
+the new file replaces that working copy, renamed `<name> (dubbed)`. Delivering again
 replaces the dub tracks a "(dubbed)" file already has. `dub_anything.py` does both
 steps when every part is done.
+
+The final handover belongs **beside the original library video**, using its
+original basename plus ` (dubbed)` and the delivered container extension. Record
+the library source path at intake, including when the job works on another
+drive. After packaging and stream verification, copy the delivery to a temporary
+sibling in that library folder, compare the entire file's SHA-256 with the
+verified job delivery, then publish the final name. Preserve the original;
+do not overwrite an unrelated existing file. Record the published library path
+and SHA-256 in the job's `NOTES.md` and delivery receipt and link that file in the
+handover. A retained job copy alone does not finish delivery. Apply the same
+placement rule to a subtitles-only video and its translation sidecar.
 
 When any part has `signs` or `subtitle_layout`, `assemble.py` also writes the
 English track styled (`.en.ass`: the dialogue, with each sign placed by its
 text, `ass.py`) and the signs alone (`.signs.ass`, only when signs exist).
 `deliver.py` delivers Matroska,
-`<name> (dubbed).mkv`, in place of the source: MP4's subtitles can't be placed.
+`<name> (dubbed).mkv`, in place of the working source copy: MP4's subtitles can't be placed.
 The English tracks are then the styled ones, and the signs-only track follows
 them, marked forced, for watching the dub with subtitles off. A player has to
 render ASS subtitles to place them (mpv and VLC do, with libass).

@@ -22,6 +22,12 @@ SECOND_OPINIONS = {
 # (RapidOCR's LangRec and ModelType), which reads kana too.
 OCR = ("CH", "SERVER")
 UNIT_PUNCT = "、。,.!?！？…・「」『』()（）ー〜~-—:：;；\"' 　"
+SOURCE_CHECK_VERSION = "ja-numbers-v1"
+
+
+def normalize_source(text):
+    """Written-number equivalence for source references, preserving other words."""
+    return kana.normalize_source_numbers(text)
 
 
 def units(text):

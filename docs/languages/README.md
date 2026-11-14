@@ -56,6 +56,14 @@ reading of numbers in digits or characters (三點五 as 3.5), for `yue.py` and 
 A language that is only a source still defines every name: `ko.py`'s `compare`
 has never checked a rendered take, since nothing dubs into Korean yet.
 
+An optional `normalize_source(text)` returns `(text, ordered_number_values)` for
+the source-reference check. It must preserve nonnumeric wording; the check
+rejects different number lists before comparing the normalized text. Japanese
+uses this for written digit/kanji equivalence without a reading model. Languages
+without the hook retain the existing character check. A language that changes
+this eligibility policy must also change its `SOURCE_CHECK_VERSION`: source
+checks are keyed by it, so old decisions never skip newly required checks.
+
 A language a clip only speaks in passing (kept in the original and captioned)
 needs no module: its English name and ISO 639-2 code go in `OTHERS`.
 

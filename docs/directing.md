@@ -22,7 +22,7 @@ without changing the machine's CUDA/cuDNN dependencies.
 
 ## Files
 
-Everything a job makes is in one folder, `work/jobs/<slug>/` (`<slug>` is the
+A job's working files live in `work/jobs/<slug>/` (`<slug>` is the
 name `dub_anything.py new` gave it):
 
 | Path in the job's folder | What |
@@ -44,6 +44,11 @@ VoiceStudio keeps each part's stems and takes in its own data folder,
 holds only what is true of this machine (paths, hardware, installs). A clip
 prepped by hand, outside a job, keeps the older layout: `work/<name>/` and the
 shared `work/voices.json`.
+
+The final verified video is published beside the original library source,
+preserving that original. Keep its library path and SHA-256 in the job's notes
+and delivery receipt; see [Package](directing/package.md). Working media stays
+in the job until authorized cleanup.
 
 `work/` and `videos/` are git-ignored: they hold the source, transcripts of it
 and references to real voices.
