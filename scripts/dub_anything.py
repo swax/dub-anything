@@ -959,6 +959,11 @@ def report(job, ps, quiet=False):
         published = job["delivered"].get("published")
         where = published["path"] if published else job["delivered"]["path"]
         md += [f"Delivered: `{where}` ({job['delivered']['at']})", ""]
+        if published:
+            for file in published.get("files", []):
+                if file["path"] == where:
+                    md += [f"SHA-256: `{file['sha256']}`", ""]
+                    break
     src, tgt = job_langs(job)
     md += [
         f"{NAMES[src]} -> {NAMES[tgt]}; "
@@ -981,12 +986,12 @@ def report(job, ps, quiet=False):
         if script is None:
             problems.append(f"{p['name']}: not directed yet")
             continue
-        if not script["lines"]:
-            original.append(f"{film_time(p['start'])}-{film_time(p['end'])}")
-            continue
         for line in script["lines"] + script.get("captions", []):
             if line.get("listen"):
                 listen.append((p["start"] + line["start"], line["text"], line["listen"]))
+        if not script["lines"]:
+            original.append(f"{film_time(p['start'])}-{film_time(p['end'])}")
+            continue
         if subtitles_only(job):
             if not script.get("ready"):
                 problems.append(f"{p['name']}: not marked ready")

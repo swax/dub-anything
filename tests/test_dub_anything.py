@@ -58,6 +58,48 @@ class TextEvidenceTests(unittest.TestCase):
 
 
 class OriginalAudioTextTests(unittest.TestCase):
+    def test_original_audio_caption_listen_notes_reach_the_report(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(core, "WORK", pathlib.Path(tmp)):
+            core.save_json(
+                core.part_dir("sample-01") / "script.json",
+                {
+                    "lines": [],
+                    "captions": [{"start": 2, "end": 3, "text": "Hello.", "listen": "Check the speaker."}],
+                },
+            )
+            job = {"slug": "sample", "title": "Sample", "voices": ["actor"], "default": "actor"}
+            core.job_dir("sample").mkdir(parents=True)
+            report = runner.report(job, [{"name": "sample-01", "start": 60, "end": 70}], quiet=True)
+            text = report.read_text(encoding="utf-8")
+            self.assertIn('0:01:02.0 "Hello.": Check the speaker.', text)
+            self.assertIn("Left in the original (not dubbed): 0:01:00.0-0:01:10.0", text)
+            self.assertNotIn("Nothing flagged.", text)
+
+    def test_report_includes_the_published_videos_hash(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(core, "WORK", pathlib.Path(tmp)):
+            core.job_dir("sample").mkdir(parents=True)
+            job = {
+                "slug": "sample",
+                "title": "Sample",
+                "voices": ["actor"],
+                "default": "actor",
+                "delivered": {
+                    "path": "working-copy.mkv",
+                    "at": "today",
+                    "published": {
+                        "path": "library/Sample (dubbed).mkv",
+                        "files": [
+                            {"path": "library/Sample (dubbed).en.srt", "sha256": "sidecar-hash"},
+                            {"path": "library/Sample (dubbed).mkv", "sha256": "video-hash"},
+                        ],
+                    },
+                },
+            }
+            report = runner.report(job, [], quiet=True).read_text(encoding="utf-8")
+            self.assertIn("Delivered: `library/Sample (dubbed).mkv`", report)
+            self.assertIn("SHA-256: `video-hash`", report)
+            self.assertNotIn("sidecar-hash", report)
+
     def test_original_audio_scans_text_without_audio_prep_and_resumes(self):
         with tempfile.TemporaryDirectory() as tmp:
             work = pathlib.Path(tmp)
