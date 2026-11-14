@@ -2,6 +2,7 @@
 # The code was written to about 120 columns; a narrower limit rewraps most of it.
 line-length = 120
 target-version = "py311"
+extend-exclude = ["vendor"]
 
 [lint]
 # Mistakes, not style: undefined names, unused imports and variables, the classic
