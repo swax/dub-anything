@@ -873,7 +873,8 @@ def publish(job, delivered, earlier=None):
     nothing in the job's bulk/ is needed afterwards. Each file is copied under a
     hidden temporary name, compared with the delivery by SHA-256 and only then
     renamed. It replaces only what this job published there before (the same path
-    with the hash it recorded), never another file. `earlier` is the previous
+    with the hash it recorded), never another file. An identical existing copy is
+    left alone, including after an interrupted publication. `earlier` is the previous
     "published" record. Returns the new record, or None when the job has no
     original to publish beside (it was made inside the job) or publishing failed."""
     if not job.get("original"):
@@ -884,20 +885,39 @@ def publish(job, delivered, earlier=None):
         f for f in delivered.parent.iterdir() if f != delivered and f.name.startswith(delivered.stem + ".")
     )
     before = {f["path"]: f["sha256"] for f in (earlier or {}).get("files", [])}
-    files = []
-    for f in [delivered] + sidecars:
-        target = folder / f.name
-        if target.exists() and before.get(str(target)) != file_sha256(target):
+
+    def target_state(target, digest):
+        current = file_sha256(target) if target.exists() else None
+        if current is not None and current != digest and current != before.get(str(target)):
             problem(job, f"not publishing over {target}: it isn't this job's earlier delivery")
+            return False, False
+        return True, current == digest
+
+    # Find conflicts in every destination before publishing any file. A sidecar
+    # conflict must not leave an unrecorded video that prevents the next attempt.
+    planned = [(f, folder / f.name, file_sha256(f)) for f in [delivered] + sidecars]
+    if not all(target_state(target, digest)[0] for _, target, digest in planned):
+        return None
+    files = []
+    for f, target, digest in planned:
+        allowed, identical = target_state(target, digest)
+        if not allowed:
             return None
-        tmp = folder / f".{f.name}.partial"
-        shutil.copy2(f, tmp)
-        digest = file_sha256(f)
-        if file_sha256(tmp) != digest:
-            tmp.unlink(missing_ok=True)
-            problem(job, f"the copy of {f.name} beside the original doesn't match the delivery")
-            return None
-        os.replace(tmp, target)
+        if not identical:
+            tmp = folder / f".{f.name}.{os.getpid()}.{time.time_ns()}.partial"
+            try:
+                shutil.copy2(f, tmp)
+                if file_sha256(tmp) != digest:
+                    problem(job, f"the copy of {f.name} beside the original doesn't match the delivery")
+                    return None
+                # Copying a large video takes time: check the destination again.
+                allowed, identical = target_state(target, digest)
+                if not allowed:
+                    return None
+                if not identical:
+                    os.replace(tmp, target)
+            finally:
+                tmp.unlink(missing_ok=True)
         files.append({"path": str(target), "sha256": digest, "size": target.stat().st_size})
     log(f"published {files[0]['path']} (SHA-256 checked)")
     return {"path": files[0]["path"], "files": files, "at": time.strftime("%Y-%m-%d %H:%M")}
@@ -939,15 +959,21 @@ def deliver_job(job, ps):
 
 def delivered(job, out, sha, done):
     """Record a delivery and publish it beside the original (publish)."""
+    previous = done.get("published") or done.get("publication_previous")
     job["source"] = str(out)
     job["delivered"] = {"path": str(out), "at": time.strftime("%Y-%m-%d %H:%M"), "state": sha}
+    if previous:
+        # Keep replacement authority across a failed copy or a process exit.
+        # It is not the new publication, so deliver_job must still retry it.
+        job["delivered"]["publication_previous"] = previous
     job.pop("problems", None)
     save_job(job)
     if job.get("original"):
-        published = publish(job, out, done.get("published"))
+        published = publish(job, out, previous)
         if published is None:
             return False
         job["delivered"]["published"] = published
+        job["delivered"].pop("publication_previous", None)
         save_job(job)
     return True
 

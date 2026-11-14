@@ -37,7 +37,11 @@ file (with a subtitles-only job, the `.srt` sidecar too) is copied under a
 hidden `.partial` name in the original's folder, compared with the verified
 delivery by SHA-256, and only then renamed. It replaces only its own earlier
 publication (the same path, with the hash it recorded) and stops with a problem
-rather than overwrite any other file. The published path and hash are in
+rather than overwrite any other file. Every destination is checked before copying
+any file. A byte-identical copy already beside the original is retained and
+recorded, so a publication interrupted before its receipt was saved can resume.
+The earlier receipt is kept until a replacement publication succeeds; a failed
+replacement does not lose permission to replace that earlier copy. The published path and hash are in
 `job.json` (`delivered.published`) and the report; note them in the job's
 `NOTES.md` and link the file in the handover. A delivery that exists only in
 `bulk/` is not a finished handover.

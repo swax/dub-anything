@@ -230,6 +230,80 @@ class JobLayoutTests(unittest.TestCase):
         self.assertEqual((self.root / out.name).read_bytes(), b"the user's own file")
         self.assertFalse(list(self.root.glob(".*.partial")))
 
+    def test_a_sidecar_conflict_is_found_before_publishing_the_video(self):
+        self.new_job("show")
+        job = runner.load_job("show")
+        out = pathlib.Path(job["source"]).with_name("show (dubbed).mkv")
+        out.write_bytes(b"dub")
+        sidecar = out.with_suffix(".en.srt")
+        sidecar.write_bytes(b"translation")
+        unrelated = self.root / sidecar.name
+        unrelated.write_bytes(b"the user's subtitles")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertIsNone(runner.publish(job, out))
+        self.assertFalse((self.root / out.name).exists())
+        self.assertEqual(unrelated.read_bytes(), b"the user's subtitles")
+
+    def test_publishing_resumes_after_a_copy_was_verified_but_not_recorded(self):
+        self.new_job("show")
+        job = runner.load_job("show")
+        out = pathlib.Path(job["source"]).with_name("show (dubbed).mkv")
+        out.write_bytes(b"dub")
+        sidecar = out.with_suffix(".en.srt")
+        sidecar.write_bytes(b"translation")
+        target = self.root / out.name
+        target.write_bytes(b"dub")
+        before = target.stat().st_mtime_ns
+        with contextlib.redirect_stdout(io.StringIO()):
+            published = runner.publish(job, out)
+        self.assertIsNotNone(published)
+        self.assertEqual(target.stat().st_mtime_ns, before)
+        self.assertEqual((self.root / sidecar.name).read_bytes(), b"translation")
+        self.assertEqual(published["files"][0]["sha256"], runner.file_sha256(target))
+
+    def test_a_destination_changed_during_copy_is_preserved(self):
+        self.new_job("show")
+        job = runner.load_job("show")
+        out = pathlib.Path(job["source"]).with_name("show (dubbed).mkv")
+        out.write_bytes(b"dub")
+        target = self.root / out.name
+        copy = runner.shutil.copy2
+
+        def changed(source, destination):
+            copy(source, destination)
+            target.write_bytes(b"another file arrived")
+
+        with patch.object(runner.shutil, "copy2", side_effect=changed), contextlib.redirect_stdout(io.StringIO()):
+            self.assertIsNone(runner.publish(job, out))
+        self.assertEqual(target.read_bytes(), b"another file arrived")
+        self.assertFalse(list(self.root.glob(".*.partial")))
+
+    def test_failed_republication_keeps_the_previous_receipt_for_a_retry(self):
+        self.new_job("show")
+        job = runner.load_job("show")
+        out = pathlib.Path(job["source"]).with_name("show (dubbed).mkv")
+        out.write_bytes(b"first dub")
+        sidecar = out.with_suffix(".en.srt")
+        sidecar.write_bytes(b"first subtitles")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(runner.delivered(job, out, "first-state", {}))
+            previous = job["delivered"]["published"]
+            out.write_bytes(b"second dub")
+            sidecar.write_bytes(b"second subtitles")
+            target = self.root / sidecar.name
+            target.write_bytes(b"the user's subtitles")
+            self.assertFalse(runner.delivered(job, out, "second-state", job["delivered"]))
+            saved = runner.load_job("show")
+            self.assertNotIn("published", saved["delivered"])
+            self.assertEqual(saved["delivered"]["publication_previous"], previous)
+            self.assertEqual((self.root / out.name).read_bytes(), b"first dub")
+            # The user resolves the conflict by restoring their earlier sidecar.
+            target.write_bytes(b"first subtitles")
+            self.assertTrue(runner.delivered(saved, out, "second-state", saved["delivered"]))
+        self.assertEqual((self.root / out.name).read_bytes(), b"second dub")
+        self.assertEqual(target.read_bytes(), b"second subtitles")
+        self.assertNotIn("publication_previous", runner.load_job("show")["delivered"])
+
     def lend_hero(self, built=True):
         """ep01 with a voice cut from its first part, whose stems are gone (cleaned up); ep02 borrows it."""
         self.new_job("ep01")
