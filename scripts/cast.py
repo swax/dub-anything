@@ -18,7 +18,7 @@ from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
 
 import draft
-from core import JOBS, langs, load_json, part_dir, said
+from core import JOBS, adopt_job, langs, load_json, part_dir, said
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -44,6 +44,7 @@ def main():
     ap.add_argument("--cast", help="comma-separated voice keys for nearest-cast hints (default: all)")
     args = ap.parse_args()
 
+    adopt_job(args.names)
     embed = draft.embedder()
     if embed is None:
         raise SystemExit("needs the pyannote models (docs/setup.md, step 5)")

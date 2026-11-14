@@ -149,6 +149,12 @@ others. Decide each line's speaker from:
   limits the nearest-cast comparisons to the selected voices, saving the cost of
   embedding unrelated references. Every supplied part's lines still take part
   in the clustering.
+   When the reference itself may contain the wrong speaker, compare disputed
+   lines against separate clean samples whose speakers are already established.
+   A centroid containing the disputed reference or its own assigned lines is
+   not independent evidence for that assignment. Split a candidate at actual
+   turn changes before scoring it; two adjacent clauses can belong to different
+   people even when speech detection treats them as one span.
 2. **Video frames** at the line's time: who is in close-up with their mouth open.
    On-screen names and role captions can help identify a speaker. Burned-in
    closed captions (`subs.py`) often give each main character a colour of

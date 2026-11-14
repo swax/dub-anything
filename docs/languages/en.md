@@ -44,3 +44,11 @@ Connected speech can make a short proper name sound like a pronoun or a common
 phrase. When the scene supports it, a title before the name can make the boundary
 clear without changing the person being discussed. Check the replacement in the
 finished mix; leave recognizable names and spelling differences for the listener.
+
+For the Japanese drink, write `saké` in the directed English. The spoken-text
+normalizer sends `sah-kay` to the engine while the subtitles keep `saké`; timing
+prediction uses that same spoken form. Plain `sake` stays unchanged for phrases
+such as "for your sake." Check the actual two-syllable pronunciation in the mix;
+ASR spelling agreement alone cannot distinguish it from the one-syllable English
+word. QA accepts the accented spelling and the phonetic form as the same word,
+but still checks the surrounding meaning and quantities.

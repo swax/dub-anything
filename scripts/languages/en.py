@@ -2,6 +2,7 @@
 a source for dubs into Japanese and Spanish."""
 
 import re
+import unicodedata
 
 from .latin import two_lines as subtitle, compare_words, word_units as units  # noqa: F401
 
@@ -40,6 +41,10 @@ def speakable(text):
     English, but leaves one with a thousands comma ("150,000") as digits, which
     the clone then reads in the language of its reference: with a Korean actor's
     original, "150,000" came out in Korean. Without the comma it is spelled out."""
+    # Directors use the accented beverage spelling to distinguish it from
+    # ordinary English "for your sake". Keep subtitles conventional while
+    # giving the engine an explicit two-syllable reading.
+    text = re.sub(r"\bsaké\b", "sah-kay", unicodedata.normalize("NFC", text), flags=re.I)
     return re.sub(r"(?<=\d),(?=\d{3}\b)", "", text)
 
 
@@ -116,7 +121,8 @@ def words(text, reading="plain"):
     "doctor". Numbers read "plain" (1979 "one thousand nine hundred seventy nine"),
     in "pairs" (years, model numbers: "nineteen seventy nine") or as "digits"
     (phone numbers: "zero three three zero ...")."""
-    t = text.lower().replace("’", "'")
+    t = unicodedata.normalize("NFC", text).lower().replace("’", "'")
+    t = re.sub(r"\b(?:saké|sah?[- ]kay)\b", "sake", t)
     t = re.sub(r"(\d+)\s*%", r"\1 percent", t)
     t = re.sub(r"\bhalf (?:a )?percent\b", "0.5 percent", t)  # Whisper writes "half a percent" as "0.5%"
     t = re.sub(r"\bno\.\s*(?=\d)", "number ", t)  # "No.1" is "number one", not a negation

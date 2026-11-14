@@ -960,8 +960,8 @@ def cmd_new(args):
     if not link.exists():
         try:
             os.link(src, link)
-        except OSError:
-            print(f"(can't hard-link across drives: copying the source to {link})")
+        except OSError as error:
+            print(f"(can't hard-link the source: {error}; copying it to {link})")
             shutil.copy2(src, link)
     job = {
         "slug": slug,
