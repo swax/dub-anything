@@ -54,8 +54,12 @@ hardware's are in [machine.md](machine.md).
   closes plays a clipped tail of the original after the English. `edges.py`
   moves the end past short tails (same rule, so up to 400 ms into silence) and notes the rest for manual review.
   Where two windows touch, it moves their shared boundary onto the dip between
-  the voices when there is one (see `dips` under [Render](render.md)). Caption windows
-  protect speech kept original: automatic moves stop before crossing them,
+  the voices when there is one (see `dips` under [Render](render.md)).
+  A shared cut already 20 dB below the line's speech stays put even if a later
+  frame is quieter. Repeated checks must not walk along a fading noise floor.
+  A quiet cut still does not identify the speaker: check short interruptions
+  against source words and frames before extending either reference.
+  Caption windows protect speech kept original: automatic moves stop before crossing them,
   including captions with empty English text. Review existing overlaps yourself;
   a genuine interruption may need both voices, while an overlong window can
   cut off a short original reply. In a noisy room (a

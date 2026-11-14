@@ -82,6 +82,35 @@ class OriginalSpeechEdgesTests(unittest.TestCase):
         self.assertEqual(with_reply["lines"][0]["end"], 1.5)
         self.assertEqual(with_reply["lines"][1]["start"], 1.5)
 
+    def test_shared_boundary_in_quiet_tail_does_not_chase_deeper_noise(self):
+        audio = np.zeros(3 * edges.SR, dtype=np.float32)
+        audio[int(0.5 * edges.SR) : int(1.4 * edges.SR)] = 0.1
+        first, last = int(1.4 * edges.SR), int(1.9 * edges.SR)
+        audio[first:last] = 0.01 * np.exp(-10 * np.arange(last - first) / edges.SR)
+        audio[int(2.1 * edges.SR) : int(2.5 * edges.SR)] = 0.1
+        lines = [
+            {"start": 0.5, "end": 1.55, "text": "This way."},
+            {"start": 1.55, "end": 2.5, "text": "All right."},
+        ]
+        result = self.apply(audio, lines)
+        self.assertEqual(result["lines"][0]["end"], 1.55)
+        self.assertEqual(result["lines"][1]["start"], 1.55)
+
+    def test_shared_boundary_settles_after_one_move_into_a_quiet_tail(self):
+        audio = np.zeros(3 * edges.SR, dtype=np.float32)
+        audio[int(0.5 * edges.SR) : int(1.4 * edges.SR)] = 0.1
+        first, last = int(1.4 * edges.SR), int(1.9 * edges.SR)
+        audio[first:last] = 0.05 * np.exp(-20 * np.arange(last - first) / edges.SR)
+        audio[int(2.1 * edges.SR) : int(2.5 * edges.SR)] = 0.1
+        lines = [
+            {"start": 0.5, "end": 1.4, "text": "This way."},
+            {"start": 1.4, "end": 2.5, "text": "All right."},
+        ]
+        first_result = self.apply(audio, lines)
+        self.assertGreater(first_result["lines"][0]["end"], 1.4)
+        second_result = self.apply(audio, first_result["lines"])
+        self.assertEqual(second_result["lines"], first_result["lines"])
+
 
 if __name__ == "__main__":
     unittest.main()

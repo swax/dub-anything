@@ -44,7 +44,7 @@ import sys
 
 import numpy as np
 
-from core import JOBS, end_dip, load_json, part_dir
+from core import DIP_DB, JOBS, end_dip, load_json, part_dir
 from faster_whisper.audio import decode_audio
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -108,8 +108,9 @@ def level_at(db, t):
 
 
 # A shared boundary already in a dip within this many dB of the deepest one nearby
-# stays put: end_dip searches around the boundary itself, so each move would find a
-# slightly deeper frame further on and walk the boundary along on every re-run.
+# stays put. A boundary already DIP_DB below the line's speech also stays put:
+# a decaying noise floor can have a much deeper dip on every successive search,
+# even though the first cut was already quiet enough.
 DIP_SETTLED_DB = 3.0
 
 
@@ -168,6 +169,7 @@ def analyse(name, apply=False, min_shift=0.015):
                 dip is not None
                 and abs(dip - line["end"]) >= min_shift
                 and dip < lines[i + 1]["end"] - 0.3
+                and level_at(db, line["end"]) - level > -DIP_DB
                 and level_at(db, line["end"]) - level_at(db, dip) > DIP_SETTLED_DB
                 and not any(c["start"] < max(dip, line["end"]) and c["end"] > min(dip, line["end"]) for c in captions)
             ):
