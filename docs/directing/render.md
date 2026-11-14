@@ -228,6 +228,11 @@ the passage and its length together cannot isolate the effect of duration.
 For a conversational fallback, a complete utterance around four seconds is a
 useful starting candidate. Preserve natural word boundaries; three to five
 seconds is preferable to cutting a word to meet an exact duration. Assess
+the voiced span and speech level inside that cut: several seconds of silence or
+room noise do not make a useful four-second conversational reference. When a
+short source phrase contains a deliberate internal pause, direct its phrases
+at their own onsets before interpreting a `SHORT?` prediction; choosing a slower
+fallback to fill the pause would erase the original timing. Assess
 neutrality relative to that speaker's ordinary conversation and recording
 conditions. Screen pitch, pitch variation, level, speaking rate and spectral
 balance separately for extremes; quiet whispers and unnaturally flat speech
