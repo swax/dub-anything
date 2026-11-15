@@ -101,6 +101,7 @@ import os
 import pathlib
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -1629,8 +1630,23 @@ def cmd_cleanup(args):
         return delete_bulk(job, drop, own, sizes)
 
 
+def path_crosses_link(path):
+    """Reject redirected ancestors, while allowing Windows short names and case aliases."""
+    path = pathlib.Path(path).absolute()
+    try:
+        for current in (path, *path.parents):
+            info = current.lstat()
+            if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                return True  # FILE_ATTRIBUTE_REPARSE_POINT includes Windows junctions.
+    except OSError:
+        return True  # A path we cannot verify is never a deletion target.
+    return False
+
+
 def delete_bulk(job, drop, own, sizes):
     slug = job["slug"]
+    own_targets = {d.resolve() for d in own if not path_crosses_link(d)}
+    backend_root = None if path_crosses_link(core.JOBS) else core.JOBS.resolve()
 
     def writable(func, path, _):
         os.chmod(path, 0o666)  # Windows refuses to delete a read-only file
@@ -1639,12 +1655,15 @@ def delete_bulk(job, drop, own, sizes):
     failed = []
     for d in drop:
         # Only the job's own folders, never through a link to somewhere else.
-        mine = d in own or (d.parent == core.JOBS and d.name.startswith(f"{slug}-"))
-        if not mine or d.is_symlink() or os.path.realpath(d) != os.path.abspath(d):
+        target = None if path_crosses_link(d) else d.resolve()
+        mine = target in own_targets or (
+            target is not None and target.parent == backend_root and target.name.startswith(f"{slug}-")
+        )
+        if not mine:
             failed.append(f"{d}: not one of the job's own folders")
             continue
         try:
-            shutil.rmtree(d, onerror=writable)
+            shutil.rmtree(target, onerror=writable)
         except OSError as error:
             failed.append(f"{d}: {error}")
     freed = sum(n for d, n in sizes.items() if not d.exists())

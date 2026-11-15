@@ -127,7 +127,7 @@ class SetupTests(unittest.TestCase):
                     ],
                 )
                 for call in run.call_args_list:
-                    self.assertEqual(call.kwargs["cwd"], override or bundled)
+                    self.assertEqual(call.kwargs["cwd"].resolve(), (override or bundled).resolve())
                     self.assertNotIn("VIRTUAL_ENV", call.kwargs["env"])
                     self.assertNotIn("UV_PROJECT_ENVIRONMENT", call.kwargs["env"])
                     self.assertTrue(call.kwargs["check"])

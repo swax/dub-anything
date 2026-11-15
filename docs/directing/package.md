@@ -119,6 +119,9 @@ machine does not establish that an unfinished job has been abandoned.
    `--force` deletes anyway, for a job the user has explicitly abandoned.
    Deletion is permanent: rendering the job again needs a fresh prep. Record
    the result and the measured free-space change in the job's `NOTES.md`.
+   Windows short names and case aliases are accepted as alternate spellings of
+   the same directory; symlinks and reparse points, including parent junctions,
+   are still refused before deletion.
 3. **Review leftovers separately.** Inventory jobs left from earlier cleanup or
    experiments on their own; a folder's age is not proof it is unused. Keep
    requested review clips and experiments out of `bulk/` (in `scratch/`).

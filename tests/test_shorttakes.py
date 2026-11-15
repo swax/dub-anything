@@ -538,7 +538,7 @@ class TrialIntegrationTests(unittest.TestCase):
                 calls.append(args)
                 path = Path(args[args.index("--task-outcome") + 1])
                 pointer = st.core.load_json(work / "shorttakes" / "active-generation.json")
-                self.assertEqual(path, Path(pointer["path"]))
+                self.assertEqual(path.resolve(), Path(pointer["path"]))
                 outcome = st.dub.GenerationOutcome(work, pointer)
                 seed = int(args[args.index("--seed") + 1])
                 write_audio(0.78)

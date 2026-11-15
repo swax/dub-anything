@@ -2,8 +2,10 @@
 clips prepped by hand keep work/<name>."""
 
 import contextlib
+import ctypes
 import io
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -61,7 +63,7 @@ class JobLayoutTests(unittest.TestCase):
         # Delivery replaces its source: a working copy in bulk/, never the original.
         self.assertEqual(pathlib.Path(job["source"]), home / "bulk" / "media" / "source" / "show.mp4")
         self.assertTrue(pathlib.Path(job["source"]).exists())
-        self.assertEqual(job["original"], str(original))
+        self.assertEqual(pathlib.Path(job["original"]), original.resolve())
         self.assertTrue(original.exists())
         for folder in ("parts", "scratch"):
             self.assertTrue((home / folder).is_dir(), folder)
@@ -83,7 +85,7 @@ class JobLayoutTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 runner.main()
         job = runner.load_job("show")
-        self.assertEqual(pathlib.Path(job["source"]), copy)
+        self.assertEqual(pathlib.Path(job["source"]), copy.resolve())
         self.assertNotIn("original", job)
 
     def test_part_names_resolve_into_the_job_and_back(self):
@@ -203,6 +205,74 @@ class JobLayoutTests(unittest.TestCase):
             self.cleanup(delete=True)
         self.assertTrue((home / "bulk").is_dir())
         code, _ = self.cleanup(delete=True, force=True)
+        self.assertFalse((home / "bulk").exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows short path aliases")
+    def test_cleanup_accepts_a_short_path_alias_without_following_links(self):
+        long_root = self.root.resolve()
+        get_short_path = ctypes.windll.kernel32.GetShortPathNameW
+        get_short_path.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+        get_short_path.restype = ctypes.c_uint32
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = get_short_path(str(long_root), buffer, len(buffer))
+        if not length or length >= len(buffer) or pathlib.Path(buffer.value) == long_root:
+            self.skipTest("The test directory has no short path alias")
+        self.root = pathlib.Path(buffer.value)
+        self.work, self.jobs = self.root / "work", self.root / "vs_jobs"
+        with (
+            patch.object(core, "ROOT", self.root),
+            patch.object(core, "WORK", self.work),
+            patch.object(core, "JOBS", self.jobs),
+        ):
+            home, _ = self.delivered_job()
+            code, _ = self.cleanup(delete=True)
+            self.assertEqual(code, 0)
+            self.assertFalse((home / "bulk").exists())
+            self.assertTrue((long_root / "show.mp4").exists())
+            self.assertTrue((long_root / "show (dubbed).mkv").exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows case-insensitive paths")
+    def test_cleanup_accepts_a_case_alias(self):
+        self.root = pathlib.Path(str(self.root).swapcase())
+        self.work, self.jobs = self.root / "work", self.root / "vs_jobs"
+        with (
+            patch.object(core, "ROOT", self.root),
+            patch.object(core, "WORK", self.work),
+            patch.object(core, "JOBS", self.jobs),
+        ):
+            home, _ = self.delivered_job()
+            code, _ = self.cleanup(delete=True)
+            self.assertEqual(code, 0)
+            self.assertFalse((home / "bulk").exists())
+            self.assertTrue((self.root / "show.mp4").exists())
+
+    def test_cleanup_refuses_a_reparse_point_in_a_backend_ancestor(self):
+        home, _ = self.delivered_job()
+        lstat = pathlib.Path.lstat
+
+        def reparse_info(path):
+            result = lstat(path)
+            if path == self.jobs:
+                return types.SimpleNamespace(st_mode=result.st_mode, st_file_attributes=0x400)
+            return result
+
+        with patch.object(pathlib.Path, "lstat", reparse_info):
+            code, _ = self.cleanup(delete=True)
+        self.assertEqual(code, 1)
+        self.assertTrue((self.jobs / "show-01").is_dir())
+        self.assertFalse((home / "bulk").exists())
+
+    def test_cleanup_refuses_a_linked_backend_root(self):
+        home, _ = self.delivered_job()
+        linked_jobs = self.root / "linked_jobs"
+        try:
+            linked_jobs.symlink_to(self.jobs, target_is_directory=True)
+        except (OSError, NotImplementedError) as error:
+            self.skipTest(f"Directory links unavailable: {error}")
+        with patch.object(core, "JOBS", linked_jobs):
+            code, _ = self.cleanup(delete=True)
+        self.assertEqual(code, 1)
+        self.assertTrue((self.jobs / "show-01").is_dir())
         self.assertFalse((home / "bulk").exists())
 
     def test_cleanup_refuses_when_the_published_dub_changed(self):
