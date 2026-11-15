@@ -169,12 +169,12 @@ the cuDNN 8 libraries that faster-whisper needs next to PyTorch's cuDNN 9. The
 scripts load them before Whisper runs (`core.whisper_setup`); on Linux without
 them, Whisper on the GPU fails with "Could not load library libcudnn_ops_infer.so.8".
 
-The fork forwards the source-language hint during dubbing transcription and
-adds per-line voice references (`scripts/dub.py generate --line-ref`), emotion
-references for engines that support them, and IndexTTS seeds. These controls
-also participate in take fingerprints. Its `echo` and `pa` effects preserve
-their reverb tails. CPU float32 selection and IndexTTS duration/speed control
-are now supplied by upstream.
+The pinned backend honors source-language hints during dubbing transcription.
+The fork adds per-line voice references (`scripts/dub.py generate --line-ref`),
+emotion references for engines that support them, and per-segment seed overrides.
+These controls also participate in take fingerprints. Its `echo` and `pa` effects
+preserve their reverb tails. CPU float32 selection and IndexTTS duration/speed
+control are now supplied by upstream.
 
 The integration retains upstream's atomic take publication. A successful
 render publishes reusable takes; failed or cancelled attempts cannot replace
