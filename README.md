@@ -19,6 +19,8 @@ engine running.
 |---|---|
 | [![Japanese animation, dubbed into English](https://img.youtube.com/vi/qXosYS-cTXk/maxresdefault.jpg)](https://www.youtube.com/watch?v=qXosYS-cTXk) | [![Japanese live action, dubbed into English](https://img.youtube.com/vi/2DsFAoTbQ8E/maxresdefault.jpg)](https://www.youtube.com/watch?v=2DsFAoTbQ8E) |
 
+[Watch more examples in the YouTube playlist](https://www.youtube.com/playlist?list=PLeA4J2LS840I).
+
 ## What you need
 
 A computer, one of:

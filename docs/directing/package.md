@@ -76,6 +76,15 @@ especially for bright sounds. Preserve the coarse result and refine alignment
 with band-limited interpolation before judging a mismatch; keep the level,
 residual and correlation limits unchanged.
 
+For a join between original-audio parts, independently resampling each input
+can reset the resampler's phase at the cut. If both sides pass separately but
+their combined reference fails, reconstruct the adjacent inputs with assembly's
+actual trim, timestamp reset, padding and concat filters at their native rate,
+then resample the continuous result. Compare that reference with the final
+track from sample zero, without fitting separate shifts to the two halves.
+Keep the first comparison, exact filter command and input hashes as evidence;
+the same correlation, level, residual and lag limits still apply.
+
 Every subtitle track, a dub's included, is timed for reading as it's assembled
 (`subtitles.py`, in the [tools](../directing.md#tools)), and a line longer than about 42 letters is broken in
 two near its middle.
