@@ -47,6 +47,31 @@ class NeutralRankingTests(unittest.TestCase):
             self.assertEqual(len(pool), 1)
             self.assertEqual([c["text"] for c in candidates], ["Accepted."])
 
+    def test_a_jobs_parts_read_that_jobs_cast_without_dub_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            job = root / "jobs" / "demo"
+            work = job / "parts" / "01"
+            work.mkdir(parents=True)
+            (job / "job.json").write_text('{"slug": "demo"}', encoding="utf-8")
+            (job / "voices.json").write_text(json.dumps({"a": {}}), encoding="utf-8")
+            (root / "voices.json").write_text("{}", encoding="utf-8")
+            (work / "segments.json").write_text('{"job_id":"demo-01"}', encoding="utf-8")
+            lines = [{"voice": "a", "start": 0, "end": 3.5, "ja": "Accepted.", "text": "Accepted."}]
+            (work / "script.json").write_text(json.dumps({"lines": lines}), encoding="utf-8")
+            draft = types.SimpleNamespace(SR=16000, decode_audio=lambda *args, **kwargs: np.zeros(8 * 16000))
+            with (
+                patch.object(core, "WORK", root),
+                patch.dict(core._job, {"slug": None}),
+                patch.dict("os.environ", {"DUB_JOB": ""}),
+                patch.object(voicecast, "voice_sig", return_value="sig"),
+                patch.object(references, "unclean_windows", return_value=[(None, None)]),
+                patch.object(neutral_refs, "measure", return_value={"pitch": 1, "effort": 1, "level": 1}),
+                patch.dict(sys.modules, {"draft": draft}),
+            ):
+                pool, candidates = neutral_refs.collect("a", ["demo-01"])
+            self.assertEqual([c["text"] for c in candidates], ["Accepted."])
+
     def test_opposing_extremes_cannot_cancel_to_neutral(self):
         norms = {k: (0.0, 1.0) for k in ("pitch", "effort", "level")}
         ordinary = neutral_refs.score({"pitch": 0.2, "effort": -0.2, "level": 0.0}, 4, norms)

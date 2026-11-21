@@ -96,6 +96,7 @@ def collect(voice, parts):
     import draft
     from languages import LANGUAGES
 
+    core.adopt_job(list(parts) + [voice])  # the parts' job's cast, not the shared one
     voices = voicecast.load_voices()
     family = voices[voice].get("register_of", voice)
     pool, candidates = [], []
