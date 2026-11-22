@@ -89,7 +89,9 @@ hardware's are in [machine.md](machine.md).
 - **Words a cloned voice cannot say.** A fresh take can fix a random
   glitch; persistent pronunciation problems need a clearer phrase, an
   expanded abbreviation, or a different reference. Keep production-specific
-  examples in the job's `NOTES.md`. A trailing ellipsis can swallow the last word.
+  examples in the job's `NOTES.md`. A trailing ellipsis can swallow the last word,
+  and a line that trails off mid-clause ("and this one here...") can be
+  continued with invented words: end the English on a complete phrase.
 
 - **Repeated phrases collapse.** Give each repetition its own line at
   the speaker's pauses, with `"take": n` so each gets a distinct take.

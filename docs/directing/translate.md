@@ -72,6 +72,12 @@ Part of [directing a dub](../directing.md): read its file formats and workflow o
   passed ("Oh. She hung up.", "What is it, <name>?"), whose takes came out
   30–60% longer than estimated. Give such lines a third of slack, or keep a
   one-word reply original with a caption.
+  `check.py` and `fit.py` print only the lines that need a look: one predicted
+  past its window but inside its room carries no flag. On a feature film,
+  first renders blocked on such lines and on lines predicted close to their
+  window, often ones that fall back to the character's reference. Before
+  marking a long video's parts ready, run `scripts/check.py <part> --all` and
+  shorten lines predicted beyond about 1.1 times their window.
   For `SHORT?`: first check the separated vocals and source speech spans. The
   actor's first-to-last speech span can include a long internal silence. A VAD
   gap can also hide murmured words: confirm the source before splitting it. If it
